@@ -1,15 +1,20 @@
 spring:
+  application:
+    name: store
   datasource:
-    url: jdbc:postgresql://localhost:5433/store
-    username: admin
-    password: admin
+    url: ${DB_URL:jdbc:postgresql://localhost:5433/store}
+    username: ${DB_USERNAME:admin}
+    password: ${DB_PASSWORD:admin}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
       hibernate:
-        format_sql: true
-        use_sql_comments: true
-        default_batch_fetch_size: 10
+        default_batch_fetch_size: 100
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
+    contexts: ${LIQUIBASE_CONTEXTS:seed}

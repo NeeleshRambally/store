@@ -1,12 +1,5 @@
 package com.example.store.dto;
 
-import lombok.Data;
-
 import java.util.List;
 
-@Data
-public class CustomerDTO {
-    private Long id;
-    private String name;
-    private List<CustomerOrderDTO> orders;
-}
+public record CustomerDTO(Long id, String name, List<CustomerOrderDTO> orders) {}
