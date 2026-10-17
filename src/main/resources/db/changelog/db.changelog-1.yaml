@@ -1,0 +1,7 @@
+databaseChangeLog:
+  - changeSet:
+      id: 1-schema
+      author: developer@securitease.com
+      changes:
+        - sqlFile:
+            path: db/changelog/schema.sql
