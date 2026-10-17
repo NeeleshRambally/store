@@ -1,0 +1,8 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5434/store}
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+        use_sql_comments: true
