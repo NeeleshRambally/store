@@ -9,6 +9,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
@@ -59,6 +60,19 @@ public class StoreApiSteps {
         get("/customer?sort=" + sort);
     }
 
+    @When("I request order {int}")
+    public void requestOrder(int id) throws Exception {
+        get("/order/" + id);
+    }
+
+    @When("I search customers by name {string}")
+    public void searchCustomersByName(String name) throws Exception {
+        get(UriComponentsBuilder.fromPath("/customer")
+                .queryParam("name", name)
+                .build()
+                .toUriString());
+    }
+
     @When("I request orders with page {int} and size {int}")
     public void requestOrdersPage(int page, int size) throws Exception {
         get("/order?page=" + page + "&size=" + size);
@@ -81,6 +95,31 @@ public class StoreApiSteps {
         assertThat(body.get("description").asText()).isEqualTo(description);
         assertThat(body.get("customer").get("name").asText()).isEqualTo(customerName);
         assertThat(body.get("id").asLong()).isGreaterThan(10000L);
+    }
+
+    @Then("the response order is {string} for customer {string} with id {int}")
+    public void responseOrderWithId(String description, String customerName, int id) {
+        assertThat(body.get("description").asText()).isEqualTo(description);
+        assertThat(body.get("customer").get("name").asText()).isEqualTo(customerName);
+        assertThat(body.get("id").asInt()).isEqualTo(id);
+    }
+
+    @Then("every customer on the page has a name containing {string}")
+    public void everyCustomerNameContains(String fragment) {
+        assertThat(body.get("content")).isNotEmpty();
+        for (JsonNode customer : body.get("content")) {
+            assertThat(customer.get("name").asText().toLowerCase()).contains(fragment.toLowerCase());
+        }
+    }
+
+    @Then("the page contains customer {string}")
+    public void pageContainsCustomer(String name) {
+        assertThat(body.get("content").findValuesAsText("name")).contains(name);
+    }
+
+    @Then("the page is empty")
+    public void pageIsEmpty() {
+        assertThat(body.get("content")).isEmpty();
     }
 
     @Then("the response problem lists a validation error for {string}")

@@ -1,0 +1,14 @@
+databaseChangeLog:
+  - changeSet:
+      id: 4-customer-name-trigram-index
+      author: developer@securitease.com
+      comment: Trigram index so case-insensitive substring searches on customer names use an index instead of a sequential scan
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              CREATE EXTENSION IF NOT EXISTS pg_trgm;
+              CREATE INDEX IF NOT EXISTS idx_customer_name_trgm ON customer USING gin (lower(name) gin_trgm_ops);
+      rollback:
+        - sql:
+            sql: DROP INDEX IF EXISTS idx_customer_name_trgm;

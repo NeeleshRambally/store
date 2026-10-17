@@ -9,5 +9,7 @@ import org.springframework.data.domain.Pageable;
 public interface OrderService {
     OrderDTO create(CreateOrderRequest request);
 
+    OrderDTO findById(Long id);
+
     Page<OrderDTO> findAll(Pageable pageable);
 }

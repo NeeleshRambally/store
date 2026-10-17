@@ -58,12 +58,45 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateOrderRequest'
+  /order/{id}:
+    get:
+      summary: Get Order
+      tags:
+        - store
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Order'
+        '404':
+          $ref: '#/components/responses/NotFound'
+      operationId: getOrder
+      description: Get a single order by id, with its customer
   /customer:
     get:
       summary: Get Customers
       tags:
         - store
       parameters:
+        - name: name
+          in: query
+          required: false
+          description: >-
+            Case-insensitive substring of one word of the customer's name. Must be a single word
+            (no whitespace). When omitted, all customers are returned.
+          schema:
+            type: string
+            pattern: '^\S+$'
+            example: onne
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/sort'
@@ -77,7 +110,7 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
       operationId: getCustomers
-      description: Get a page of customers, each with its orders
+      description: Get a page of customers, each with its orders, optionally filtered by a word substring of the name
     post:
       summary: Create Customer
       tags:

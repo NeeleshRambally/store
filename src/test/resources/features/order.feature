@@ -26,3 +26,13 @@ Feature: Order management
     Then the response status is 200
     And the page has 20 orders starting at id 1
     And the first order on the page belongs to customer "Vicki Kutch"
+
+  Scenario: Fetch a single order by id
+    When I request order 1
+    Then the response status is 200
+    And the response order is "Handcrafted Soft Chair" for customer "Vicki Kutch" with id 1
+
+  Scenario: Fetching an unknown order is a not found
+    When I request order 999999
+    Then the response status is 404
+    And the response problem detail is "Order with id 999999 was not found"

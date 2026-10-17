@@ -6,9 +6,11 @@ import com.example.store.dto.PageResponse;
 import com.example.store.service.CustomerService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -27,8 +30,12 @@ public class CustomerController {
     private final CustomerService customerService;
 
     @GetMapping
-    public PageResponse<CustomerDTO> getAllCustomers(@PageableDefault(size = 20, sort = "id") Pageable pageable) {
-        return PageResponse.from(customerService.findAll(pageable));
+    public PageResponse<CustomerDTO> getAllCustomers(
+            @RequestParam(required = false) @Pattern(regexp = "\\S+") String name,
+            @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        Page<CustomerDTO> page =
+                name == null ? customerService.findAll(pageable) : customerService.search(name, pageable);
+        return PageResponse.from(page);
     }
 
     @PostMapping

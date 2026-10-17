@@ -98,6 +98,33 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getAllWithNameSearchesByWordSubstring() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(customerService.search("onne", pageable))
+                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "Muriel Donnelly", List.of())), pageable, 1));
+
+        mockMvc.perform(get("/customer").param("name", "onne"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].name").value("Muriel Donnelly"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsBlankNameSearch() throws Exception {
+        mockMvc.perform(get("/customer").param("name", " "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllRejectsMultiWordNameSearch() throws Exception {
+        mockMvc.perform(get("/customer").param("name", "Muriel Donnelly")).andExpect(status().isBadRequest());
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
     void getAllForwardsPagingAndSortParameters() throws Exception {
         when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
 
