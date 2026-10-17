@@ -5,14 +5,20 @@ import com.example.store.dto.CustomerDTO;
 import com.example.store.service.CustomerService;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -76,12 +82,32 @@ class CustomerControllerTests {
     }
 
     @Test
-    void getAllReturnsCustomers() throws Exception {
-        when(customerService.findAll()).thenReturn(List.of(new CustomerDTO(1L, "John Doe", List.of())));
+    void getAllReturnsPageOfCustomers() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(customerService.findAll(pageable))
+                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "John Doe", List.of())), pageable, 100));
 
         mockMvc.perform(get("/customer"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].id").value(1))
-                .andExpect(jsonPath("$[0].name").value("John Doe"));
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].name").value("John Doe"))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.totalElements").value(100))
+                .andExpect(jsonPath("$.totalPages").value(5));
+    }
+
+    @Test
+    void getAllForwardsPagingAndSortParameters() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("page", "2").param("size", "5").param("sort", "name,desc"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(customerService).findAll(captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isEqualTo(2);
+        assertThat(captor.getValue().getPageSize()).isEqualTo(5);
+        assertThat(captor.getValue().getSort()).isEqualTo(Sort.by(Sort.Direction.DESC, "name"));
     }
 }

@@ -16,6 +16,10 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
@@ -81,17 +85,19 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void findAllMapsOrdersWithTheirCustomer() {
+    void findAllPagesOrdersWithTheirCustomer() {
         Order order = new Order();
         order.setId(5L);
         order.setDescription("Analytical Engine");
         order.setCustomer(customer);
-        when(orderRepository.findAll()).thenReturn(List.of(order));
+        Pageable pageable = PageRequest.of(0, 20);
+        when(orderRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(order), pageable, 10000));
 
-        List<OrderDTO> result = service.findAll();
+        Page<OrderDTO> result = service.findAll(pageable);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).id()).isEqualTo(5L);
-        assertThat(result.get(0).customer().name()).isEqualTo("Ada Lovelace");
+        assertThat(result.getTotalElements()).isEqualTo(10000);
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).id()).isEqualTo(5L);
+        assertThat(result.getContent().get(0).customer().name()).isEqualTo("Ada Lovelace");
     }
 }

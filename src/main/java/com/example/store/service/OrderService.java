@@ -3,10 +3,11 @@ package com.example.store.service;
 import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.OrderDTO;
 
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 
 public interface OrderService {
     OrderDTO create(CreateOrderRequest request);
 
-    List<OrderDTO> findAll();
+    Page<OrderDTO> findAll(Pageable pageable);
 }
