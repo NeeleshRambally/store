@@ -1,0 +1,24 @@
+databaseChangeLog:
+  - changeSet:
+      id: 3-align-sequences-with-seeded-ids
+      author: developer@securitease.com
+      comment: Seed data inserted explicit ids, so move each serial sequence past the highest existing id
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              SELECT setval('customer_id_seq', COALESCE((SELECT MAX(id) FROM customer), 0) + 1, false);
+              SELECT setval('order_id_seq', COALESCE((SELECT MAX(id) FROM "order"), 0) + 1, false);
+      rollback:
+        - empty
+  - changeSet:
+      id: 3-index-order-customer-id
+      author: developer@securitease.com
+      comment: Foreign keys are not indexed automatically in PostgreSQL; this index serves every lookup of orders by customer
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: CREATE INDEX IF NOT EXISTS idx_order_customer_id ON "order" (customer_id);
+      rollback:
+        - sql:
+            sql: DROP INDEX IF EXISTS idx_order_customer_id;

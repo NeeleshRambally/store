@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/db.changelog-1.yaml
   - include:
       file: db/changelog/db.changelog-2.yaml
+  - include:
+      file: db/changelog/db.changelog-3.yaml

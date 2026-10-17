@@ -2,6 +2,8 @@ databaseChangeLog:
   - changeSet:
       id: 2-data
       author: developer@securitease.com
+      context: seed
+      comment: Generated sample data; only applied when the "seed" Liquibase context is active
       changes:
         - sqlFile:
             path: db/changelog/data.sql
