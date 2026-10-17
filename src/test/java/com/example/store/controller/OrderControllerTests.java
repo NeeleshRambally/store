@@ -7,8 +7,6 @@ import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.OrderRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import lombok.RequiredArgsConstructor;
-
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -27,7 +25,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @WebMvcTest(OrderController.class)
 @ComponentScan(basePackageClasses = CustomerMapper.class)
-@RequiredArgsConstructor
 class OrderControllerTests {
 
     @Autowired
