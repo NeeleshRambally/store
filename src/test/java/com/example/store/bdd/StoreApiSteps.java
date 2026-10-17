@@ -1,0 +1,164 @@
+package com.example.store.bdd;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+
+import io.cucumber.java.en.Then;
+import io.cucumber.java.en.When;
+
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+// Step definitions are scenario scoped, so the captured response never leaks between scenarios.
+public class StoreApiSteps {
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    private ResponseEntity<String> response;
+    private JsonNode body;
+
+    @When("I create a customer named {string}")
+    public void createCustomerNamed(String name) throws Exception {
+        post("/customer", objectMapper.writeValueAsString(Map.of("name", name)));
+    }
+
+    @When("I create a customer with payload:")
+    public void createCustomerWithPayload(String payload) throws Exception {
+        post("/customer", payload);
+    }
+
+    @When("I create an order {string} for customer {int}")
+    public void createOrderForCustomer(String description, int customerId) throws Exception {
+        post("/order", objectMapper.writeValueAsString(Map.of("description", description, "customerId", customerId)));
+    }
+
+    @When("I create an order with payload:")
+    public void createOrderWithPayload(String payload) throws Exception {
+        post("/order", payload);
+    }
+
+    @When("I request customers with page {int} and size {int}")
+    public void requestCustomersPage(int page, int size) throws Exception {
+        get("/customer?page=" + page + "&size=" + size);
+    }
+
+    @When("I request customers sorted by {string}")
+    public void requestCustomersSortedBy(String sort) throws Exception {
+        get("/customer?sort=" + sort);
+    }
+
+    @When("I request orders with page {int} and size {int}")
+    public void requestOrdersPage(int page, int size) throws Exception {
+        get("/order?page=" + page + "&size=" + size);
+    }
+
+    @Then("the response status is {int}")
+    public void responseStatusIs(int status) {
+        assertThat(response.getStatusCode().value()).isEqualTo(status);
+    }
+
+    @Then("the response customer is named {string} with a generated id and no orders")
+    public void responseCustomerIs(String name) {
+        assertThat(body.get("name").asText()).isEqualTo(name);
+        assertThat(body.get("id").asLong()).isGreaterThan(100L);
+        assertThat(body.get("orders")).isEmpty();
+    }
+
+    @Then("the response order is {string} for customer {string} with a generated id")
+    public void responseOrderIs(String description, String customerName) {
+        assertThat(body.get("description").asText()).isEqualTo(description);
+        assertThat(body.get("customer").get("name").asText()).isEqualTo(customerName);
+        assertThat(body.get("id").asLong()).isGreaterThan(10000L);
+    }
+
+    @Then("the response problem lists a validation error for {string}")
+    public void responseProblemListsValidationErrorFor(String field) {
+        assertThat(body.get("errors").findValuesAsText("field")).contains(field);
+    }
+
+    @Then("the response problem detail is {string}")
+    public void responseProblemDetailIs(String detail) {
+        assertThat(body.get("detail").asText()).isEqualTo(detail);
+    }
+
+    @Then("customer {int} is still named {string}")
+    public void customerIsStillNamed(int id, String name) throws Exception {
+        get("/customer?size=100");
+        JsonNode customer = null;
+        for (JsonNode node : body.get("content")) {
+            if (node.get("id").asInt() == id) {
+                customer = node;
+            }
+        }
+        assertThat(customer).isNotNull();
+        assertThat(customer.get("name").asText()).isEqualTo(name);
+    }
+
+    @Then("the page has {int} customers starting at id {int}")
+    public void pageHasCustomersStartingAt(int count, int firstId) {
+        pageHasElementsStartingAt(count, firstId);
+    }
+
+    @Then("the page has {int} orders starting at id {int}")
+    public void pageHasOrdersStartingAt(int count, int firstId) {
+        pageHasElementsStartingAt(count, firstId);
+    }
+
+    @Then("the page reports page {int}, size {int} and at least {int} total elements")
+    public void pageReports(int page, int size, int totalElements) {
+        assertThat(body.get("page").asInt()).isEqualTo(page);
+        assertThat(body.get("size").asInt()).isEqualTo(size);
+        assertThat(body.get("totalElements").asLong()).isGreaterThanOrEqualTo(totalElements);
+    }
+
+    @Then("the page reports size {int}")
+    public void pageReportsSize(int size) {
+        assertThat(body.get("size").asInt()).isEqualTo(size);
+    }
+
+    @Then("every customer on the page includes its orders")
+    public void everyCustomerIncludesOrders() {
+        for (JsonNode customer : body.get("content")) {
+            assertThat(customer.get("orders").isArray()).isTrue();
+            assertThat(customer.get("orders")).isNotEmpty();
+        }
+    }
+
+    @Then("the first order on the page belongs to customer {string}")
+    public void firstOrderBelongsTo(String customerName) {
+        assertThat(body.get("content").get(0).get("customer").get("name").asText())
+                .isEqualTo(customerName);
+    }
+
+    private void pageHasElementsStartingAt(int count, int firstId) {
+        assertThat(body.get("content")).hasSize(count);
+        assertThat(body.get("content").get(0).get("id").asInt()).isEqualTo(firstId);
+    }
+
+    private void post(String path, String json) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        capture(restTemplate.postForEntity(path, new HttpEntity<>(json, headers), String.class));
+    }
+
+    private void get(String path) throws Exception {
+        capture(restTemplate.getForEntity(path, String.class));
+    }
+
+    private void capture(ResponseEntity<String> entity) throws Exception {
+        response = entity;
+        body = entity.getBody() == null ? objectMapper.nullNode() : objectMapper.readTree(entity.getBody());
+    }
+}
