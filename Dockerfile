@@ -1,5 +1,5 @@
 # Multi-stage build: compile with a JDK, run the layered jar on a slim JRE as a non-root user.
-FROM eclipse-temurin:17-jdk-jammy AS build
+FROM eclipse-temurin:22-jdk-jammy AS build
 WORKDIR /workspace
 COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle ./gradle
@@ -8,7 +8,7 @@ COPY src ./src
 RUN ./gradlew --no-daemon bootJar -x test \
     && java -Djarmode=tools -jar build/libs/store-*[!plain].jar extract --layers --launcher --destination extracted
 
-FROM eclipse-temurin:17-jre-jammy
+FROM eclipse-temurin:22-jre-jammy
 RUN groupadd --system app && useradd --system --gid app --uid 10001 app
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
