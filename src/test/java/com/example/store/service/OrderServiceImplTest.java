@@ -4,10 +4,12 @@ import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.OrderDTO;
 import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
+import com.example.store.entity.Product;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.OrderMapper;
 import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.OrderRepository;
+import com.example.store.repository.ProductRepository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,21 +42,34 @@ class OrderServiceImplTest {
     @Mock
     private CustomerRepository customerRepository;
 
+    @Mock
+    private ProductRepository productRepository;
+
     private OrderServiceImpl service;
 
     private Customer customer;
+    private Product chair;
+    private Product table;
 
     @BeforeEach
     void setUp() {
-        service = new OrderServiceImpl(orderRepository, customerRepository, Mappers.getMapper(OrderMapper.class));
+        service = new OrderServiceImpl(
+                orderRepository, customerRepository, productRepository, Mappers.getMapper(OrderMapper.class));
         customer = new Customer();
         customer.setId(1L);
         customer.setName("Ada Lovelace");
+        chair = new Product();
+        chair.setId(2L);
+        chair.setDescription("Rustic Chair");
+        table = new Product();
+        table.setId(8L);
+        table.setDescription("Oak Table");
     }
 
     @Test
-    void createLinksOrderToExistingCustomer() {
+    void createLinksOrderToExistingCustomerAndProducts() {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findAllById(List.of(8L, 2L))).thenReturn(List.of(chair, table));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order saved = invocation.getArgument(0);
             assertThat(saved.getId()).isNull();
@@ -62,22 +77,35 @@ class OrderServiceImplTest {
             return saved;
         });
 
-        OrderDTO result = service.create(new CreateOrderRequest("Analytical Engine", 1L));
+        OrderDTO result = service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(8L, 2L)));
 
         ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
         verify(orderRepository).save(captor.capture());
         assertThat(captor.getValue().getCustomer()).isSameAs(customer);
+        assertThat(captor.getValue().getProducts()).containsExactlyInAnyOrder(chair, table);
         assertThat(result.id()).isEqualTo(10001L);
         assertThat(result.description()).isEqualTo("Analytical Engine");
-        assertThat(result.customer().id()).isEqualTo(1L);
         assertThat(result.customer().name()).isEqualTo("Ada Lovelace");
+        assertThat(result.products()).extracting(p -> p.id()).containsExactly(2L, 8L);
+        assertThat(result.products().get(0).description()).isEqualTo("Rustic Chair");
+    }
+
+    @Test
+    void createRejectsUnknownProduct() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findAllById(List.of(2L, 99L))).thenReturn(List.of(chair));
+
+        assertThatThrownBy(() -> service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(2L, 99L))))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Product with id 99 was not found");
+        verify(orderRepository, never()).save(any());
     }
 
     @Test
     void createRejectsUnknownCustomer() {
         when(customerRepository.findById(99L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.create(new CreateOrderRequest("Analytical Engine", 99L)))
+        assertThatThrownBy(() -> service.create(new CreateOrderRequest("Analytical Engine", 99L, List.of(2L))))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("Customer")
                 .hasMessageContaining("99");
@@ -90,6 +118,7 @@ class OrderServiceImplTest {
         order.setId(5L);
         order.setDescription("Analytical Engine");
         order.setCustomer(customer);
+        order.getProducts().add(table);
         when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
 
         OrderDTO result = service.findById(5L);
@@ -97,6 +126,7 @@ class OrderServiceImplTest {
         assertThat(result.id()).isEqualTo(5L);
         assertThat(result.description()).isEqualTo("Analytical Engine");
         assertThat(result.customer().name()).isEqualTo("Ada Lovelace");
+        assertThat(result.products()).extracting(p -> p.description()).containsExactly("Oak Table");
     }
 
     @Test
@@ -109,17 +139,23 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void findAllPagesOrdersWithTheirCustomer() {
+    void findAllPagesOrdersWithTheirCustomerAndFetchesProductsInOneQuery() {
         Order order = new Order();
         order.setId(5L);
         order.setDescription("Analytical Engine");
         order.setCustomer(customer);
+        order.getProducts().add(chair);
         Pageable pageable = PageRequest.of(0, 20);
         when(orderRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(order), pageable, 10000));
+        when(orderRepository.findAllWithProductsByIdIn(List.of(5L))).thenReturn(List.of(order));
 
         Page<OrderDTO> result = service.findAll(pageable);
 
+        verify(orderRepository).findAllWithProductsByIdIn(List.of(5L));
         assertThat(result.getTotalElements()).isEqualTo(10000);
+        assertThat(result.getContent().get(0).products())
+                .extracting(p -> p.id())
+                .containsExactly(2L);
         assertThat(result.getContent()).hasSize(1);
         assertThat(result.getContent().get(0).id()).isEqualTo(5L);
         assertThat(result.getContent().get(0).customer().name()).isEqualTo("Ada Lovelace");

@@ -3,6 +3,7 @@ package com.example.store.controller;
 import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderProductDTO;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.OrderService;
 
@@ -32,7 +33,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(OrderController.class)
 class OrderControllerTests {
 
-    private static final OrderDTO ORDER = new OrderDTO(1L, "Test Order", new OrderCustomerDTO(1L, "John Doe"));
+    private static final OrderDTO ORDER = new OrderDTO(
+            1L, "Test Order", new OrderCustomerDTO(1L, "John Doe"), List.of(new OrderProductDTO(2L, "Rustic Chair")));
 
     @Autowired
     private MockMvc mockMvc;
@@ -42,22 +44,25 @@ class OrderControllerTests {
 
     @Test
     void createReturnsCreatedOrder() throws Exception {
-        when(orderService.create(new CreateOrderRequest("Test Order", 1L))).thenReturn(ORDER);
+        when(orderService.create(new CreateOrderRequest("Test Order", 1L, List.of(2L))))
+                .thenReturn(ORDER);
 
         mockMvc.perform(post("/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"description\":\"Test Order\",\"customerId\":1}"))
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.description").value("Test Order"))
-                .andExpect(jsonPath("$.customer.name").value("John Doe"));
+                .andExpect(jsonPath("$.customer.name").value("John Doe"))
+                .andExpect(jsonPath("$.products[0].id").value(2))
+                .andExpect(jsonPath("$.products[0].description").value("Rustic Chair"));
     }
 
     @Test
     void createRejectsMissingCustomerId() throws Exception {
         mockMvc.perform(post("/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"description\":\"Test Order\"}"))
+                        .content("{\"description\":\"Test Order\",\"productIds\":[2]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.errors[0].field").value("customerId"));
@@ -65,13 +70,23 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsOrderWithoutProducts() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createReturnsNotFoundForUnknownCustomer() throws Exception {
-        when(orderService.create(new CreateOrderRequest("Test Order", 99L)))
+        when(orderService.create(new CreateOrderRequest("Test Order", 99L, List.of(2L))))
                 .thenThrow(new ResourceNotFoundException("Customer", 99L));
 
         mockMvc.perform(post("/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"description\":\"Test Order\",\"customerId\":99}"))
+                        .content("{\"description\":\"Test Order\",\"customerId\":99,\"productIds\":[2]}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.detail").value("Customer with id 99 was not found"));
@@ -83,7 +98,7 @@ class OrderControllerTests {
 
         mockMvc.perform(post("/order")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"description\":\"Test Order\",\"customerId\":1}"))
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.status").value(409));
     }
@@ -132,6 +147,7 @@ class OrderControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].description").value("Test Order"))
                 .andExpect(jsonPath("$.content[0].customer.name").value("John Doe"))
+                .andExpect(jsonPath("$.content[0].products[0].description").value("Rustic Chair"))
                 .andExpect(jsonPath("$.totalElements").value(10000))
                 .andExpect(jsonPath("$.totalPages").value(500));
     }

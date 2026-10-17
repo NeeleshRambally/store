@@ -14,6 +14,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,9 +41,33 @@ public class StoreApiSteps {
         post("/customer", payload);
     }
 
-    @When("I create an order {string} for customer {int}")
-    public void createOrderForCustomer(String description, int customerId) throws Exception {
-        post("/order", objectMapper.writeValueAsString(Map.of("description", description, "customerId", customerId)));
+    @When("I create an order {string} for customer {int} with products {int} and {int}")
+    public void createOrderForCustomer(String description, int customerId, int firstProduct, int secondProduct)
+            throws Exception {
+        post(
+                "/order",
+                objectMapper.writeValueAsString(Map.of(
+                        "description",
+                        description,
+                        "customerId",
+                        customerId,
+                        "productIds",
+                        List.of(firstProduct, secondProduct))));
+    }
+
+    @When("I create a product described as {string}")
+    public void createProduct(String description) throws Exception {
+        post("/products", objectMapper.writeValueAsString(Map.of("description", description)));
+    }
+
+    @When("I request product {int}")
+    public void requestProduct(int id) throws Exception {
+        get("/products/" + id);
+    }
+
+    @When("I request products with page {int} and size {int}")
+    public void requestProductsPage(int page, int size) throws Exception {
+        get("/products?page=" + page + "&size=" + size);
     }
 
     @When("I create an order with payload:")
@@ -120,6 +145,48 @@ public class StoreApiSteps {
     @Then("the page is empty")
     public void pageIsEmpty() {
         assertThat(body.get("content")).isEmpty();
+    }
+
+    @Then("the response order contains products {int} and {int}")
+    public void responseOrderContainsProducts(int first, int second) {
+        assertThat(body.get("products").findValues("id").stream()
+                        .map(JsonNode::asInt)
+                        .toList())
+                .containsExactly(first, second);
+    }
+
+    @Then("the response product is described as {string} with a generated id and no orders")
+    public void responseProductIs(String description) {
+        assertThat(body.get("description").asText()).isEqualTo(description);
+        assertThat(body.get("id").asLong()).isGreaterThan(100L);
+        assertThat(body.get("orders")).isEmpty();
+    }
+
+    @Then("the response product has id {int} and its orders include {int} and {int}")
+    public void responseProductHasOrders(int id, int first, int second) {
+        assertThat(body.get("id").asInt()).isEqualTo(id);
+        List<Integer> orders = new java.util.ArrayList<>();
+        body.get("orders").forEach(node -> orders.add(node.asInt()));
+        assertThat(orders).contains(first, second);
+    }
+
+    @Then("the page has {int} products starting at id {int}")
+    public void pageHasProductsStartingAt(int count, int firstId) {
+        pageHasElementsStartingAt(count, firstId);
+    }
+
+    @Then("every product on the page lists at least one order id")
+    public void everyProductListsOrders() {
+        for (JsonNode product : body.get("content")) {
+            assertThat(product.get("orders")).isNotEmpty();
+        }
+    }
+
+    @Then("every order on the page lists at least one product")
+    public void everyOrderListsProducts() {
+        for (JsonNode order : body.get("content")) {
+            assertThat(order.get("products")).isNotEmpty();
+        }
     }
 
     @Then("the response problem lists a validation error for {string}")
