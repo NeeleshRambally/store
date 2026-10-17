@@ -31,6 +31,7 @@ utils/README.md.
 | `DB_USERNAME` | `admin` | Database user |
 | `DB_PASSWORD` | `admin` | Database password |
 | `LIQUIBASE_CONTEXTS` | `seed` | Liquibase contexts to apply |
+| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
 
 # Testing
 ```shell
@@ -80,3 +81,4 @@ offending field names. Requests never carry an id; unknown properties are reject
 
 # Design notes
 Decisions and their reasoning are recorded in `docs/adr` and `docs/ASSUMPTIONS.md`.
+The analysis of the slow GET endpoints and the measures taken is in `docs/PERFORMANCE.md`.
