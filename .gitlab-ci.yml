@@ -56,7 +56,7 @@ scan:
     entrypoint: [""]
   needs: [package]
   script:
-    - trivy image --input image.tar --severity CRITICAL --ignore-unfixed --exit-code 1 --format table
+    - trivy image --input image.tar --severity CRITICAL --ignore-unfixed --ignorefile .trivyignore --exit-code 1 --format table
     - trivy image --input image.tar --format cyclonedx --output sbom.cdx.json
   artifacts:
     paths:
