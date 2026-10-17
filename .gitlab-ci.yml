@@ -1,6 +1,7 @@
 stages:
   - build
   - package
+  - scan
 
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
@@ -35,6 +36,7 @@ package:
     - docker:27-dind
   script:
     - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
+    - docker save "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -o image.tar
     - |
       if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
         docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
@@ -42,3 +44,20 @@ package:
         docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
         docker push "$CI_REGISTRY_IMAGE:latest"
       fi
+  artifacts:
+    paths:
+      - image.tar
+    expire_in: 1 day
+
+scan:
+  stage: scan
+  image:
+    name: aquasec/trivy:0.58.1
+    entrypoint: [""]
+  needs: [package]
+  script:
+    - trivy image --input image.tar --severity CRITICAL --ignore-unfixed --exit-code 1 --format table
+    - trivy image --input image.tar --format cyclonedx --output sbom.cdx.json
+  artifacts:
+    paths:
+      - sbom.cdx.json

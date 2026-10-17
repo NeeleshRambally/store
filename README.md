@@ -33,6 +33,11 @@ utils/README.md.
 | `LIQUIBASE_CONTEXTS` | `seed` | Liquibase contexts to apply |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
 
+# Development workflow
+Every change goes through a pull request. The pipeline must be green and the change reviewed
+before it is squash-merged into `main`. New behaviour starts with a failing test (unit, slice or
+integration) and, for API behaviour, a Cucumber scenario.
+
 # Testing
 ```shell
 ./gradlew build
@@ -49,8 +54,12 @@ in `build/reports`.
 # Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
 1. `build`: `./gradlew spotlessCheck build`; a failing test fails the pipeline.
-2. `docker`: builds the image; on `main` it is pushed to GitHub Container Registry as
-   `ghcr.io/<owner>/store:<sha>` and `:latest`.
+2. `docker`: builds the image, scans it with Trivy (a critical, fixable vulnerability fails the
+   pipeline; results appear under Security), attaches an SPDX SBOM as an artifact, and on `main`
+   pushes the image to GitHub Container Registry as `ghcr.io/<owner>/store:<sha>` and `:latest`.
+
+Dependabot keeps Gradle dependencies, GitHub Actions and the base images current with weekly
+grouped pull requests, which the same pipeline validates.
 
 `.gitlab-ci.yml` is the equivalent pipeline for GitLab.
 

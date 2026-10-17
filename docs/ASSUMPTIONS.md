@@ -84,3 +84,14 @@ so they can be defended or revisited.
   efficient caching. Liveness and readiness probes are exposed for Kubernetes; no Docker
   `HEALTHCHECK` is declared because orchestrators ignore it.
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` is an equivalent for GitLab.
+- The image is scanned on every pull request and a critical, fixable vulnerability blocks the
+  merge; unfixable findings are reported but do not block, because there is nothing a code
+  change can do about them. An SBOM is produced for every build so the deployed dependency set
+  is auditable.
+- Dependency updates arrive as weekly pull requests through the same gate as any other change.
+
+## Things the pipeline should verify before promotion (README note)
+Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,
+acceptance scenarios, line coverage, a successful image build, an image vulnerability scan and
+an SBOM. Deployment promotion would additionally need a smoke test of the started container
+against its readiness probe, which the Compose setup demonstrates locally.
