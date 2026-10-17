@@ -1,7 +1,9 @@
 # Assumptions and judgement calls
 
 The task descriptions were deliberately vague. These are the decisions taken and the reasoning,
-so they can be defended or revisited.
+so they can be defended or revisited. How the service is run, tested and delivered is described
+in `docs/DESIGN.md`; the README at the repository root is the assessment brief and is kept as
+delivered.
 
 ## Production posture
 - The project is treated as a production service: every change ships with tests at the unit,
