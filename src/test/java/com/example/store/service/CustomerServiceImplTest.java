@@ -14,6 +14,10 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 
@@ -55,7 +59,7 @@ class CustomerServiceImplTest {
     }
 
     @Test
-    void findAllMapsCustomersWithTheirOrders() {
+    void findAllPagesCustomersAndFetchesTheirOrdersInOneQuery() {
         Customer customer = new Customer();
         customer.setId(1L);
         customer.setName("Ada Lovelace");
@@ -64,13 +68,17 @@ class CustomerServiceImplTest {
         order.setDescription("Analytical Engine");
         order.setCustomer(customer);
         customer.getOrders().add(order);
-        when(customerRepository.findAll()).thenReturn(List.of(customer));
+        Pageable pageable = PageRequest.of(0, 20);
+        when(customerRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(customer), pageable, 100));
+        when(customerRepository.findAllWithOrdersByIdIn(List.of(1L))).thenReturn(List.of(customer));
 
-        List<CustomerDTO> result = service.findAll();
+        Page<CustomerDTO> result = service.findAll(pageable);
 
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).id()).isEqualTo(1L);
-        assertThat(result.get(0).orders()).hasSize(1);
-        assertThat(result.get(0).orders().get(0).description()).isEqualTo("Analytical Engine");
+        verify(customerRepository).findAllWithOrdersByIdIn(List.of(1L));
+        assertThat(result.getTotalElements()).isEqualTo(100);
+        assertThat(result.getContent()).hasSize(1);
+        assertThat(result.getContent().get(0).id()).isEqualTo(1L);
+        assertThat(result.getContent().get(0).orders()).hasSize(1);
+        assertThat(result.getContent().get(0).orders().get(0).description()).isEqualTo("Analytical Engine");
     }
 }

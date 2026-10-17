@@ -10,6 +10,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -86,7 +90,7 @@ class OrderControllerTests {
 
     @Test
     void unexpectedErrorsDoNotLeakDetails() throws Exception {
-        when(orderService.findAll()).thenThrow(new IllegalStateException("secret internal detail"));
+        when(orderService.findAll(any())).thenThrow(new IllegalStateException("secret internal detail"));
 
         mockMvc.perform(get("/order"))
                 .andExpect(status().isInternalServerError())
@@ -95,12 +99,15 @@ class OrderControllerTests {
     }
 
     @Test
-    void getAllReturnsOrders() throws Exception {
-        when(orderService.findAll()).thenReturn(List.of(ORDER));
+    void getAllReturnsPageOfOrders() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(orderService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 10000));
 
         mockMvc.perform(get("/order"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].description").value("Test Order"))
-                .andExpect(jsonPath("$[0].customer.name").value("John Doe"));
+                .andExpect(jsonPath("$.content[0].description").value("Test Order"))
+                .andExpect(jsonPath("$.content[0].customer.name").value("John Doe"))
+                .andExpect(jsonPath("$.totalElements").value(10000))
+                .andExpect(jsonPath("$.totalPages").value(500));
     }
 }

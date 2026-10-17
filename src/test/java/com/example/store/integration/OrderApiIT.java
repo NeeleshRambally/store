@@ -1,10 +1,13 @@
 package com.example.store.integration;
 
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.PageResponse;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -48,11 +51,16 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void listsOrdersWithTheirCustomer() {
-        ResponseEntity<OrderDTO[]> response = restTemplate.getForEntity("/order", OrderDTO[].class);
+    void listsOrdersPageWithTheirCustomer() {
+        ResponseEntity<PageResponse<OrderDTO>> response =
+                restTemplate.exchange("/order", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).hasSizeGreaterThanOrEqualTo(10000);
-        assertThat(response.getBody()[0].customer().name()).isNotBlank();
+        PageResponse<OrderDTO> page = response.getBody();
+        assertThat(page.size()).isEqualTo(20);
+        assertThat(page.totalElements()).isGreaterThanOrEqualTo(10000);
+        assertThat(page.content()).hasSize(20);
+        assertThat(page.content().get(0).id()).isEqualTo(1L);
+        assertThat(page.content().get(0).customer().name()).isEqualTo("Vicki Kutch");
     }
 }

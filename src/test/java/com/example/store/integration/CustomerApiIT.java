@@ -1,10 +1,13 @@
 package com.example.store.integration;
 
 import com.example.store.dto.CustomerDTO;
+import com.example.store.dto.PageResponse;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -35,8 +38,9 @@ class CustomerApiIT extends AbstractIntegrationTest {
                 restTemplate.postForEntity("/customer", Map.of("id", 5, "name", "Overwrite"), ProblemDetail.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        ResponseEntity<CustomerDTO[]> customers = restTemplate.getForEntity("/customer", CustomerDTO[].class);
-        assertThat(customers.getBody())
+        ResponseEntity<PageResponse<CustomerDTO>> customers =
+                restTemplate.exchange("/customer?size=10", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+        assertThat(customers.getBody().content())
                 .filteredOn(customer -> customer.id() == 5L)
                 .extracting(CustomerDTO::name)
                 .containsExactly("Jean Daniel");
@@ -52,11 +56,33 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void listsCustomersWithTheirOrders() {
-        ResponseEntity<CustomerDTO[]> response = restTemplate.getForEntity("/customer", CustomerDTO[].class);
+    void listsCustomersPageWithTheirOrders() {
+        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                "/customer?page=1&size=5", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).hasSizeGreaterThanOrEqualTo(100);
-        assertThat(response.getBody()[0].orders()).isNotEmpty();
+        PageResponse<CustomerDTO> page = response.getBody();
+        assertThat(page.page()).isEqualTo(1);
+        assertThat(page.size()).isEqualTo(5);
+        assertThat(page.totalElements()).isGreaterThanOrEqualTo(100);
+        assertThat(page.content()).hasSize(5);
+        assertThat(page.content().get(0).id()).isEqualTo(6L);
+        assertThat(page.content().get(0).orders()).isNotEmpty();
+    }
+
+    @Test
+    void capsPageSizeAtOneHundred() {
+        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                "/customer?size=1000", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getBody().size()).isEqualTo(100);
+        assertThat(response.getBody().content()).hasSize(100);
+    }
+
+    @Test
+    void rejectsUnknownSortProperty() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer?sort=nope", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     }
 }
