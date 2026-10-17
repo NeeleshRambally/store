@@ -89,6 +89,9 @@ so they can be defended or revisited.
   change can do about them. An SBOM is produced for every build so the deployed dependency set
   is auditable.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
+  Major upgrades are excluded from automation and planned explicitly.
+- A scan finding that cannot be fixed on the supported line is handled as a documented,
+  time-boxed exception (ADR 0004), never by lowering the gate.
 
 ## Things the pipeline should verify before promotion (README note)
 Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,

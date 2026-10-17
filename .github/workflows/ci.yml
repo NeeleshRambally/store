@@ -78,7 +78,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Scan image for critical vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: store:ci
           format: sarif
@@ -86,6 +86,8 @@ jobs:
           severity: CRITICAL
           exit-code: '1'
           ignore-unfixed: true
+          trivyignores: .trivyignore
+          limit-severities-for-sarif: true
 
       - name: Upload scan results
         if: always()
@@ -95,7 +97,7 @@ jobs:
           sarif_file: trivy-results.sarif
 
       - name: Generate SBOM
-        uses: anchore/sbom-action@v0
+        uses: anchore/sbom-action@v0.24.3
         with:
           image: store:ci
           format: spdx-json
