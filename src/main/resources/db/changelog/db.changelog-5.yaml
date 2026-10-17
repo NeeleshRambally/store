@@ -1,0 +1,61 @@
+databaseChangeLog:
+  - changeSet:
+      id: 5-products-schema
+      author: developer@securitease.com
+      comment: Products and the order/product association
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              CREATE TABLE product (
+                  id BIGSERIAL PRIMARY KEY,
+                  description VARCHAR(255) NOT NULL
+              );
+              CREATE TABLE order_product (
+                  order_id BIGINT NOT NULL,
+                  product_id BIGINT NOT NULL,
+                  CONSTRAINT pk_order_product PRIMARY KEY (order_id, product_id),
+                  CONSTRAINT fk_order_product_order FOREIGN KEY (order_id) REFERENCES "order" (id),
+                  CONSTRAINT fk_order_product_product FOREIGN KEY (product_id) REFERENCES product (id)
+              );
+              CREATE INDEX idx_order_product_product_id ON order_product (product_id);
+      rollback:
+        - sql:
+            sql: |
+              DROP TABLE IF EXISTS order_product;
+              DROP TABLE IF EXISTS product;
+  - changeSet:
+      id: 5-products-seed
+      author: developer@securitease.com
+      context: seed
+      comment: One hundred sample products; every seeded order gets one or two of them
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              INSERT INTO product (id, description)
+              SELECT g,
+                     (ARRAY['Handcrafted','Rustic','Sleek','Refined','Bespoke','Ergonomic','Practical','Elegant','Durable','Modern'])[((g - 1) % 10) + 1]
+                     || ' '
+                     || (ARRAY['Chair','Table','Lamp','Keyboard','Mouse','Bike','Shoes','Hat','Gloves','Watch'])[(((g - 1) / 10) % 10) + 1]
+              FROM generate_series(1, 100) AS g;
+              INSERT INTO order_product (order_id, product_id)
+              SELECT id, (id % 100) + 1 FROM "order";
+              INSERT INTO order_product (order_id, product_id)
+              SELECT id, ((id * 7) % 100) + 1 FROM "order"
+              WHERE ((id * 7) % 100) + 1 <> (id % 100) + 1;
+      rollback:
+        - sql:
+            sql: |
+              DELETE FROM order_product;
+              DELETE FROM product;
+  - changeSet:
+      id: 5-products-sequence
+      author: developer@securitease.com
+      comment: Move the product sequence past any seeded ids
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: SELECT setval('product_id_seq', COALESCE((SELECT MAX(id) FROM product), 0) + 1, false);
+      rollback:
+        - empty
