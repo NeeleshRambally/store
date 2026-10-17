@@ -5,6 +5,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/store}
     username: ${DB_USERNAME:admin}
     password: ${DB_PASSWORD:admin}
+    hikari:
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+      connection-timeout: 5000
+      validation-timeout: 2000
   jpa:
     open-in-view: false
     hibernate:
@@ -27,6 +31,10 @@ spring:
 
 server:
   shutdown: graceful
+  compression:
+    enabled: true
+    mime-types: application/json,application/problem+json,text/plain
+    min-response-size: 1KB
 
 management:
   endpoints:
