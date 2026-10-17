@@ -37,6 +37,14 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    public OrderDTO findById(Long id) {
+        return orderRepository
+                .findById(id)
+                .map(orderMapper::orderToOrderDTO)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", id));
+    }
+
+    @Override
     public Page<OrderDTO> findAll(Pageable pageable) {
         return orderRepository.findAll(pageable).map(orderMapper::orderToOrderDTO);
     }

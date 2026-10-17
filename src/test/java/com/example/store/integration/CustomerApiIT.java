@@ -71,6 +71,29 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void searchesByWordSubstringIgnoringCase() {
+        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                "/customer?name=DONN", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).isNotEmpty();
+        assertThat(response.getBody().content())
+                .allSatisfy(
+                        customer -> assertThat(customer.name().toLowerCase()).contains("donn"));
+        assertThat(response.getBody().content()).extracting(CustomerDTO::name).contains("Muriel Donnelly");
+        assertThat(response.getBody().content().get(0).orders()).isNotEmpty();
+    }
+
+    @Test
+    void searchTreatsWildcardsLiterally() {
+        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                "/customer?name=%25", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).isEmpty();
+    }
+
+    @Test
     void capsPageSizeAtOneHundred() {
         ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
                 "/customer?size=1000", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});

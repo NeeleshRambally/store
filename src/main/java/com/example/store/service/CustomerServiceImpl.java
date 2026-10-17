@@ -29,11 +29,23 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     public Page<CustomerDTO> findAll(Pageable pageable) {
-        Page<Customer> page = customerRepository.findAll(pageable);
+        return withOrders(customerRepository.findAll(pageable));
+    }
+
+    @Override
+    public Page<CustomerDTO> search(String nameWord, Pageable pageable) {
+        return withOrders(customerRepository.findByNameContainingWord(escapeLike(nameWord), pageable));
+    }
+
+    private Page<CustomerDTO> withOrders(Page<Customer> page) {
         if (page.hasContent()) {
             customerRepository.findAllWithOrdersByIdIn(
                     page.getContent().stream().map(Customer::getId).toList());
         }
         return page.map(customerMapper::customerToCustomerDTO);
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 }

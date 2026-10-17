@@ -85,6 +85,30 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void findByIdReturnsOrderWithCustomer() {
+        Order order = new Order();
+        order.setId(5L);
+        order.setDescription("Analytical Engine");
+        order.setCustomer(customer);
+        when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
+
+        OrderDTO result = service.findById(5L);
+
+        assertThat(result.id()).isEqualTo(5L);
+        assertThat(result.description()).isEqualTo("Analytical Engine");
+        assertThat(result.customer().name()).isEqualTo("Ada Lovelace");
+    }
+
+    @Test
+    void findByIdRejectsUnknownOrder() {
+        when(orderRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.findById(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Order with id 99 was not found");
+    }
+
+    @Test
     void findAllPagesOrdersWithTheirCustomer() {
         Order order = new Order();
         order.setId(5L);

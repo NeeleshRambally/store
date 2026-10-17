@@ -10,4 +10,6 @@ public interface CustomerService {
     CustomerDTO create(CreateCustomerRequest request);
 
     Page<CustomerDTO> findAll(Pageable pageable);
+
+    Page<CustomerDTO> search(String nameWord, Pageable pageable);
 }

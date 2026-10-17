@@ -51,6 +51,23 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void getsOrderByIdWithItsCustomer() {
+        ResponseEntity<OrderDTO> response = restTemplate.getForEntity("/order/1", OrderDTO.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().description()).isEqualTo("Handcrafted Soft Chair");
+        assertThat(response.getBody().customer().name()).isEqualTo("Vicki Kutch");
+    }
+
+    @Test
+    void returnsNotFoundForUnknownOrder() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order/999999", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody().getDetail()).isEqualTo("Order with id 999999 was not found");
+    }
+
+    @Test
     void listsOrdersPageWithTheirCustomer() {
         ResponseEntity<PageResponse<OrderDTO>> response =
                 restTemplate.exchange("/order", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});

@@ -39,6 +39,17 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void customerNameHasTrigramIndexForSubstringSearch() {
+        List<String> indexes =
+                jdbcTemplate.queryForList("SELECT indexdef FROM pg_indexes WHERE tablename = 'customer'", String.class);
+
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition)
+                .contains("idx_customer_name_trgm")
+                .contains("gin")
+                .contains("gin_trgm_ops"));
+    }
+
+    @Test
     void seedDataChangeSetIsTaggedWithSeedContext() {
         String contexts =
                 jdbcTemplate.queryForObject("SELECT contexts FROM databasechangelog WHERE id = '2-data'", String.class);
