@@ -31,7 +31,7 @@ spotless {
 }
 
 ext {
-    mapstructVersion = '1.6.2'
+    mapstructVersion = '1.6.3'
     cucumberVersion = '7.21.1'
     set('tomcat.version', '10.1.61')
     set('spring-framework.version', '6.2.19')
