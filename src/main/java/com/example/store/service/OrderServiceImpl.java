@@ -11,10 +11,10 @@ import com.example.store.repository.OrderRepository;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -37,7 +37,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public List<OrderDTO> findAll() {
-        return orderMapper.ordersToOrderDTOs(orderRepository.findAll());
+    public Page<OrderDTO> findAll(Pageable pageable) {
+        return orderRepository.findAll(pageable).map(orderMapper::orderToOrderDTO);
     }
 }

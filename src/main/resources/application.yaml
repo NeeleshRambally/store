@@ -12,6 +12,10 @@ spring:
     properties:
       hibernate:
         default_batch_fetch_size: 100
+  data:
+    web:
+      pageable:
+        max-page-size: 100
   jackson:
     deserialization:
       fail-on-unknown-properties: true
