@@ -1,3 +1,5 @@
 package com.example.store.dto;
 
-public record OrderDTO(Long id, String description, OrderCustomerDTO customer) {}
+import java.util.List;
+
+public record OrderDTO(Long id, String description, OrderCustomerDTO customer, List<OrderProductDTO> products) {}

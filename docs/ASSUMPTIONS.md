@@ -43,6 +43,23 @@ so they can be defended or revisited.
   Creating the extension needs a privileged role on first migration; in production the DBA
   installs it once and the changeset is a no-op thereafter.
 
+## Products (README task 4)
+- A product has an id and a description. Orders and products are many-to-many through an
+  `order_product` join table with a composite primary key and an index on `product_id`, so both
+  directions of the relationship are index scans.
+- "An order contains 1 or more products" is enforced at creation: `POST /order` requires a
+  non-empty `productIds` list and every id must exist (otherwise 404 naming the first missing
+  id). Seeded orders are linked to one or two sample products by the seed changeset so the
+  invariant also holds for the sample data.
+- `GET /products` and `GET /products/{id}` return the product with the ascending ids of the
+  orders that contain it, as the task asks. The list is paged like every other list endpoint and
+  the order ids are loaded with the same fixed-cost two-query pattern (3 statements per page,
+  1 for a single product).
+- `GET /order` and `GET /order/{id}` return the products in the order (`id` and `description`),
+  loaded with one extra statement per page and none for a single order.
+- The path is `/products` (plural) because the task names it so; see the note on `/customer`
+  and `/order` above.
+
 ## Performance (README task 3)
 - The database is remote with high latency, so the metric that matters is round trips per
   request, not rows. Each list endpoint now performs a fixed number of statements (2 for orders,

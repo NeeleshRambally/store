@@ -55,8 +55,9 @@ in `build/reports`.
 `.gitlab-ci.yml` is the equivalent pipeline for GitLab.
 
 # Data model
-An order has an id, a description, and belongs to the customer that placed it.
-A customer has an id, a name, and zero or more orders.
+An order has an id, a description, belongs to the customer that placed it, and contains one or
+more products. A customer has an id, a name, and zero or more orders. A product has an id and a
+description and can appear in any number of orders.
 
 # API
 The contract is documented in `OpenAPI.yaml`.
@@ -65,8 +66,13 @@ The contract is documented in `OpenAPI.yaml`.
 |--------|------|-------------|
 | `GET` | `/customer?page=&size=&sort=` | Page of customers, each with its orders |
 | `POST` | `/customer` | Create a customer: `{"name": "..."}` |
-| `GET` | `/order?page=&size=&sort=` | Page of orders, each with its customer |
-| `POST` | `/order` | Create an order: `{"description": "...", "customerId": 1}` |
+| `GET` | `/customer?name=onne` | Customers whose name contains the word fragment (single word, case-insensitive) |
+| `GET` | `/order?page=&size=&sort=` | Page of orders, each with its customer and products |
+| `GET` | `/order/{id}` | A single order with its customer and products |
+| `POST` | `/order` | Create an order: `{"description": "...", "customerId": 1, "productIds": [2, 8]}` |
+| `GET` | `/products?page=&size=&sort=` | Page of products, each with the ids of the orders containing it |
+| `GET` | `/products/{id}` | A single product with the ids of the orders containing it |
+| `POST` | `/products` | Create a product: `{"description": "..."}` |
 
 List responses are a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`.
 The default page size is 20, the maximum 100, and the default sort is by `id`.

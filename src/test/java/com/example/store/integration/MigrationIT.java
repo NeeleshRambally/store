@@ -50,6 +50,23 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void productSequenceContinuesAfterSeededIds() {
+        Long id = jdbcTemplate.queryForObject(
+                "INSERT INTO product (description) VALUES ('Sequence Check') RETURNING id", Long.class);
+
+        assertThat(id).isGreaterThan(100L);
+    }
+
+    @Test
+    void orderProductJoinTableIsIndexedOnBothSides() {
+        List<String> indexes = jdbcTemplate.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'order_product'", String.class);
+
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition).contains("(order_id, product_id)"));
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition).contains("(product_id)"));
+    }
+
+    @Test
     void seedDataChangeSetIsTaggedWithSeedContext() {
         String contexts =
                 jdbcTemplate.queryForObject("SELECT contexts FROM databasechangelog WHERE id = '2-data'", String.class);
