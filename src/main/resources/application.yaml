@@ -22,3 +22,22 @@ spring:
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     contexts: ${LIQUIBASE_CONTEXTS:seed}
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+server:
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  metrics:
+    tags:
+      application: ${spring.application.name}

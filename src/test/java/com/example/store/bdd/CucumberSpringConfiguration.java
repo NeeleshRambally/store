@@ -2,6 +2,7 @@ package com.example.store.bdd;
 
 import com.example.store.integration.TestcontainersConfiguration;
 
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
@@ -13,4 +14,5 @@ import io.cucumber.spring.CucumberContextConfiguration;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestcontainersConfiguration.class)
 @ActiveProfiles("test")
+@AutoConfigureObservability
 public class CucumberSpringConfiguration {}
