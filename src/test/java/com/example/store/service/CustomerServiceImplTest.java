@@ -23,6 +23,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -56,6 +57,33 @@ class CustomerServiceImplTest {
         assertThat(result.id()).isEqualTo(101L);
         assertThat(result.name()).isEqualTo("Ada Lovelace");
         assertThat(result.orders()).isEmpty();
+    }
+
+    @Test
+    void searchMatchesWordSubstringCaseInsensitivelyAndFetchesOrders() {
+        Customer customer = new Customer();
+        customer.setId(1L);
+        customer.setName("Muriel Donnelly");
+        Pageable pageable = PageRequest.of(0, 20);
+        when(customerRepository.findByNameContainingWord("onne", pageable))
+                .thenReturn(new PageImpl<>(List.of(customer), pageable, 1));
+        when(customerRepository.findAllWithOrdersByIdIn(List.of(1L))).thenReturn(List.of(customer));
+
+        Page<CustomerDTO> result = service.search("onne", pageable);
+
+        verify(customerRepository).findAllWithOrdersByIdIn(List.of(1L));
+        assertThat(result.getContent()).extracting(CustomerDTO::name).containsExactly("Muriel Donnelly");
+    }
+
+    @Test
+    void searchEscapesLikeWildcardsInTheQuery() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(customerRepository.findByNameContainingWord("50!%!_!!", pageable)).thenReturn(Page.empty(pageable));
+
+        Page<CustomerDTO> result = service.search("50%_!", pageable);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(customerRepository, never()).findAllWithOrdersByIdIn(any());
     }
 
     @Test

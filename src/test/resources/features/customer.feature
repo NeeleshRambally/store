@@ -36,3 +36,29 @@ Feature: Customer management
   Scenario: Sorting by an unknown property is rejected
     When I request customers sorted by "nope"
     Then the response status is 400
+
+  Scenario: Search customers by part of a word in their name
+    When I search customers by name "onne"
+    Then the response status is 200
+    And every customer on the page has a name containing "onne"
+    And the page contains customer "Muriel Donnelly"
+
+  Scenario: Name search is case insensitive
+    When I search customers by name "MURIEL"
+    Then the response status is 200
+    And every customer on the page has a name containing "muriel"
+    And the page contains customer "Muriel Donnelly"
+
+  Scenario: A name search spanning more than one word is rejected
+    When I search customers by name "Muriel Donnelly"
+    Then the response status is 400
+
+  Scenario: Name search with no match returns an empty page
+    When I search customers by name "zzzzzzzz"
+    Then the response status is 200
+    And the page reports page 0, size 20 and at least 0 total elements
+    And the page is empty
+
+  Scenario: A blank name search is rejected
+    When I search customers by name " "
+    Then the response status is 400

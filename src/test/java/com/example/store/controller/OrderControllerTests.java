@@ -99,6 +99,31 @@ class OrderControllerTests {
     }
 
     @Test
+    void getByIdReturnsOrder() throws Exception {
+        when(orderService.findById(1L)).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.description").value("Test Order"))
+                .andExpect(jsonPath("$.customer.name").value("John Doe"));
+    }
+
+    @Test
+    void getByIdReturnsNotFoundForUnknownOrder() throws Exception {
+        when(orderService.findById(99L)).thenThrow(new ResourceNotFoundException("Order", 99L));
+
+        mockMvc.perform(get("/order/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.detail").value("Order with id 99 was not found"));
+    }
+
+    @Test
+    void getByIdRejectsNonNumericId() throws Exception {
+        mockMvc.perform(get("/order/abc")).andExpect(status().isBadRequest());
+    }
+
+    @Test
     void getAllReturnsPageOfOrders() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(orderService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 10000));

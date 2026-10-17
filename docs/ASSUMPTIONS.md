@@ -28,6 +28,21 @@ so they can be defended or revisited.
   plural because the task names it so. The inconsistency is acknowledged rather than silently
   changed.
 
+## Order by id (README task 1)
+- `GET /order/{id}` returns the order with its customer in a single statement (entity graph on
+  `findById`), or a 404 problem detail. A non-numeric id is a 400.
+
+## Customer name search (README task 2)
+- "A substring of one of the words in their name" is read literally: the query must be a single
+  word (no whitespace; otherwise 400) and matches case-insensitively anywhere inside the name.
+  Because the query contains no whitespace, any match necessarily lies within one word.
+- LIKE wildcards in the query (`%`, `_`) are escaped and matched literally.
+- The search shares the list endpoint (`GET /customer?name=`) and its paging, sorting and
+  order-fetching behaviour, so it costs the same fixed 3 statements per request.
+- A trigram GIN index on `lower(name)` (`pg_trgm`) serves the `ILIKE '%...%'` predicate.
+  Creating the extension needs a privileged role on first migration; in production the DBA
+  installs it once and the changeset is a no-op thereafter.
+
 ## Performance (README task 3)
 - The database is remote with high latency, so the metric that matters is round trips per
   request, not rows. Each list endpoint now performs a fixed number of statements (2 for orders,

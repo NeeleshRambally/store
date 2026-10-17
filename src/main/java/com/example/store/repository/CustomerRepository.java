@@ -2,6 +2,8 @@ package com.example.store.repository;
 
 import com.example.store.entity.Customer;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,4 +15,7 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
     @Query("select c from Customer c left join fetch c.orders where c.id in :ids")
     List<Customer> findAllWithOrdersByIdIn(@Param("ids") Collection<Long> ids);
+
+    @Query("select c from Customer c where lower(c.name) like lower(concat('%', :word, '%')) escape '!'")
+    Page<Customer> findByNameContainingWord(@Param("word") String escapedWord, Pageable pageable);
 }

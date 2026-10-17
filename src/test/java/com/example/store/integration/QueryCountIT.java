@@ -39,6 +39,22 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void orderByIdUsesOneStatement() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/order/1", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    @Test
+    void customerSearchWithOrdersUsesThreeStatements() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer?name=a&size=5", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+    }
+
+    @Test
     void customerPageWithOrdersUsesThreeStatements() {
         ResponseEntity<String> response = restTemplate.getForEntity("/customer?size=50", String.class);
 
