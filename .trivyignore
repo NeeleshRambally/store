@@ -1,0 +1,5 @@
+# Accepted risks with expiry; see docs/adr/0004-spring-framework-6-cve-exceptions.md
+# Spring Framework XsltView path limitation. No XSLT views are configured in this service.
+CVE-2026-47884 exp:2027-01-31
+# Spring Framework SSE fragment stream corruption. No Server-Sent Events or fragment rendering is used.
+CVE-2026-47890 exp:2027-01-31
