@@ -1,0 +1,10 @@
+.git
+.gradle
+.idea
+build
+utils/node_modules
+*.md
+!README.md
+.github
+.gitlab-ci.yml
+compose.yaml

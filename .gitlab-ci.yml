@@ -1,0 +1,28 @@
+stages:
+  - build
+
+variables:
+  GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
+  GRADLE_OPTS: "-Dorg.gradle.daemon=false"
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+  TESTCONTAINERS_HOST_OVERRIDE: docker
+
+build:
+  stage: build
+  image: eclipse-temurin:17-jdk-jammy
+  services:
+    - docker:27-dind
+  cache:
+    key: gradle
+    paths:
+      - .gradle/caches
+      - .gradle/wrapper
+  script:
+    - ./gradlew spotlessCheck build
+  artifacts:
+    when: always
+    reports:
+      junit: build/test-results/test/*.xml
+    paths:
+      - build/reports/
