@@ -32,7 +32,7 @@ spotless {
 
 ext {
     mapstructVersion = '1.6.2'
-    cucumberVersion = '7.21.1'
+    cucumberVersion = '8.0.4'
 }
 
 dependencies {
