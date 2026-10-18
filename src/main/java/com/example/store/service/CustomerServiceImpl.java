@@ -74,7 +74,7 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     private static CustomerDTO toCustomer(CustomerRow row, Map<Long, List<CustomerOrderDTO>> orders) {
-        return new CustomerDTO(row.id(), row.name(), orders.getOrDefault(row.id(), List.of()));
+        return new CustomerDTO(row.id(), row.name(), orders.getOrDefault(row.id(), List.of()), 0);
     }
 
     private Map<Long, List<CustomerOrderDTO>> ordersByCustomer(List<CustomerRow> rows) {

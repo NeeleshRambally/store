@@ -42,7 +42,7 @@ class CustomerControllerTests {
     @Test
     void createReturnsCreatedCustomer() throws Exception {
         when(customerService.create(new CreateCustomerRequest("John Doe")))
-                .thenReturn(new CustomerDTO(1L, "John Doe", List.of()));
+                .thenReturn(new CustomerDTO(1L, "John Doe", List.of(), 0));
 
         mockMvc.perform(post("/customer")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -50,7 +50,8 @@ class CustomerControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("John Doe"))
-                .andExpect(jsonPath("$.orders").isEmpty());
+                .andExpect(jsonPath("$.orders").isEmpty())
+                .andExpect(jsonPath("$.orderCount").value(0));
     }
 
     @Test
@@ -87,7 +88,7 @@ class CustomerControllerTests {
     void getAllReturnsPageOfCustomers() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(customerService.findAll(pageable))
-                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "John Doe", List.of())), pageable, 100));
+                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "John Doe", List.of(), 0)), pageable, 100));
 
         mockMvc.perform(get("/customer"))
                 .andExpect(status().isOk())
@@ -103,7 +104,7 @@ class CustomerControllerTests {
     void getAllWithNameSearchesByWordSubstring() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(customerService.search("onne", pageable))
-                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "Muriel Donnelly", List.of())), pageable, 1));
+                .thenReturn(new PageImpl<>(List.of(new CustomerDTO(1L, "Muriel Donnelly", List.of(), 0)), pageable, 1));
 
         mockMvc.perform(get("/customer").param("name", "onne"))
                 .andExpect(status().isOk())
@@ -142,7 +143,7 @@ class CustomerControllerTests {
     @Test
     void getAllWithAfterReturnsACursorPage() throws Exception {
         when(customerService.findAfter(new CursorRequest(0L, 5)))
-                .thenReturn(new CursorPageResponse<>(List.of(new CustomerDTO(1L, "John Doe", List.of())), 5, 1L));
+                .thenReturn(new CursorPageResponse<>(List.of(new CustomerDTO(1L, "John Doe", List.of(), 0)), 5, 1L));
 
         mockMvc.perform(get("/customer").param("after", "0").param("size", "5"))
                 .andExpect(status().isOk())
@@ -156,8 +157,8 @@ class CustomerControllerTests {
     @Test
     void getAllWithNameAndAfterSearchesAfterTheCursor() throws Exception {
         when(customerService.searchAfter("onne", new CursorRequest(3L, 20)))
-                .thenReturn(
-                        new CursorPageResponse<>(List.of(new CustomerDTO(7L, "Muriel Donnelly", List.of())), 20, null));
+                .thenReturn(new CursorPageResponse<>(
+                        List.of(new CustomerDTO(7L, "Muriel Donnelly", List.of(), 0)), 20, null));
 
         mockMvc.perform(get("/customer").param("name", "onne").param("after", "3"))
                 .andExpect(status().isOk())

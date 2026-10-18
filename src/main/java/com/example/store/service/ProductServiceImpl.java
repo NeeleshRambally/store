@@ -68,7 +68,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private static ProductDTO toProduct(ProductRow row, Map<Long, List<Long>> orders) {
-        return new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of()));
+        return new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of()), 0);
     }
 
     private Map<Long, List<Long>> orderIdsByProduct(List<ProductRow> rows) {
