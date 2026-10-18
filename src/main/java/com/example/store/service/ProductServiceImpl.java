@@ -1,6 +1,8 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateProductRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.ProductMapper;
@@ -10,6 +12,7 @@ import com.example.store.repository.view.ProductRow;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -48,7 +51,22 @@ public class ProductServiceImpl implements ProductService {
     public Page<ProductDTO> findAll(Pageable pageable) {
         Page<ProductRow> page = productRepository.findRows(SORT_POLICY.validate(pageable));
         Map<Long, List<Long>> orders = orderIdsByProduct(page.getContent());
-        return page.map(row -> new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of())));
+        return page.map(row -> toProduct(row, orders));
+    }
+
+    @Override
+    public CursorPageResponse<ProductDTO> findAfter(CursorRequest request) {
+        List<ProductRow> rows = productRepository.findRowsAfter(request.after(), Limit.of(request.size() + 1));
+        return CursorPageResponse.from(rows, request.size(), ProductRow::id, this::toProducts);
+    }
+
+    private List<ProductDTO> toProducts(List<ProductRow> rows) {
+        Map<Long, List<Long>> orders = orderIdsByProduct(rows);
+        return rows.stream().map(row -> toProduct(row, orders)).toList();
+    }
+
+    private static ProductDTO toProduct(ProductRow row, Map<Long, List<Long>> orders) {
+        return new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of()));
     }
 
     private Map<Long, List<Long>> orderIdsByProduct(List<ProductRow> rows) {

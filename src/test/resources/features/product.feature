@@ -28,3 +28,13 @@ Feature: Product catalogue
     Then the response status is 200
     And the page has 5 products starting at id 1
     And every product on the page lists at least one order id
+
+  Scenario: Walk products with a cursor
+    When I request products after 0 with size 5
+    Then the response status is 200
+    And the page has 5 products starting at id 1
+    And the next cursor is 5
+    And every product on the page lists at least one order id
+    When I request products after 5 with size 5
+    Then the page has 5 products starting at id 6
+    And the next cursor is 10

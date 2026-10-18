@@ -1,6 +1,8 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateProductRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
 
 import org.springframework.data.domain.Page;
@@ -12,4 +14,6 @@ public interface ProductService {
     ProductDTO findById(Long id);
 
     Page<ProductDTO> findAll(Pageable pageable);
+
+    CursorPageResponse<ProductDTO> findAfter(CursorRequest request);
 }

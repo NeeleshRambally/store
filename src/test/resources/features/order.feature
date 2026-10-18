@@ -57,3 +57,17 @@ Feature: Order management
     When I request order 999999
     Then the response status is 404
     And the response problem detail is "Order with id 999999 was not found"
+
+  Scenario: Walk orders with a cursor
+    When I request orders after 0 with size 5
+    Then the response status is 200
+    And the page has 5 orders starting at id 1
+    And the next cursor is 5
+    When I request orders after 5 with size 5
+    Then the page has 5 orders starting at id 6
+    And the next cursor is 10
+
+  Scenario: A cursor cannot be combined with a page number
+    When I request orders after 0 on page 1
+    Then the response status is 400
+    And the response problem detail is "after cannot be combined with page or sort"

@@ -4,6 +4,7 @@ import com.example.store.entity.Product;
 import com.example.store.repository.view.ProductOrderRow;
 import com.example.store.repository.view.ProductRow;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
@@ -25,6 +26,10 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
             value = "select new com.example.store.repository.view.ProductRow(p.id, p.description) from Product p",
             countQuery = "select count(p) from Product p")
     Page<ProductRow> findRows(Pageable pageable);
+
+    @Query("select new com.example.store.repository.view.ProductRow(p.id, p.description) from Product p"
+            + " where p.id > :after order by p.id")
+    List<ProductRow> findRowsAfter(@Param("after") long after, Limit limit);
 
     @Query("select new com.example.store.repository.view.ProductOrderRow(p.id, o.id)"
             + " from Order o join o.products p where p.id in :ids order by p.id, o.id")

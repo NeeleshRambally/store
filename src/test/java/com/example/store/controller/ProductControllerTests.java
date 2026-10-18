@@ -1,6 +1,8 @@
 package com.example.store.controller;
 
 import com.example.store.dto.CreateProductRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.ProductService;
@@ -101,5 +103,28 @@ class ProductControllerTests {
                 .andExpect(jsonPath("$.content[0].id").value(2))
                 .andExpect(jsonPath("$.content[0].orders.length()").value(2))
                 .andExpect(jsonPath("$.totalElements").value(100));
+    }
+
+    @Test
+    void getAllWithAfterReturnsACursorPage() throws Exception {
+        when(productService.findAfter(new CursorRequest(1L, 20)))
+                .thenReturn(new CursorPageResponse<>(List.of(PRODUCT), 20, 2L));
+
+        mockMvc.perform(get("/products").param("after", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(2))
+                .andExpect(jsonPath("$.content[0].orders[1]").value(43))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.nextCursor").value(2))
+                .andExpect(jsonPath("$.totalPages").doesNotExist());
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsAfterCombinedWithSort() throws Exception {
+        mockMvc.perform(get("/products").param("after", "0").param("sort", "description"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
+        verify(productService, never()).findAfter(any());
     }
 }

@@ -1,6 +1,8 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateCustomerRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.CustomerOrderDTO;
 import com.example.store.entity.Customer;
@@ -17,6 +19,7 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -131,6 +134,62 @@ class CustomerServiceImplTest {
         Page<CustomerDTO> result = service.findAll(pageable);
 
         assertThat(result.getContent()).isEmpty();
+        verify(customerRepository, never()).findOrderRows(any());
+    }
+
+    @Test
+    void findAfterTrimsTheExtraRowAndAttachesOrdersToTheReturnedCustomers() {
+        when(customerRepository.findRowsAfter(0L, Limit.of(3)))
+                .thenReturn(List.of(
+                        new CustomerRow(1L, "Ada Lovelace"),
+                        new CustomerRow(2L, "Charles Babbage"),
+                        new CustomerRow(3L, "Grace Hopper")));
+        when(customerRepository.findOrderRows(List.of(1L, 2L)))
+                .thenReturn(List.of(new CustomerOrderRow(1L, 5L, "Analytical Engine")));
+
+        CursorPageResponse<CustomerDTO> result = service.findAfter(new CursorRequest(0L, 2));
+
+        assertThat(result.content()).extracting(CustomerDTO::id).containsExactly(1L, 2L);
+        assertThat(result.content().get(0).orders()).containsExactly(new CustomerOrderDTO(5L, "Analytical Engine"));
+        assertThat(result.content().get(1).orders()).isEmpty();
+        assertThat(result.size()).isEqualTo(2);
+        assertThat(result.nextCursor()).isEqualTo(2L);
+    }
+
+    @Test
+    void findAfterReturnsNoCursorWhenFewerRowsThanSizeRemain() {
+        when(customerRepository.findRowsAfter(99L, Limit.of(21))).thenReturn(List.of(new CustomerRow(100L, "Zed")));
+        when(customerRepository.findOrderRows(List.of(100L))).thenReturn(List.of());
+
+        CursorPageResponse<CustomerDTO> result = service.findAfter(new CursorRequest(99L, 20));
+
+        assertThat(result.content()).extracting(CustomerDTO::id).containsExactly(100L);
+        assertThat(result.nextCursor()).isNull();
+    }
+
+    @Test
+    void searchAfterEscapesTheWordAndWalksTheMatchesById() {
+        when(customerRepository.findRowsByNameContainingWordAfter("50!%", 3L, Limit.of(3)))
+                .thenReturn(List.of(new CustomerRow(4L, "50% off"), new CustomerRow(9L, "50% more")));
+        when(customerRepository.findOrderRows(List.of(4L, 9L)))
+                .thenReturn(List.of(new CustomerOrderRow(9L, 7L, "Difference Engine")));
+
+        CursorPageResponse<CustomerDTO> result = service.searchAfter("50%", new CursorRequest(3L, 2));
+
+        assertThat(result.content()).extracting(CustomerDTO::id).containsExactly(4L, 9L);
+        assertThat(result.content().get(1).orders()).containsExactly(new CustomerOrderDTO(7L, "Difference Engine"));
+        assertThat(result.nextCursor()).isNull();
+    }
+
+    @Test
+    void searchAfterIssuesNoOrdersQueryWhenNothingMatches() {
+        when(customerRepository.findRowsByNameContainingWordAfter("zzz", 0L, Limit.of(21)))
+                .thenReturn(List.of());
+
+        CursorPageResponse<CustomerDTO> result = service.searchAfter("zzz", new CursorRequest(0L, 20));
+
+        assertThat(result.content()).isEmpty();
+        assertThat(result.nextCursor()).isNull();
         verify(customerRepository, never()).findOrderRows(any());
     }
 

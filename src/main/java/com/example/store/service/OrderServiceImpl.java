@@ -1,6 +1,8 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateOrderRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.OrderProductDTO;
@@ -17,6 +19,7 @@ import com.example.store.repository.view.OrderRow;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -66,11 +69,26 @@ public class OrderServiceImpl implements OrderService {
     public Page<OrderDTO> findAll(Pageable pageable) {
         Page<OrderRow> page = orderRepository.findRows(SORT_POLICY.validate(pageable));
         Map<Long, List<OrderProductDTO>> products = productsByOrder(page.getContent());
-        return page.map(row -> new OrderDTO(
+        return page.map(row -> toOrder(row, products));
+    }
+
+    @Override
+    public CursorPageResponse<OrderDTO> findAfter(CursorRequest request) {
+        List<OrderRow> rows = orderRepository.findRowsAfter(request.after(), Limit.of(request.size() + 1));
+        return CursorPageResponse.from(rows, request.size(), OrderRow::id, this::toOrders);
+    }
+
+    private List<OrderDTO> toOrders(List<OrderRow> rows) {
+        Map<Long, List<OrderProductDTO>> products = productsByOrder(rows);
+        return rows.stream().map(row -> toOrder(row, products)).toList();
+    }
+
+    private static OrderDTO toOrder(OrderRow row, Map<Long, List<OrderProductDTO>> products) {
+        return new OrderDTO(
                 row.id(),
                 row.description(),
                 new OrderCustomerDTO(row.customerId(), row.customerName()),
-                products.getOrDefault(row.id(), List.of())));
+                products.getOrDefault(row.id(), List.of()));
     }
 
     private Map<Long, List<OrderProductDTO>> productsByOrder(List<OrderRow> rows) {

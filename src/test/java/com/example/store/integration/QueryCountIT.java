@@ -118,6 +118,42 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void orderKeysetPageUsesTwoStatementsAndLoadsNoEntities() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/order?after=0&size=100", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void customerKeysetPageUsesTwoStatementsAndLoadsNoEntities() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer?after=0&size=50", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void customerKeysetSearchUsesTwoStatementsAndLoadsNoEntities() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer?name=a&after=0&size=5", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void productKeysetPageUsesTwoStatementsAndLoadsNoEntities() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/products?after=0&size=20", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
     void createOrderWithThreeProductsUsesAtMostFiveStatements() {
         ResponseEntity<String> response = restTemplate.postForEntity(
                 "/order",

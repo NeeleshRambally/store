@@ -2,6 +2,7 @@ package com.example.store.integration;
 
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.PageResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -108,5 +111,78 @@ class CustomerApiIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().getDetail()).isEqualTo("Unknown sort property: nope");
+    }
+
+    @Test
+    void walksCustomersWithACursor() {
+        ResponseEntity<JsonNode> first = restTemplate.getForEntity("/customer?after=0&size=5", JsonNode.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(first.getBody())).containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(first.getBody().get("size").asInt()).isEqualTo(5);
+        assertThat(first.getBody().get("nextCursor").asLong()).isEqualTo(5L);
+        assertThat(first.getBody().get("content").get(0).get("orders")).isNotEmpty();
+        assertThat(first.getBody().has("totalElements")).isFalse();
+
+        ResponseEntity<JsonNode> second = restTemplate.getForEntity("/customer?after=5&size=5", JsonNode.class);
+
+        assertThat(ids(second.getBody())).containsExactly(6L, 7L, 8L, 9L, 10L);
+        assertThat(second.getBody().get("nextCursor").asLong()).isEqualTo(10L);
+    }
+
+    @Test
+    void cursorWalkEndsWithANullCursor() {
+        ResponseEntity<JsonNode> last = restTemplate.getForEntity("/customer?size=1&sort=id,desc", JsonNode.class);
+        long maxId = last.getBody().get("content").get(0).get("id").asLong();
+
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/customer?after=" + (maxId - 1) + "&size=5", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(response.getBody())).containsExactly(maxId);
+        assertThat(response.getBody().get("nextCursor").isNull()).isTrue();
+    }
+
+    @Test
+    void walksANameSearchWithACursor() {
+        ResponseEntity<JsonNode> first = restTemplate.getForEntity("/customer?name=a&after=0&size=3", JsonNode.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(first.getBody())).hasSize(3).isSorted();
+        assertThat(first.getBody().get("content").findValuesAsText("name"))
+                .allSatisfy(name -> assertThat(name.toLowerCase()).contains("a"));
+        long cursor = first.getBody().get("nextCursor").asLong();
+        assertThat(cursor).isEqualTo(ids(first.getBody()).get(2));
+
+        ResponseEntity<JsonNode> second =
+                restTemplate.getForEntity("/customer?name=a&after=" + cursor + "&size=3", JsonNode.class);
+
+        assertThat(ids(second.getBody())).hasSize(3).allSatisfy(id -> assertThat(id)
+                .isGreaterThan(cursor));
+        assertThat(second.getBody().get("content").get(0).get("orders")).isNotEmpty();
+    }
+
+    @Test
+    void rejectsCursorCombinedWithPage() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/customer?after=0&page=1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("after cannot be combined with page or sort");
+    }
+
+    @Test
+    void rejectsCursorCombinedWithSortOnANameSearch() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/customer?name=a&after=0&sort=id,desc", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("after cannot be combined with page or sort");
+    }
+
+    private static List<Long> ids(JsonNode page) {
+        List<Long> ids = new ArrayList<>();
+        page.get("content").forEach(node -> ids.add(node.get("id").asLong()));
+        return ids;
     }
 }
