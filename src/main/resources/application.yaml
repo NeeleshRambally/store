@@ -48,6 +48,8 @@ server:
     min-response-size: 1KB
 
 management:
+  server:
+    port: ${MANAGEMENT_PORT:8081}
   endpoints:
     web:
       exposure:

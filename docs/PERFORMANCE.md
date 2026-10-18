@@ -138,5 +138,3 @@ inserts regardless of the batch size.
   `POST /customer` or `POST /products` changes the totals of at least one list, so the entries
   would be invalidated as fast as they are filled. The lists are already a fixed 2 or 3 statements
   and the HTTP revalidation covers the client that polls the same page.
-- **Separate management port.** Operational hardening rather than performance; planned with the
-  authentication phase.

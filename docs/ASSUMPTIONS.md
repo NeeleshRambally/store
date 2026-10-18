@@ -116,8 +116,9 @@ delivered.
   squash-merged once CI is green. Branch rulesets are not available on a private repository of
   the free GitHub plan, so the gate is enforced by process rather than by the platform.
 - The container image runs as a non-root user on a JRE, with layered jar extraction for
-  efficient caching. Liveness and readiness probes are exposed for Kubernetes; no Docker
-  `HEALTHCHECK` is declared because orchestrators ignore it.
+  efficient caching. Liveness and readiness probes are exposed for Kubernetes on the management
+  port (8081), which the ingress does not publish; no Docker `HEALTHCHECK` is declared because
+  orchestrators ignore it.
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` is an equivalent for GitLab.
 - The image is scanned on every pull request and a critical, fixable vulnerability blocks the
   merge; unfixable findings are reported but do not block, because there is nothing a code
