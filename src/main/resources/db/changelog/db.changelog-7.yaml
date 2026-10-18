@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 7-sort-indexes-with-id-tie-break
+      author: developer@securitease.com
+      comment: B-tree indexes on the whitelisted sort columns with id as the tie-break, so a sorted offset page is an index scan instead of a sort of the whole table
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              CREATE INDEX IF NOT EXISTS idx_order_description_id ON "order" (description, id);
+              CREATE INDEX IF NOT EXISTS idx_product_description_id ON product (description, id);
+              CREATE INDEX IF NOT EXISTS idx_customer_name_id ON customer (name, id);
+      rollback:
+        - sql:
+            sql: |
+              DROP INDEX IF EXISTS idx_order_description_id;
+              DROP INDEX IF EXISTS idx_product_description_id;
+              DROP INDEX IF EXISTS idx_customer_name_id;
