@@ -57,11 +57,12 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void productByIdUsesOneStatement() {
+    void productByIdUsesTwoStatementsAndLoadsNoEntities() {
         ResponseEntity<String> response = restTemplate.getForEntity("/products/2", String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
     }
 
     @Test

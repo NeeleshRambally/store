@@ -1,5 +1,6 @@
 package com.example.store.service;
 
+import com.example.store.config.NestedOrdersProperties;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
@@ -32,6 +33,7 @@ public class CustomerServiceImpl implements CustomerService {
 
     private final CustomerRepository customerRepository;
     private final CustomerMapper customerMapper;
+    private final NestedOrdersProperties nestedOrders;
 
     @Override
     @Transactional
@@ -64,30 +66,36 @@ public class CustomerServiceImpl implements CustomerService {
     }
 
     private Page<CustomerDTO> withOrders(Page<CustomerRow> page) {
-        Map<Long, List<CustomerOrderDTO>> orders = ordersByCustomer(page.getContent());
+        Map<Long, NestedOrders> orders = ordersByCustomer(page.getContent());
         return page.map(row -> toCustomer(row, orders));
     }
 
     private List<CustomerDTO> withOrders(List<CustomerRow> rows) {
-        Map<Long, List<CustomerOrderDTO>> orders = ordersByCustomer(rows);
+        Map<Long, NestedOrders> orders = ordersByCustomer(rows);
         return rows.stream().map(row -> toCustomer(row, orders)).toList();
     }
 
-    private static CustomerDTO toCustomer(CustomerRow row, Map<Long, List<CustomerOrderDTO>> orders) {
-        return new CustomerDTO(row.id(), row.name(), orders.getOrDefault(row.id(), List.of()), 0);
+    private static CustomerDTO toCustomer(CustomerRow row, Map<Long, NestedOrders> orders) {
+        NestedOrders nested = orders.getOrDefault(row.id(), NestedOrders.NONE);
+        return new CustomerDTO(row.id(), row.name(), nested.orders(), nested.total());
     }
 
-    private Map<Long, List<CustomerOrderDTO>> ordersByCustomer(List<CustomerRow> rows) {
+    private Map<Long, NestedOrders> ordersByCustomer(List<CustomerRow> rows) {
         if (rows.isEmpty()) {
             return Map.of();
         }
-        Map<Long, List<CustomerOrderDTO>> orders = new LinkedHashMap<>();
+        Map<Long, NestedOrders> orders = new LinkedHashMap<>();
         for (CustomerOrderRow row : customerRepository.findOrderRows(
-                rows.stream().map(CustomerRow::id).toList())) {
-            orders.computeIfAbsent(row.customerId(), id -> new ArrayList<>())
+                rows.stream().map(CustomerRow::id).toList(), nestedOrders.limit())) {
+            orders.computeIfAbsent(row.customerId(), id -> new NestedOrders(new ArrayList<>(), row.orderCount()))
+                    .orders()
                     .add(new CustomerOrderDTO(row.orderId(), row.description()));
         }
         return orders;
+    }
+
+    private record NestedOrders(List<CustomerOrderDTO> orders, long total) {
+        private static final NestedOrders NONE = new NestedOrders(List.of(), 0);
     }
 
     private static String escapeLike(String value) {

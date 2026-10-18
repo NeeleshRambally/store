@@ -26,7 +26,7 @@ Feature: Customer management
     Then the response status is 200
     And the page has 5 customers starting at id 6
     And the page reports page 1, size 5 and at least 100 total elements
-    And every customer on the page includes its orders
+    And every customer on the page includes its newest orders and the total count
 
   Scenario: Page size is capped at 100
     When I request customers with page 0 and size 1000
