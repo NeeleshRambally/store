@@ -33,6 +33,9 @@ delivered.
   (`after cannot be combined with page or sort`). See ADR 0003.
 - `POST /order` takes `customerId` rather than a nested customer object; an unknown customer is
   a 404 and a missing one a 400.
+- Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
+  `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
+  response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
 - Errors are RFC 7807 problem details. Validation failures list the offending fields; nothing
   else about the failure is exposed.
 - `/customer` and `/order` stay singular to match the original README; `/products` will be
@@ -90,6 +93,13 @@ delivered.
   statements plus one `nextval` per 50 orders; several entities of one type flushed together
   become one batched insert per table. Ids are therefore no longer gapless: a restart can skip up
   to 49 ids.
+- `GET /order/{id}` and `GET /products/{id}` are cached in memory for 60 s (`CACHE_TTL`,
+  `CACHE_TYPE=none` to disable): a repeated read runs no statement and opens no session (pinned
+  by the integration test). An order never changes after creation, so `orders` entries are never
+  evicted; a product's order ids change on `POST /order`, so those `products` entries are
+  evicted after the commit on the node that served the write. On another replica, or after a
+  write that bypasses the service, a product can be stale for up to the TTL; that bound is the
+  reason the default is short. See ADR 0007.
 
 ## Testing strategy
 - TDD for every production change: each test was observed failing before the code that makes
@@ -97,6 +107,9 @@ delivered.
 - One PostgreSQL container per test run. All integration tests and the Cucumber scenarios share
   a single Spring context; tests therefore never assert on absolute seed counts after writes
   and never truncate tables.
+- The context also shares one cache. A test never assumes a cold or a warm cache for an id it
+  did not populate itself: `QueryCountIT` clears every cache before each test so its statement
+  counts are the cold case, and the cache-related tests create the product or order they read.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

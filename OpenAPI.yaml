@@ -25,9 +25,15 @@ paths:
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/orderSort'
         - $ref: '#/components/parameters/after'
+        - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: OK; an offset page, or a cursor page when after is present
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
@@ -36,6 +42,8 @@ paths:
                   - $ref: '#/components/schemas/OrderCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '304':
+          $ref: '#/components/responses/NotModified'
       operationId: getOrders
       description: >-
         Get a page of orders, each with its customer. Without after the page is addressed by
@@ -76,15 +84,23 @@ paths:
           schema:
             type: integer
             format: int64
+        - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: OK
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
         '404':
           $ref: '#/components/responses/NotFound'
+        '304':
+          $ref: '#/components/responses/NotModified'
       operationId: getOrder
       description: Get a single order by id, with its customer
   /customer:
@@ -107,9 +123,15 @@ paths:
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/customerSort'
         - $ref: '#/components/parameters/after'
+        - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: OK; an offset page, or a cursor page when after is present
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
@@ -118,6 +140,8 @@ paths:
                   - $ref: '#/components/schemas/CustomerCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '304':
+          $ref: '#/components/responses/NotModified'
       operationId: getCustomers
       description: >-
         Get a page of customers, each with its orders, optionally filtered by a word substring of
@@ -154,9 +178,15 @@ paths:
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/productSort'
         - $ref: '#/components/parameters/after'
+        - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: OK; an offset page, or a cursor page when after is present
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
@@ -165,6 +195,8 @@ paths:
                   - $ref: '#/components/schemas/ProductCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '304':
+          $ref: '#/components/responses/NotModified'
       operationId: getProducts
       description: >-
         Get a page of products, each with the ids of the orders that contain it. Without after the
@@ -203,19 +235,37 @@ paths:
           schema:
             type: integer
             format: int64
+        - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
           description: OK
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/Product'
         '404':
           $ref: '#/components/responses/NotFound'
+        '304':
+          $ref: '#/components/responses/NotModified'
       operationId: getProduct
       description: Get a single product with the ids of the orders that contain it
 components:
   parameters:
+    ifNoneMatch:
+      name: If-None-Match
+      in: header
+      required: false
+      description: >-
+        The ETag of a previously received representation. When it still matches, the response is
+        304 Not Modified with no body and the current ETag; otherwise the full response is sent.
+      schema:
+        type: string
+        example: W/"0b9f4a2c7d8e1f3a5b6c7d8e9f0a1b2c3"
     page:
       name: page
       in: query
@@ -281,7 +331,30 @@ components:
       schema:
         type: string
         example: description,asc
+  headers:
+    ETag:
+      description: >-
+        Weak validator of the response body (W/"..."); send it back in If-None-Match to
+        revalidate. Weak so that the body can still be compressed.
+      schema:
+        type: string
+    CacheControl:
+      description: >-
+        Always no-cache: the response may be stored but must be revalidated with If-None-Match
+        before it is reused.
+      schema:
+        type: string
+        example: no-cache
   responses:
+    NotModified:
+      description: >-
+        The representation has not changed since the ETag given in If-None-Match; the body is
+        empty and the ETag is repeated
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+        Cache-Control:
+          $ref: '#/components/headers/CacheControl'
     BadRequest:
       description: >-
         The request is malformed, fails validation, sorts by a property outside the documented

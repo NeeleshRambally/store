@@ -71,3 +71,10 @@ Feature: Order management
     When I request orders after 0 on page 1
     Then the response status is 400
     And the response problem detail is "after cannot be combined with page or sort"
+
+  Scenario: A repeated read of an order with its ETag is not modified
+    When I request order 1
+    Then the response status is 200
+    And the response carries a weak ETag
+    When I request order 1 again with that ETag
+    Then the response status is 304

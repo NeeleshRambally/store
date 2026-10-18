@@ -38,7 +38,10 @@ class ActuatorIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = restTemplate.getForEntity("/actuator/prometheus", String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).contains("jvm_memory_used_bytes").contains("http_server_requests_seconds");
+        assertThat(response.getBody())
+                .contains("jvm_memory_used_bytes")
+                .contains("http_server_requests_seconds")
+                .contains("cache_gets_total");
     }
 
     @Test
