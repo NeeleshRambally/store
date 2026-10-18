@@ -195,6 +195,7 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     void conflictingOrderMatchesTheContract() {
         Response conflict = SimpleResponse.Builder.status(HttpStatus.CONFLICT.value())
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
                 .withBody(toJson(Map.of(
                         "type", "about:blank",
                         "title", "Conflict",
@@ -210,6 +211,7 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     void serverErrorMatchesTheContract() {
         Response failure = SimpleResponse.Builder.status(HttpStatus.INTERNAL_SERVER_ERROR.value())
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
                 .withBody(toJson(Map.of(
                         "type", "about:blank", "title", "Internal Server Error", "status", 500, "instance", "/order")))
                 .build();
@@ -241,6 +243,18 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void repeatedProductIdsMatchTheContract() {
+        Interaction interaction =
+                post("/order", Map.of("description", "Contract order", "customerId", 1, "productIds", List.of(2, 2)));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("productIds");
         assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
         assertResponseConforms(interaction);
     }
@@ -354,6 +368,54 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void nonBreakingSpaceCustomerSearchMatchesTheContract() {
+        Interaction interaction = get("/customer", Map.of("name", "a\u00a0b"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void customerByIdMatchesTheContract() {
+        Interaction interaction = get("/customer/1", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("orders")).isNotEmpty();
+        assertThat(interaction.json().get("orderCount").asLong()).isGreaterThan(20L);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void conditionalCustomerByIdMatchesTheContract() {
+        String etag = get("/customer/1", Map.of()).headers().getETag();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(etag);
+
+        Interaction interaction = exchange(HttpMethod.GET, "/customer/1", Map.of(), headers, null);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_MODIFIED);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void unknownCustomerMatchesTheContract() {
+        Interaction interaction = get("/customer/999999", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(interaction.json().get("detail").asText()).isEqualTo("Customer with id 999999 was not found");
+        assertConforms(interaction);
+    }
+
+    @Test
+    void nonNumericCustomerIdMatchesTheContract() {
+        Interaction interaction = get("/customer/abc", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
         assertResponseConforms(interaction);
     }
