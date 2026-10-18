@@ -151,6 +151,26 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void serverErrorMatchesTheContract() {
+        Response failure = SimpleResponse.Builder.status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withBody(toJson(Map.of(
+                        "type", "about:blank", "title", "Internal Server Error", "status", 500, "instance", "/order")))
+                .build();
+
+        assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.GET, failure));
+    }
+
+    @Test
+    void orderForUnknownCustomerMatchesTheContract() {
+        Interaction interaction =
+                post("/order", Map.of("description", "Contract order", "customerId", 999999, "productIds", List.of(1)));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertConforms(interaction);
+    }
+
+    @Test
     void createOrderMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "Contract order", "customerId", 1, "productIds", List.of(1, 2)));
@@ -214,6 +234,18 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void conditionalCustomerPageMatchesTheContract() {
+        String etag = get("/customer", Map.of("size", "2")).headers().getETag();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(etag);
+
+        Interaction interaction = exchange(HttpMethod.GET, "/customer", Map.of("size", "2"), headers, null);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_MODIFIED);
+        assertConforms(interaction);
+    }
+
+    @Test
     void customerSearchMatchesTheContract() {
         Interaction interaction = get("/customer", Map.of("name", "onne"));
 
@@ -270,11 +302,31 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void unknownProductSortPropertyMatchesTheContract() {
+        Interaction interaction = get("/products", Map.of("sort", "nope"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertConforms(interaction);
+    }
+
+    @Test
     void productByIdMatchesTheContract() {
         Interaction interaction = get("/products/2", Map.of());
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
         assertThat(interaction.json().get("orders")).isNotEmpty();
+        assertConforms(interaction);
+    }
+
+    @Test
+    void conditionalProductMatchesTheContract() {
+        String etag = get("/products/2", Map.of()).headers().getETag();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(etag);
+
+        Interaction interaction = exchange(HttpMethod.GET, "/products/2", Map.of(), headers, null);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_MODIFIED);
         assertConforms(interaction);
     }
 
