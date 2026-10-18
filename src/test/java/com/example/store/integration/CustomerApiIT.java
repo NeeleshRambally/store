@@ -200,6 +200,35 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void searchMatchesInsideAHyphenatedOrApostrophisedWord() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Jean-Pierre O'Neil"), CustomerDTO.class);
+
+        assertThat(search("n-P")).contains("Jean-Pierre O'Neil").allSatisfy(name -> assertThat(name)
+                .contains("n-P"));
+        assertThat(search("O'N")).contains("Jean-Pierre O'Neil").allSatisfy(name -> assertThat(name)
+                .contains("O'N"));
+    }
+
+    @Test
+    void searchTreatsAnUnderscoreLiterally() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Under_Score"), CustomerDTO.class);
+        restTemplate.postForEntity("/customer", Map.of("name", "Under Score"), CustomerDTO.class);
+
+        assertThat(search("r_S"))
+                .contains("Under_Score")
+                .doesNotContain("Under Score")
+                .allSatisfy(name -> assertThat(name).contains("_"));
+    }
+
+    private List<String> search(String word) {
+        URI uri = URI.create(restTemplate.getRootUri() + "/customer?name=" + word + "&size=100");
+        ResponseEntity<PageResponse<CustomerDTO>> response =
+                restTemplate.exchange(uri, HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody().content().stream().map(CustomerDTO::name).toList();
+    }
+
+    @Test
     void rejectsAnEmptyNameQuery() {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer?name=", ProblemDetail.class);
 
