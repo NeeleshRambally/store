@@ -7,6 +7,7 @@ decision.
 ## Prerequisites
 * JDK 17 (the Gradle toolchain downloads one if it is missing)
 * Docker (used by Docker Compose for local runs and by Testcontainers for the tests)
+* Node.js 22 and npm, only to run or test the data generator in `utils`
 
 ## Running locally
 The README's instructions still work: start PostgreSQL 16.2 on port 5433 with `admin:admin` and
@@ -115,7 +116,9 @@ history is measured under them. Reports land in `build/reports`.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
-1. `build`: `./gradlew spotlessCheck build test --rerun`; a failing test fails the pipeline.
+1. `build`: `npm ci && npm test` in `utils` (the data generator's own check, on Node 22 with
+   the npm cache keyed on `utils/package-lock.json`), then
+   `./gradlew spotlessCheck build test --rerun`; a failing test fails the pipeline.
    `--rerun` makes the test suite execute on every run instead of being replayed from Gradle's
    cache when only documentation changed. Test results and coverage reports are uploaded as the
    `reports` artifact.
@@ -185,7 +188,9 @@ into a closed-source component that requires accepting separate terms of use.
 
 `.gitlab-ci.yml` is provided for portability and has not been executed in this project; there is
 no GitLab project for this repository. It follows the same order: `build` runs
-`./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule, `package` builds the
+`./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule while
+`generator-test`, in the same stage on `node:22-alpine`, runs `npm ci && npm test` in `utils`
+(the GitLab `build` image has no Node), `package` builds the
 image once and saves it as the `image.tar` artifact, `smoke` loads that tarball, starts the stack
 with Compose inside `docker:27-dind` and runs the same script against `http://docker:8080` and
 `http://docker:8081`, `scan` runs Trivy 0.70.0 (the version `aquasecurity/trivy-action@v0.36.0`

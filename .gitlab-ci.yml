@@ -36,6 +36,14 @@ build:
     paths:
       - build/reports/
 
+generator-test:
+  stage: build
+  image: node:22-alpine
+  script:
+    - cd utils
+    - npm ci
+    - npm test
+
 package:
   stage: package
   image: docker:27
