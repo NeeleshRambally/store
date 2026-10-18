@@ -77,7 +77,9 @@ From this release the nested `orders` of a customer, on every list response, are
 `store.nested-orders.limit` orders (environment variable `NESTED_ORDERS_LIMIT`, default 20,
 validated to 1..100 at start-up), where newest means the highest ids, returned in ascending id
 order like every other list; `orderCount` carries the total. A product on the list and by-id
-responses carries the ids of its newest `limit` orders the same way, plus `orderCount`. The
+responses carries the ids of its newest `limit` orders the same way, plus `orderCount`; the
+by-id customer read (`GET /customer/{id}`) applies the same bound and the same window query,
+so a customer looks the same whether read alone or on a page. The
 child query is a native window query: `row_number() over (partition by customer_id order by id
 desc)` filtered to `<= :max` and `count(*) over (partition by customer_id)`, over the ids of the
 page (the same over `order_product` for products), so the newest rows and the total of every

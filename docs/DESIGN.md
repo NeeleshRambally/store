@@ -72,19 +72,24 @@ runs, in one task and in one JVM:
 * Cucumber acceptance scenarios in `src/test/resources/features`,
 * an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are
   validated against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real
-  requests cover the 200 offset and cursor pages of the three list endpoints and the two by-id
+  requests cover the 200 offset and cursor pages of the three list endpoints and the three by-id
   reads, and the customer-filtered page and the product-filtered cursor page of `/order`; the
-  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`);
-  the 400 of a non-numeric id on both by-id paths, of an unknown sort property on `/order` and
-  `/products`, of a cursor combined with a page, of a negative `after`, of a `customerId` of 0
-  and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` on
-  `/customer`; the 404 of an unknown order, of an unknown product and of
-  an order for an unknown customer; and the 304 of a conditional `GET /order/{id}`,
-  `GET /products/{id}` and `GET /customer` page. The 409 and 500 bodies are validated
+  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name` and a
+  repeated product id); the 400 of a non-numeric id on the three by-id paths, of an unknown
+  sort property on `/order` and `/products`, of a cursor combined with a page, of a negative
+  `after`, of a `customerId` of 0 and of `customerId` combined with `productId` on `/order`,
+  and of a multi-word `name` on `/customer` (while a no-break space in `name` is accepted by
+  both); the 404 of an unknown order, product and customer and of an order for an unknown
+  customer; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+  `GET /customer/{id}` and `GET /customer` page. The 409 and 500 bodies are validated
   synthetically against `POST /order` and `GET /order`, because no real request reaches them
-  (there are no unique constraints and no injected failure). An undocumented response field, a
-  missing required field, an undeclared status or a request the specification would reject
-  fails the build, so the specification cannot drift from the implementation.
+  (there are no unique constraints and no injected failure). The specification declares
+  `X-Request-Id` as a required header on every response and `Location` on every 201, and the
+  validator enforces declared headers, so a response that drops either fails the check (the
+  synthetic 409 and 500 cases had to carry the id before they passed again). An undocumented
+  response field, a missing required field at any depth, a missing declared header, an
+  undeclared status or a request the specification would reject fails the build, so the
+  specification cannot drift from the implementation.
 
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Reports land
 in `build/reports`.
@@ -155,6 +160,7 @@ The contract is documented in `OpenAPI.yaml`.
 | `GET` | `/customer?after=&size=` | Cursor page of customers with an id greater than `after` |
 | `POST` | `/customer` | Create a customer: `{"name": "..."}` |
 | `GET` | `/customer?name=onne` | Customers whose name contains the word fragment (single word, case-insensitive) |
+| `GET` | `/customer/{id}` | A single customer with its newest orders and `orderCount` |
 | `GET` | `/order?page=&size=&sort=` | Page of orders, each with its customer and products |
 | `GET` | `/order?after=&size=` | Cursor page of orders with an id greater than `after` |
 | `GET` | `/order?customerId=1` | The orders of one customer, in either paging mode; an unknown id is an empty page |
@@ -190,12 +196,17 @@ Errors are RFC 7807 problem details; validation failures, whether of a request b
 query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
 names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
 never carry an id; unknown properties are rejected with 400. An order carries between 1 and 100
-products.
+products, each id at most once: a repeated id is a 400 naming `productIds`, not a silent
+de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
+the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
+so that a gateway rewriting the host stays correct, which RFC 9110 permits.
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
 unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the
 service for `CACHE_TTL`; `products` entries are evicted when an order containing the product is
 created, so its order ids and `orderCount` reflect the new order on the next read.
+`GET /customer/{id}` is not cached in the service: its `orderCount` changes on every
+`POST /order` and nothing keys customers for eviction, so each read costs its 2 statements.
 
 ## Operations
 The service listens on two ports. The API is served on 8080; the actuator is served on a
@@ -217,7 +228,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   shows the hit rate of the `orders` and `products` caches, and `http_server_requests_seconds`
   covers the API port only (management traffic is not recorded)
 * Every response carries an `X-Request-Id`. An inbound value is echoed when it matches
-  `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The filter runs
+  `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The header is
+  declared as required on every response in `OpenAPI.yaml` and the contract check enforces it.
+  The filter runs
   before every other filter, so 304, 400, 404 and 500 responses carry it too, and the id is in
   the MDC as `requestId` for the duration of the request, so every log line of a request can be
   found from the id a client quotes. There is no tracing library: no collector is in scope, and
