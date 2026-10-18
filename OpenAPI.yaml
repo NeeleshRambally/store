@@ -277,11 +277,12 @@ components:
     size:
       name: size
       in: query
-      description: Page size; values above 100 are capped at 100
+      description: >-
+        Page size. Values above 100 are accepted and capped at 100 rather than rejected, so the
+        schema carries no maximum; the size echoed in the response is the effective one.
       schema:
         type: integer
         minimum: 1
-        maximum: 100
         default: 20
     after:
       name: after
