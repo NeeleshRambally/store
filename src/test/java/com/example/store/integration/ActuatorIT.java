@@ -42,6 +42,28 @@ class ActuatorIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void readinessIncludesTheDatabaseWhileHealthDoesNot() {
+        ResponseEntity<String> readiness =
+                restTemplate.getForEntity(management("/actuator/health/readiness"), String.class);
+        ResponseEntity<String> health = restTemplate.getForEntity(management("/actuator/health"), String.class);
+
+        assertThat(readiness.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(readiness.getBody())
+                .contains("\"status\":\"UP\"")
+                .contains("\"db\":{\"status\":\"UP\"}")
+                .contains("\"readinessState\"");
+        assertThat(health.getBody()).doesNotContain("db");
+    }
+
+    @Test
+    void infoReportsTheBuildArtifactAndVersion() {
+        ResponseEntity<String> response = restTemplate.getForEntity(management("/actuator/info"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).contains("\"artifact\":\"store\"").contains("\"version\":\"1.0.0-SNAPSHOT\"");
+    }
+
+    @Test
     void prometheusMetricsAreScrapableOnTheManagementPort() {
         assertThat(restTemplate
                         .getForEntity(application("/order/1"), String.class)

@@ -26,6 +26,7 @@ services:
       DB_USERNAME: admin
       DB_PASSWORD: admin
       LIQUIBASE_CONTEXTS: seed
+    stop_grace_period: 30s
     ports:
       - "8080:8080"
       - "8081:8081"
