@@ -3,6 +3,8 @@ package com.example.store.integration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.boot.test.web.server.LocalManagementPort;
+import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -13,29 +15,40 @@ class ActuatorIT extends AbstractIntegrationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @LocalServerPort
+    private int serverPort;
+
+    @LocalManagementPort
+    private int managementPort;
+
     @Test
-    void livenessAndReadinessProbesAreExposed() {
+    void livenessAndReadinessProbesAreExposedOnTheManagementPort() {
         assertThat(restTemplate
-                        .getForEntity("/actuator/health/liveness", String.class)
+                        .getForEntity(management("/actuator/health/liveness"), String.class)
                         .getStatusCode())
                 .isEqualTo(HttpStatus.OK);
         assertThat(restTemplate
-                        .getForEntity("/actuator/health/readiness", String.class)
+                        .getForEntity(management("/actuator/health/readiness"), String.class)
                         .getStatusCode())
                 .isEqualTo(HttpStatus.OK);
     }
 
     @Test
     void healthReportsUpWithoutDetails() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/actuator/health", String.class);
+        ResponseEntity<String> response = restTemplate.getForEntity(management("/actuator/health"), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).contains("\"status\":\"UP\"").doesNotContain("db");
     }
 
     @Test
-    void prometheusMetricsAreScrapable() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/actuator/prometheus", String.class);
+    void prometheusMetricsAreScrapableOnTheManagementPort() {
+        assertThat(restTemplate
+                        .getForEntity(application("/order/1"), String.class)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        ResponseEntity<String> response = restTemplate.getForEntity(management("/actuator/prometheus"), String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody())
@@ -46,9 +59,29 @@ class ActuatorIT extends AbstractIntegrationTest {
 
     @Test
     void sensitiveEndpointsAreNotExposed() {
-        assertThat(restTemplate.getForEntity("/actuator/env", String.class).getStatusCode())
+        assertThat(restTemplate
+                        .getForEntity(management("/actuator/env"), String.class)
+                        .getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(restTemplate.getForEntity("/actuator/beans", String.class).getStatusCode())
+        assertThat(restTemplate
+                        .getForEntity(management("/actuator/beans"), String.class)
+                        .getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void actuatorIsAbsentFromTheApplicationPort() {
+        assertThat(restTemplate
+                        .getForEntity(application("/actuator/health"), String.class)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    private String application(String path) {
+        return "http://localhost:" + serverPort + path;
+    }
+
+    private String management(String path) {
+        return "http://localhost:" + managementPort + path;
     }
 }

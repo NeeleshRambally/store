@@ -18,5 +18,5 @@ COPY --from=build /workspace/extracted/application/ ./
 USER 10001
 ENV JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError" \
     LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
-EXPOSE 8080
+EXPOSE 8080 8081
 ENTRYPOINT ["java", "org.springframework.boot.loader.launch.JarLauncher"]
