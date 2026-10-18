@@ -9,14 +9,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-permissions:
-  contents: read
-  packages: write
-
 jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v7
 
@@ -44,6 +42,9 @@ jobs:
     name: docker
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     env:
       STORE_IMAGE: store:ci
     steps:
@@ -78,12 +79,12 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Scan image for critical vulnerabilities
+      - name: Scan image for critical and high vulnerabilities
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: store:ci
           format: table
-          severity: CRITICAL
+          severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
           trivyignores: .trivyignore
@@ -94,6 +95,7 @@ jobs:
           image: store:ci
           format: spdx-json
           output-file: sbom.spdx.json
+          upload-artifact: false
 
       - name: Upload SBOM
         uses: actions/upload-artifact@v7

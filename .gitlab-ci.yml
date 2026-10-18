@@ -1,3 +1,8 @@
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
 stages:
   - build
   - package
@@ -68,7 +73,7 @@ scan:
     entrypoint: [""]
   needs: [package]
   script:
-    - trivy image --input image.tar --severity CRITICAL --ignore-unfixed --ignorefile .trivyignore --exit-code 1 --format table
+    - trivy image --input image.tar --severity CRITICAL,HIGH --ignore-unfixed --ignorefile .trivyignore --exit-code 1 --format table
     - trivy image --input image.tar --format cyclonedx --output sbom.cdx.json
   artifacts:
     paths:
@@ -85,6 +90,6 @@ publish:
   script:
     - docker load -i image.tar
     - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
-    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
     - docker push "$CI_REGISTRY_IMAGE:latest"
