@@ -5,7 +5,8 @@ set -eu
 app=$1
 mgmt=$2
 body=$(mktemp)
-trap 'rm -f "$body"' EXIT
+oversized=$(mktemp)
+trap 'rm -f "$body" "$oversized"' EXIT
 
 request() {
   : > "$body"
@@ -46,6 +47,10 @@ contains "GET /order/1" '"id":1'
 contains "GET /order/1" '"products"'
 
 expect "POST /customer" 201 -X POST -H 'Content-Type: application/json' -d '{"name":"Smoke Test"}' "$app/customer"
+
+head -c 70000 /dev/zero | tr '\0' a > "$oversized"
+expect "POST /order with a 70000 byte body" 413 -X POST -H 'Content-Type: application/json' --data-binary "@$oversized" "$app/order"
+contains "POST /order with a 70000 byte body" 'Request body exceeds 65536 bytes'
 
 expect "GET /products/2" 200 "$app/products/2"
 contains "GET /products/2" '"orders"'

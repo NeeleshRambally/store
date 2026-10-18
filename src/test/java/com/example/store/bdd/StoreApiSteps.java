@@ -116,6 +116,13 @@ public class StoreApiSteps {
         post("/order", payload);
     }
 
+    @When("I create an order with a body of {int} bytes")
+    public void createOrderWithBodyOf(int bytes) throws Exception {
+        String prefix = "{\"description\":\"";
+        String suffix = "\",\"customerId\":1,\"productIds\":[1]}";
+        post("/order", prefix + "a".repeat(bytes - prefix.length() - suffix.length()) + suffix);
+    }
+
     @When("I request customers with page {int} and size {int}")
     public void requestCustomersPage(int page, int size) throws Exception {
         get("/customer?page=" + page + "&size=" + size);
