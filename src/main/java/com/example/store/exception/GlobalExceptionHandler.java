@@ -2,6 +2,7 @@ package com.example.store.exception;
 
 import lombok.extern.slf4j.Slf4j;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,7 +42,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        Throwable cause = ex.getMostSpecificCause();
+        if (ex.getCause() instanceof ConstraintViolationException violation) {
+            log.warn(
+                    "Data integrity violation: SQL state {}, constraint {}",
+                    violation.getSQLState(),
+                    violation.getConstraintName());
+        } else {
+            log.warn("Data integrity violation: {}", cause.getClass().getName());
+        }
+        log.debug("Data integrity violation", cause);
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "The request conflicts with existing data");
     }
 
@@ -48,6 +59,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     ProblemDetail handleUnexpected(Exception ex) {
         log.error("Unhandled exception", ex);
         return ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMessageNotReadable(
+            HttpMessageNotReadableException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (ex.getRootCause() instanceof RequestBodyTooLargeException tooLarge) {
+            return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                    .headers(headers)
+                    .body(ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, tooLarge.getMessage()));
+        }
+        return super.handleHttpMessageNotReadable(ex, headers, status, request);
     }
 
     @Override

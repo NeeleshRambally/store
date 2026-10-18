@@ -79,6 +79,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
       operationId: createOrder
@@ -199,6 +201,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
       operationId: createCustomer
@@ -307,6 +311,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
       operationId: createProduct
@@ -568,6 +574,24 @@ components:
             title: Conflict
             status: 409
             detail: The request conflicts with existing data
+            instance: /order
+    PayloadTooLarge:
+      description: >-
+        The request body exceeds the configured bound (65536 bytes by default, REQUEST_MAX_BODY_BYTES),
+        judged by the declared Content-Length before any byte is read or by the bytes counted
+        while a chunked body is read; the connection is closed after the response
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: about:blank
+            title: Payload Too Large
+            status: 413
+            detail: Request body exceeds 65536 bytes
             instance: /order
     ServerError:
       description: >-

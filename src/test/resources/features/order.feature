@@ -27,6 +27,11 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "productIds"
 
+  Scenario: An oversized order body is rejected
+    When I create an order with a body of 65537 bytes
+    Then the response status is 413
+    And the response problem detail is "Request body exceeds 65536 bytes"
+
   Scenario: An order with an unknown product is rejected
     When I create an order "Analytical Engine" for customer 1 with products 2 and 999999
     Then the response status is 404
