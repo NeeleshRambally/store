@@ -38,7 +38,7 @@ class InsertBatchingIT extends AbstractIntegrationTest {
     private EntityManagerFactory entityManagerFactory;
 
     @Test
-    void threeOrdersFlushedTogetherUseAtMostThreeStatements() {
+    void threeOrdersFlushedTogetherUseTwoStatementsPlusTheBlockAllocation() {
         Statistics statistics =
                 entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
@@ -62,6 +62,6 @@ class InsertBatchingIT extends AbstractIntegrationTest {
         });
 
         assertThat(statistics.getEntityInsertCount()).isEqualTo(3);
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(3);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(2L, 3L);
     }
 }
