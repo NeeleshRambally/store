@@ -1,6 +1,7 @@
 stages:
   - build
   - package
+  - smoke
   - scan
 
 variables:
@@ -48,6 +49,23 @@ package:
     paths:
       - image.tar
     expire_in: 1 day
+
+smoke:
+  stage: smoke
+  image: docker:27
+  services:
+    - docker:27-dind
+  needs: [package]
+  variables:
+    STORE_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+  script:
+    - apk add --no-cache curl
+    - docker load -i image.tar
+    - docker compose up -d --no-build
+    - sh scripts/smoke-test.sh http://docker:8080 http://docker:8081
+  after_script:
+    - if [ "$CI_JOB_STATUS" = "failed" ]; then docker compose logs store; fi
+    - docker compose down -v
 
 scan:
   stage: scan
