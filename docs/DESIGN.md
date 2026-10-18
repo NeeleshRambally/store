@@ -10,7 +10,11 @@ decision.
 
 ## Running locally
 The README's instructions still work: start PostgreSQL 16.2 on port 5433 with `admin:admin` and
-a `store` database, then `./gradlew bootRun`.
+a `store` database, then `./gradlew bootRun`. `bootRun` sets `spring.profiles.default=local`, and
+the `local` profile (`application-local.yaml`) is the README path: the 5433 URL, `admin:admin`
+and the `seed` Liquibase context as defaults, plus formatted SQL in the logs. An explicit
+`SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces the default profile; the
+container image and CI set every variable explicitly and never use `local`.
 
 The alternative is Docker Compose, which starts PostgreSQL 16.2 on port 5434 and the service
 image:
@@ -23,26 +27,34 @@ the database on localhost:5434.
 To run the service from Gradle against that database instead:
 ```shell
 docker compose up -d postgres
-./gradlew bootRun --args='--spring.profiles.active=local'
+DB_URL=jdbc:postgresql://localhost:5434/store ./gradlew bootRun
 ```
 
 Liquibase migrates the schema on start-up. Sample data (100 customers, 10,000 orders, 100
-products) is loaded when the `seed` Liquibase context is active, which is the default; set
-`LIQUIBASE_CONTEXTS=prod` to skip it. More data can be generated with the script described in
+products) is loaded when the `seed` Liquibase context is active, which it is under the `local`
+profile, in the tests and in `compose.yaml`; the base configuration applies the context-free
+changesets only (`LIQUIBASE_CONTEXTS` defaults to `prod`), so an environment that sets nothing
+gets the schema and no sample rows. More data can be generated with the script described in
 `utils/README.md`.
 
 ## Configuration
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DB_URL` | `jdbc:postgresql://localhost:5433/store` (`5434` with the `local` profile) | JDBC URL |
-| `DB_USERNAME` | `admin` | Database user |
-| `DB_PASSWORD` | `admin` | Database password |
-| `LIQUIBASE_CONTEXTS` | `seed` | Liquibase contexts to apply |
+| `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL |
+| `DB_USERNAME` | none (`admin` under the `local` profile) | Database user; without it the first connection fails and the process exits |
+| `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password; without it the first connection fails and the process exits |
+| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
+
+A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
+binds the unresolved placeholder as a literal, so the process fails at Liquibase's first
+connection (`password authentication failed for user "${DB_USERNAME}"` when a server answers,
+`Connection refused` otherwise; HikariCP makes one attempt) and exits. That is the fail-closed
+behaviour: no environment can start on the sample credentials by omission.
 
 ## Development workflow
 Every change goes through a pull request. The pipeline must be green and the change reviewed
@@ -86,7 +98,7 @@ in `build/reports`.
    pipeline; results appear under Security), attaches an SPDX SBOM as an artifact, starts the
    built image with Compose (`STORE_IMAGE=store:ci docker compose up -d --no-build`) and runs
    `scripts/smoke-test.sh` against it: the container must report readiness `UP` on 8081 within
-   120 seconds, serve `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page on
+   120 seconds with the `db` component in the body, serve `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page on
    8080, answer 404 for `/actuator/health` on 8080 and 200 for the liveness probe on 8081. A
    failing check prints the container logs and fails the job; the stack is always torn down. On
    `main` the job then pushes the image to GitHub Container Registry as
@@ -171,16 +183,39 @@ separate management connector, 8081 by default (`MANAGEMENT_PORT`), and is absen
 (`/actuator/health` on the application port is a 404). The ingress exposes 8080 only, so the
 probes and metrics are reachable from inside the cluster but never from the public network.
 * `GET :8081/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`;
-  readiness is Spring's `ReadinessState`, which flips to `ACCEPTING_TRAFFIC` once the context
-  has started and back on shutdown, so it does not prove that the API connector answers; the
-  container smoke test of the pipeline does that
+  liveness is Spring's `LivenessState`; readiness combines `ReadinessState` (which flips to
+  `ACCEPTING_TRAFFIC` once the context has started and back on shutdown) with the database
+  indicator, so a replica that has lost its database is taken out of rotation, and the body
+  names its components without details
+  (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`);
+  `/actuator/health` stays detail-free. Neither probe proves that the API connector answers;
+  the container smoke test of the pipeline does that. ADR 0008 records the trade-off.
+* `GET :8081/actuator/info` reports the build (`build.artifact`, `build.name`, `build.group`,
+  `build.version`) from `META-INF/build-info.properties`, generated without the build time so
+  that a rebuild of unchanged sources is cacheable
 * `GET :8081/actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}`
   shows the hit rate of the `orders` and `products` caches, and `http_server_requests_seconds`
   covers the API port only (management traffic is not recorded)
+* Every response carries an `X-Request-Id`. An inbound value is echoed when it matches
+  `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The filter runs
+  before every other filter, so 304, 400, 404 and 500 responses carry it too, and the id is in
+  the MDC as `requestId` for the duration of the request, so every log line of a request can be
+  found from the id a client quotes. There is no tracing library: no collector is in scope, and
+  the header is where a gateway's or a later tracer's id attaches.
 * `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
   interceptor are registered for the API paths only
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`)
-* Shutdown is graceful with a 20 second drain
+  with `service.name` and `service.version` taken from `spring.application.name` and the
+  build version, and `requestId` as a field on every line written while a request is handled
+* Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
+  stop grace for it, and a Kubernetes deployment needs the same margin in
+  `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
+* A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
+  process exits during start-up and the orchestrator reports a crash, not a running service
+  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data (see Configuration)
+* Liquibase runs in the application process at start-up with the runtime role; ADR 0008
+  records why, which changeset needs a privileged role, and the path to a separate migration
+  job
 
 ## Further reading
 * `docs/ASSUMPTIONS.md`: the judgement calls behind each task and how they can be defended.

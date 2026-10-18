@@ -3,8 +3,8 @@ spring:
     name: store
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/store}
-    username: ${DB_USERNAME:admin}
-    password: ${DB_PASSWORD:admin}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
     hikari:
       maximum-pool-size: ${DB_POOL_SIZE:10}
       connection-timeout: 5000
@@ -36,7 +36,7 @@ spring:
       fail-on-unknown-properties: true
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
-    contexts: ${LIQUIBASE_CONTEXTS:seed}
+    contexts: ${LIQUIBASE_CONTEXTS:prod}
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
@@ -63,6 +63,10 @@ management:
       probes:
         enabled: true
       show-details: never
+      group:
+        readiness:
+          include: readinessState,db
+          show-components: always
   metrics:
     tags:
       application: ${spring.application.name}
