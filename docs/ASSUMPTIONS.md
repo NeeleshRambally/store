@@ -399,7 +399,7 @@ revision), what was done, and where the reasoning lives.
 - `utils/generateData.js`: unescaped quotes in the generated SQL (`:8`, `:14`; Faker's English
   surnames include `O'Keefe`, so a regenerated file could fail to load), explicit ids (`:8`, `:14`), an unseeded `Math.random()` for the
   customer of each order (`:13`) and the `faker.name` module (`:8`): quotes are escaped, the
-  generator is seeded end to end and tested for it, the explicit ids are kept because changeset 3
+  generator is seeded end to end and tested for it in the pipeline, the explicit ids are kept because changeset 3
   aligns the sequences after the load, and `faker.name` is kept because the locked Faker 7.6.0
   has no `faker.person` (the rename arrived in Faker 8, whose upgrade would change every
   generated name); `utils/README.md`.
