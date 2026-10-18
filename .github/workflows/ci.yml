@@ -30,7 +30,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build and run all tests
-        run: ./gradlew spotlessCheck build --no-daemon
+        run: ./gradlew spotlessCheck build test --rerun --no-daemon
 
       - name: Upload test and coverage reports
         if: always()
@@ -46,6 +46,8 @@ jobs:
     name: docker
     needs: build
     runs-on: ubuntu-latest
+    env:
+      STORE_IMAGE: store:ci
     steps:
       - uses: actions/checkout@v4
 
@@ -108,6 +110,21 @@ jobs:
         with:
           name: sbom
           path: sbom.spdx.json
+
+      - name: Start the stack
+        run: docker compose up -d --no-build
+
+      - name: Smoke test
+        id: smoke
+        run: sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081
+
+      - name: Container logs
+        if: failure() && steps.smoke.outcome == 'failure'
+        run: docker compose logs store
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans
 
       - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

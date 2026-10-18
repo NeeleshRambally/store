@@ -3,8 +3,10 @@
 .idea
 build
 utils/node_modules
-*.md
+**/*.md
 !README.md
+docs
+scripts
 .github
 .gitlab-ci.yml
 compose.yaml
