@@ -38,3 +38,13 @@ Feature: Product catalogue
     When I request products after 5 with size 5
     Then the page has 5 products starting at id 6
     And the next cursor is 10
+
+  Scenario: A product lists an order created after the product was read
+    When I create a product described as "Cached Lamp"
+    Then the response status is 201
+    When I request the product created above
+    Then the response product has no orders
+    When I create an order "Lamp order" for customer 1 with the product created above
+    Then the response status is 201
+    When I request the product created above
+    Then the response product lists the order created above

@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -30,6 +31,8 @@ public class StoreApiSteps {
 
     private ResponseEntity<String> response;
     private JsonNode body;
+    private long createdProductId;
+    private long createdOrderId;
 
     @When("I create a customer named {string}")
     public void createCustomerNamed(String name) throws Exception {
@@ -58,11 +61,31 @@ public class StoreApiSteps {
     @When("I create a product described as {string}")
     public void createProduct(String description) throws Exception {
         post("/products", objectMapper.writeValueAsString(Map.of("description", description)));
+        createdProductId = body.path("id").asLong();
     }
 
     @When("I request product {int}")
     public void requestProduct(int id) throws Exception {
         get("/products/" + id);
+    }
+
+    @When("I request the product created above")
+    public void requestCreatedProduct() throws Exception {
+        get("/products/" + createdProductId);
+    }
+
+    @When("I create an order {string} for customer {int} with the product created above")
+    public void createOrderWithCreatedProduct(String description, int customerId) throws Exception {
+        post(
+                "/order",
+                objectMapper.writeValueAsString(Map.of(
+                        "description",
+                        description,
+                        "customerId",
+                        customerId,
+                        "productIds",
+                        List.of(createdProductId))));
+        createdOrderId = body.path("id").asLong();
     }
 
     @When("I request products with page {int} and size {int}")
@@ -93,6 +116,13 @@ public class StoreApiSteps {
     @When("I request order {int}")
     public void requestOrder(int id) throws Exception {
         get("/order/" + id);
+    }
+
+    @When("I request order {int} again with that ETag")
+    public void requestOrderWithETag(int id) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(response.getHeaders().getETag());
+        capture(restTemplate.exchange("/order/" + id, HttpMethod.GET, new HttpEntity<>(headers), String.class));
     }
 
     @When("I search customers by name {string}")
@@ -180,6 +210,25 @@ public class StoreApiSteps {
         assertThat(body.get("description").asText()).isEqualTo(description);
         assertThat(body.get("id").asLong()).isGreaterThan(100L);
         assertThat(body.get("orders")).isEmpty();
+    }
+
+    @Then("the response product has no orders")
+    public void responseProductHasNoOrders() {
+        assertThat(body.get("id").asLong()).isEqualTo(createdProductId);
+        assertThat(body.get("orders")).isEmpty();
+    }
+
+    @Then("the response product lists the order created above")
+    public void responseProductListsCreatedOrder() {
+        assertThat(body.get("id").asLong()).isEqualTo(createdProductId);
+        List<Long> orders = new java.util.ArrayList<>();
+        body.get("orders").forEach(node -> orders.add(node.asLong()));
+        assertThat(orders).containsExactly(createdOrderId);
+    }
+
+    @Then("the response carries a weak ETag")
+    public void responseCarriesWeakETag() {
+        assertThat(response.getHeaders().getETag()).startsWith("W/\"");
     }
 
     @Then("the response product has id {int} and its orders include {int} and {int}")

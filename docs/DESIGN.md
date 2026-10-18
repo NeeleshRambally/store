@@ -38,6 +38,8 @@ products) is loaded when the `seed` Liquibase context is active, which is the de
 | `DB_PASSWORD` | `admin` | Database password |
 | `LIQUIBASE_CONTEXTS` | `seed` | Liquibase contexts to apply |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
+| `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
+| `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 
 ## Development workflow
 Every change goes through a pull request. The pipeline must be green and the change reviewed
@@ -105,10 +107,16 @@ whose first property is not `id` ascending; that is a 400 problem detail with th
 `after cannot be combined with page or sort` (ADR 0003, "Keyset pagination").
 Errors are RFC 7807 problem details; validation failures include an `errors` array with the
 offending field names. Requests never carry an id; unknown properties are rejected with 400.
+Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
+back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
+unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the
+service for `CACHE_TTL`; `products` entries are evicted when an order containing the product is
+created.
 
 ## Operations
 * `GET /actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`
-* `GET /actuator/prometheus` for scraping
+* `GET /actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}` shows
+  the hit rate of the `orders` and `products` caches
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`)
 * Shutdown is graceful with a 20 second drain
 

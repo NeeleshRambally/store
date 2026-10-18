@@ -26,6 +26,11 @@ spring:
     web:
       pageable:
         max-page-size: 100
+  cache:
+    type: ${CACHE_TYPE:caffeine}
+    cache-names: orders,products
+    caffeine:
+      spec: maximumSize=10000,expireAfterWrite=${CACHE_TTL:60s},recordStats
   jackson:
     deserialization:
       fail-on-unknown-properties: true
