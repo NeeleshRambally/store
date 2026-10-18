@@ -40,6 +40,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | HTTP response compression (gzip for JSON above 1 KB) | A 100-item order page shrinks from roughly 10 KB to under 4 KB on the wire |
 | HikariCP pool size and timeouts made explicit and configurable | Predictable behaviour under load; fail fast when the database is unreachable |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
+| Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
 | `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, and the zero entity loads of every list page | A reintroduced N+1, or a list page that starts loading entities again, fails the build, not production |
 
 ## Results
@@ -50,6 +51,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /customer` | 11 | 3 | 503 KB | ~20 KB |
 | `GET /order/{id}` | n/a | 1 | n/a | ~100 B |
 | `GET /customer?name=` | n/a | 2 or 3 | n/a | bounded by the page |
+| `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | bounded by the page |
 
 With a remote database the request latency is now a small constant number of round trips
 regardless of data volume, and the amount of data transferred is bounded by the page size.
@@ -75,6 +77,24 @@ the read services were already `@Transactional(readOnly = true)`, which disables
 by-id endpoints keep their single-statement entity-graph queries and MapStruct mapping; one
 entity with its children is cheap and the mapper is the only place that code lives.
 
+## Deep pages
+`LIMIT/OFFSET` makes the database read and discard every row before the requested page, so the
+cost of an offset page grows with its depth, and each page also pays the count query. With
+`after=<id>` the page query seeks into the primary key index and the count is skipped. Plans
+measured with `EXPLAIN (ANALYZE)` on PostgreSQL 16.2 with the seeded 10,000 orders (local
+database, warm cache; the absolute times only show the ratio, the production database adds a
+network round trip to each statement):
+
+| Request | Page query | Rows the plan walks | Query time | Statements |
+|---------|------------|---------------------|------------|------------|
+| `GET /order?page=499&size=20` | `order by id offset 9980 rows fetch first 20 rows only` | 10,000 index entries of `order_pkey` and 10,000 customer lookups, 9,980 of them thrown away | 6.4 ms, plus 0.9 ms for `select count(*)` | 3 |
+| `GET /order?after=9980&size=20` | `where id > 9980 order by id fetch first 21 rows only` | 20 index entries and 20 customer lookups | 0.07 to 0.09 ms, no count | 2 |
+
+The first page costs the same in both modes; the saving is proportional to the depth. The
+cursor is the last id of the page (`nextCursor`), so a client walks the whole table in
+`ceil(n / size)` requests of constant cost, and `QueryCountIT` pins the 2 statements for all
+four cursor queries.
+
 ## Write path
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch, and
 with `reWriteBatchedInserts=true` it sends a batch as one multi-row `INSERT`. Measured with
@@ -93,7 +113,5 @@ inserts regardless of the batch size.
 ## Considered and not done (yet)
 - **Second-level or HTTP caching.** Orders and customers are mutable and the read patterns are
   paged scans; caching would add invalidation complexity without a demonstrated hit rate.
-- **Keyset (cursor) pagination.** `OFFSET` degrades on deep pages; keyset pagination on `id` is
-  the next step if clients page deep into the order table.
 - **Separate management port.** Operational hardening rather than performance; planned with the
   authentication phase.

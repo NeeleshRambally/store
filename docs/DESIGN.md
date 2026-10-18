@@ -80,12 +80,15 @@ The contract is documented in `OpenAPI.yaml`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/customer?page=&size=&sort=` | Page of customers, each with its orders |
+| `GET` | `/customer?after=&size=` | Cursor page of customers with an id greater than `after` |
 | `POST` | `/customer` | Create a customer: `{"name": "..."}` |
 | `GET` | `/customer?name=onne` | Customers whose name contains the word fragment (single word, case-insensitive) |
 | `GET` | `/order?page=&size=&sort=` | Page of orders, each with its customer and products |
+| `GET` | `/order?after=&size=` | Cursor page of orders with an id greater than `after` |
 | `GET` | `/order/{id}` | A single order with its customer and products |
 | `POST` | `/order` | Create an order: `{"description": "...", "customerId": 1, "productIds": [2, 8]}` |
 | `GET` | `/products?page=&size=&sort=` | Page of products, each with the ids of the orders containing it |
+| `GET` | `/products?after=&size=` | Cursor page of products with an id greater than `after` |
 | `GET` | `/products/{id}` | A single product with the ids of the orders containing it |
 | `POST` | `/products` | Create a product: `{"description": "..."}` |
 
@@ -93,6 +96,13 @@ List responses are a page envelope: `content`, `page`, `size`, `totalElements`, 
 The default page size is 20, the maximum 100, and the default sort is by `id`. `sort` takes
 `property,(asc|desc)` and accepts only `id` and `description` on `/order` and `/products` and
 `id` and `name` on `/customer`; any other property is a 400 problem detail (ADR 0006).
+With `after` the same endpoints switch to keyset (cursor) pagination: the response is a cursor
+envelope (`content`, `size`, `nextCursor`) holding the elements whose id is greater than `after`
+in ascending id order; `nextCursor` is the id of the last element while more exist and `null`
+when the walk is complete. `after=0` starts a walk, `size` keeps its default and cap, and `name`
+still filters customers. `after` cannot be combined with `page` (other than 0) or with a `sort`
+whose first property is not `id` ascending; that is a 400 problem detail with the detail
+`after cannot be combined with page or sort` (ADR 0003, "Keyset pagination").
 Errors are RFC 7807 problem details; validation failures include an `errors` array with the
 offending field names. Requests never carry an id; unknown properties are rejected with 400.
 
