@@ -36,6 +36,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -62,6 +64,11 @@ paths:
       responses:
         '201':
           description: Created
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -106,6 +113,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -130,11 +139,13 @@ paths:
           in: query
           required: false
           description: >-
-            Case-insensitive substring of one word of the customer's name. Must be a single word
-            (no whitespace). When omitted, all customers are returned.
+            Case-insensitive substring of one word of the customer's name. Must be a single word:
+            no ASCII whitespace (space, tab, line feed, vertical tab, form feed, carriage
+            return); any other character, a no-break space included, is part of the word and
+            matched literally. When omitted, all customers are returned.
           schema:
             type: string
-            pattern: '^\S+$'
+            pattern: '^[^ \t\r\n\f\u000B]+$'
             example: onne
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
@@ -149,6 +160,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -173,6 +186,11 @@ paths:
       responses:
         '201':
           description: Created
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -191,6 +209,46 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/CreateCustomerRequest'
+  /customer/{id}:
+    get:
+      summary: Get Customer
+      tags:
+        - store
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: A non-numeric value is rejected with 400
+          schema:
+            type: integer
+            format: int64
+        - $ref: '#/components/parameters/ifNoneMatch'
+      responses:
+        '200':
+          description: OK
+          headers:
+            ETag:
+              $ref: '#/components/headers/ETag'
+            Cache-Control:
+              $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Customer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '304':
+          $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
+      operationId: getCustomer
+      description: >-
+        Get a single customer by id, with its newest orders (bounded like the list items) and
+        orderCount, the total
   /products:
     get:
       summary: Get Products
@@ -210,6 +268,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -234,6 +294,11 @@ paths:
       responses:
         '201':
           description: Created
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -274,6 +339,8 @@ paths:
               $ref: '#/components/headers/ETag'
             Cache-Control:
               $ref: '#/components/headers/CacheControl'
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
           content:
             application/json:
               schema:
@@ -397,6 +464,24 @@ components:
         type: string
         example: description,asc
   headers:
+    RequestId:
+      description: >-
+        Correlation id of the request, on every response of every operation. The inbound
+        X-Request-Id is echoed when it matches the pattern; otherwise, or when absent, a UUID is
+        generated. Quote it when reporting a problem: it is on every log line of the request.
+      required: true
+      schema:
+        type: string
+        pattern: '^[A-Za-z0-9._-]{1,128}$'
+        example: 7f3c2a1e-9b4d-4c6e-8a2f-1d5e6f7a8b9c
+    Location:
+      description: >-
+        The path of the created resource (/order/{id}, /products/{id} or /customer/{id}),
+        relative to the server that answered so that a gateway rewriting the host stays correct
+      required: true
+      schema:
+        type: string
+        example: /order/10001
     ETag:
       description: >-
         Weak validator of the response body (W/"..."); send it back in If-None-Match to
@@ -420,10 +505,15 @@ components:
           $ref: '#/components/headers/ETag'
         Cache-Control:
           $ref: '#/components/headers/CacheControl'
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
     BadRequest:
       description: >-
         The request is malformed, fails validation, sorts by a property outside the documented
         list, combines after with page or sort, or combines customerId with productId
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/problem+json:
           schema:
@@ -455,6 +545,9 @@ components:
                 instance: /order
     NotFound:
       description: The referenced resource does not exist
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/problem+json:
           schema:
@@ -463,6 +556,9 @@ components:
       description: >-
         The write conflicts with existing data (a database constraint rejected it); the body
         is a problem detail without internal details
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/problem+json:
           schema:
@@ -477,6 +573,9 @@ components:
       description: >-
         An unexpected failure; the body is a problem detail without internal details (no
         detail property, no stack trace)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
       content:
         application/problem+json:
           schema:
@@ -533,9 +632,10 @@ components:
           type: array
           minItems: 1
           maxItems: 100
+          uniqueItems: true
           description: >-
-            Ids of the products contained in the order, between 1 and 100 of them; every id must
-            exist
+            Ids of the products contained in the order, between 1 and 100 of them, without
+            repetition; every id must exist
           items:
             type: integer
             format: int64
@@ -624,6 +724,9 @@ components:
           type: string
         customer:
           type: object
+          required:
+            - id
+            - name
           properties:
             id:
               type: integer
@@ -635,6 +738,9 @@ components:
           description: The products contained in the order, ascending by id
           items:
             type: object
+            required:
+              - id
+              - description
             properties:
               id:
                 type: integer
@@ -662,6 +768,9 @@ components:
             (20 by default), in ascending id order; the full list is GET /order?customerId={id}
           items:
             type: object
+            required:
+              - id
+              - description
             properties:
               id:
                 type: integer

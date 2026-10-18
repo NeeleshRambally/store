@@ -33,6 +33,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /products`: the same shape, rows then one row query for the order ids of exactly those products | 3 statements for a full page |
 | `GET /order/{id}`: entity graph on `findById` | 1 statement; this path still loads the entity and maps it with MapStruct |
 | `GET /products/{id}`: the product row plus the bounded order-id window below | 2 statements, no entity loaded |
+| `GET /customer/{id}`: the customer row plus the bounded order window below | 2 statements, no entity loaded; 1 on a miss; deliberately not cached in the service because `orderCount` changes on every `POST /order` |
 | Nested collections bounded: a customer carries its newest `NESTED_ORDERS_LIMIT` orders (default 20) and a product the ids of its newest `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query per page (`row_number() over (partition by customer_id order by id desc)` with `count(*) over (partition by customer_id)`, the same over `order_product`) returns the newest rows and the total of every parent on the page | Statement counts unchanged (3 per page, 2 per cursor page); the orders per customer and the ids per product no longer grow with the table, `orderCount` carries the total and `GET /order?customerId=` / `?productId=` the full list (ADR 0003, "Nested collections") |
 | `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements for a full page, 2 for a short first page; the predicate is `lower(name) LIKE lower('%...%')`, which the index serves once the table is large enough and never for a pattern shorter than three characters (see "Substring search" below) |
 | `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006) |
@@ -46,7 +47,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
-| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read | A reintroduced N+1, a list page that starts loading entities again or a by-id read that stops being cached fails the build, not production |
+| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached) | A reintroduced N+1, a list page that starts loading entities again or a by-id read that stops being cached fails the build, not production |
 
 ## Results
 
@@ -57,6 +58,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /products` | n/a | 3 | n/a | 3,427 B / 975 B (default page); 16,901 B / 4,529 B with `size=100` |
 | `GET /order/{id}`, `GET /products/{id}` (cold) | n/a | 1, 2 | n/a | 178 B (`/order/1`), 165 B (`/products/2`, 20 of its 200 order ids); under the 1 KB compression threshold, so sent as is |
 | `GET /order/{id}`, `GET /products/{id}` (same id within 60 s) | n/a | 0, no session | n/a | the same bodies, or 0 B with a matching `If-None-Match` |
+| `GET /customer/{id}` | n/a | 2 (1 on a miss); every read, there is no service cache | n/a | 1,049 B / 418 B (`/customer/1`, 20 of its ~100 orders) |
 | `GET /customer?name=` | n/a | 3 for a full page, 2 for a short first page | n/a | 1,115 B / 467 B for `name=onne` (one customer on the seed) |
 | `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | 3,763 B / 949 B, 21,315 B / 4,088 B, 3,399 B / 956 B (`after=0`, default size) |
 | `GET /order?customerId=`, `GET /order?productId=` | n/a | 3 (2 with `after`) | n/a | 3,836 B / 740 B (`customerId=1`, default page); 18,095 B / 2,132 B with `size=100` |
@@ -93,6 +95,7 @@ the statement counts are unchanged.
 | `GET /customer?name=a&size=5` | 502 | 0 | 3 → 3 |
 | `GET /products?size=20` | 3,422 (20 products and the 3,402 orders containing them) | 0 | 3 → 3 |
 | `GET /products/2` | 203 (the product and the orders containing it, through the entity graph) | 0 | 1 → 2 |
+| `GET /customer/1` | n/a (the endpoint is new) | 0 | 2 |
 
 This saves CPU and allocation on the service, not round trips. It does not save a dirty check:
 the read services were already `@Transactional(readOnly = true)`, which disables flushing.

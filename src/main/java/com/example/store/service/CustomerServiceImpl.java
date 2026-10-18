@@ -6,6 +6,7 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.CustomerOrderDTO;
+import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.CustomerMapper;
 import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.view.CustomerOrderRow;
@@ -39,6 +40,13 @@ public class CustomerServiceImpl implements CustomerService {
     @Transactional
     public CustomerDTO create(CreateCustomerRequest request) {
         return customerMapper.customerToCustomerDTO(customerRepository.save(customerMapper.toEntity(request)));
+    }
+
+    @Override
+    public CustomerDTO findById(Long id) {
+        CustomerRow row =
+                customerRepository.findRow(id).orElseThrow(() -> new ResourceNotFoundException("Customer", id));
+        return withOrders(List.of(row)).get(0);
     }
 
     @Override

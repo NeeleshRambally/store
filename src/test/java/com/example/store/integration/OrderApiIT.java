@@ -70,6 +70,20 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsRepeatedProductIds() {
+        ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
+                "/order",
+                Map.of("description", "Twice", "customerId", 1, "productIds", List.of(2, 2)),
+                ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("productIds");
+    }
+
+    @Test
     void returnsNotFoundForUnknownCustomer() {
         ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
                 "/order",

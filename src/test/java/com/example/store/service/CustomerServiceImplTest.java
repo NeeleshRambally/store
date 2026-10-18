@@ -8,6 +8,7 @@ import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.CustomerOrderDTO;
 import com.example.store.entity.Customer;
 import com.example.store.exception.InvalidSortPropertyException;
+import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.CustomerMapper;
 import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.view.CustomerOrderRow;
@@ -28,6 +29,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,6 +71,47 @@ class CustomerServiceImplTest {
         assertThat(result.name()).isEqualTo("Ada Lovelace");
         assertThat(result.orders()).isEmpty();
         assertThat(result.orderCount()).isZero();
+    }
+
+    @Test
+    void findByIdReturnsCustomerWithItsNewestOrdersAndTheTotal() {
+        service = new CustomerServiceImpl(
+                customerRepository, Mappers.getMapper(CustomerMapper.class), new NestedOrdersProperties(2));
+        when(customerRepository.findRow(1L)).thenReturn(Optional.of(new CustomerRow(1L, "Ada Lovelace")));
+        when(customerRepository.findOrderRows(List.of(1L), 2))
+                .thenReturn(List.of(
+                        new CustomerOrderRow(1L, 5L, "Analytical Engine", 7),
+                        new CustomerOrderRow(1L, 7L, "Difference Engine", 7)));
+
+        CustomerDTO result = service.findById(1L);
+
+        assertThat(result.id()).isEqualTo(1L);
+        assertThat(result.name()).isEqualTo("Ada Lovelace");
+        assertThat(result.orders())
+                .containsExactly(
+                        new CustomerOrderDTO(5L, "Analytical Engine"), new CustomerOrderDTO(7L, "Difference Engine"));
+        assertThat(result.orderCount()).isEqualTo(7);
+    }
+
+    @Test
+    void findByIdReturnsACustomerWithoutOrders() {
+        when(customerRepository.findRow(9L)).thenReturn(Optional.of(new CustomerRow(9L, "Grace Hopper")));
+        when(customerRepository.findOrderRows(List.of(9L), 20)).thenReturn(List.of());
+
+        CustomerDTO result = service.findById(9L);
+
+        assertThat(result.orders()).isEmpty();
+        assertThat(result.orderCount()).isZero();
+    }
+
+    @Test
+    void findByIdRejectsUnknownCustomer() {
+        when(customerRepository.findRow(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.findById(99L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Customer with id 99 was not found");
+        verify(customerRepository, never()).findOrderRows(any(), anyInt());
     }
 
     @Test

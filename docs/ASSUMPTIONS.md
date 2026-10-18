@@ -43,7 +43,22 @@ delivered.
   is why `after` combined with `page` or another `sort` is a 400 problem detail
   (`after cannot be combined with page or sort`). See ADR 0003.
 - `POST /order` takes `customerId` rather than a nested customer object; an unknown customer is
-  a 404 and a missing one a 400.
+  a 404 and a missing one a 400. A product id listed twice is a 400 naming `productIds`
+  (`uniqueItems: true` in the specification, `@UniqueElements` on the request): the earlier
+  behaviour collapsed the duplicates and answered 201, which hid a client bug instead of
+  surfacing it.
+- Every `POST` answers 201 with a `Location` header: the relative path of the created resource
+  (`/order/{id}`, `/products/{id}`, `/customer/{id}`). It is relative rather than absolute
+  because the service is assumed to sit behind a gateway that may rewrite the host, and
+  RFC 9110 (section 10.2.2) allows a relative reference. The header is declared as required on
+  the three 201 responses and enforced by the contract check.
+- `GET /customer/{id}` exists although the README's list of tasks does not ask for it. It is a
+  deliberate addition for REST completeness: once `POST /customer` carries a `Location`, a
+  customer would be the only resource whose `Location` could not be dereferenced. The response
+  is the same `Customer` object as the list items (the newest `NESTED_ORDERS_LIMIT` orders and
+  `orderCount`), it costs 2 statements like `GET /products/{id}` (1 on a miss) and carries the
+  same weak ETag, and it is deliberately not cached in the service because `orderCount` changes
+  on every `POST /order` and nothing keys customers for eviction.
 - `GET /order` filters by `customerId` or `productId` (each at least 1, otherwise 400 with the
   field named). The filters are filters, not lookups: an id that matches no order, including an
   unknown customer or product, is a 200 with an empty page, not a 404. They work in both paging
@@ -79,11 +94,18 @@ delivered.
 - "A substring of one of the words in their name" is read literally: the query must be a single
   word (no whitespace; otherwise 400) and matches case-insensitively anywhere inside the name.
   Because the query contains no whitespace, any match necessarily lies within one word.
-- A "word" is defined as a whitespace-delimited token, as `\S+` (ASCII whitespace) defines it: a
-  hyphenated name such as `Jean-Pierre` is one word, so `n-P` matches it, and a non-ASCII
-  whitespace character such as U+00A0 is not a separator, so it is accepted in the query and
-  matched literally. The empty query (`?name=`) is a 400, not an unfiltered list.
-- LIKE wildcards in the query (`%`, `_`) are escaped and matched literally.
+- A "word" is defined as a whitespace-delimited token, as Java's `\S+` (ASCII whitespace)
+  defines it: a hyphenated name such as `Jean-Pierre` is one word, so `n-P` matches it, and a
+  non-ASCII whitespace character such as U+00A0 is not a separator, so it is accepted in the
+  query and matched literally. The specification spells the same class out as
+  `^[^ \t\r\n\f\u000B]+$` rather than `^\S+$`, because the ECMA-262 dialect the OpenAPI
+  pattern is written in counts a no-break space as whitespace and a client built from the old
+  pattern would have rejected a query the server accepts; a contract case sends `a\u00a0b` and
+  both sides accept it. The empty query (`?name=`) is a 400, not an unfiltered list.
+- LIKE wildcards in the query (`%`, `_`) are escaped and matched literally. `CustomerApiIT` pins
+  the word-boundary and wildcard claims against PostgreSQL rather than against a mock: `n-P`
+  and `O'N` find `Jean-Pierre O'Neil`, `%` finds `Hundred%Percent`, and `r_S` finds
+  `Under_Score` but not the decoy `Under Score`, which an unescaped `_` would match.
 - The search shares the list endpoint (`GET /customer?name=`) and its paging, sorting and
   order-fetching behaviour, so a full page costs the same 3 statements as the unfiltered list
   (page, count, orders of the page), 2 when the first page is shorter than `size` because
@@ -103,9 +125,9 @@ delivered.
   `order_product` join table with a composite primary key and an index on `product_id`, so both
   directions of the relationship are index scans.
 - "An order contains 1 or more products" is enforced at creation: `POST /order` requires a
-  non-empty `productIds` list and every id must exist (otherwise 404 naming the first missing
-  id). Seeded orders are linked to one or two sample products by the seed changeset so the
-  invariant also holds for the sample data.
+  non-empty `productIds` list without repetition (a repeated id is a 400) and every id must
+  exist (otherwise 404 naming the first missing id). Seeded orders are linked to one or two
+  sample products by the seed changeset so the invariant also holds for the sample data.
 - An order carries at most 100 products (`@Size(max = 100)` on `productIds`, `maxItems: 100`
   in the specification). The bound keeps a single request to one `IN` clause of at most 100
   ids and one insert batch of at most 100 join rows; without it the only limit was the 2 MB
@@ -206,7 +228,13 @@ delivered.
   `pattern: '\S'` next to `minLength: 1` so a whitespace-only value is rejected by the
   specification as it is by the server; `productIds` declares `maxItems: 100`; and `Customer`
   and `Product` declare `orderCount` as required, which failed eight contract cases until the
-  DTOs carried it.
+  DTOs carried it. A later round tightened what the specification enforces rather than what it
+  describes: the nested `customer`, `products` and `orders` objects declare their required
+  properties, `productIds` declares `uniqueItems`, `X-Request-Id` is declared as required on
+  every response (the synthetic 409 and 500 cases failed with `Header 'X-Request-Id' is
+  expected ... but not found` until they carried it, proof that the validator checks declared
+  headers) and `Location` on every 201 (the three `POST` captures failed the same way until the
+  controllers sent it).
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
@@ -217,7 +245,8 @@ delivered.
   port (8081), which the ingress does not publish; readiness includes the database indicator
   (ADR 0008); no Docker `HEALTHCHECK` is declared because orchestrators ignore it.
 - Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
-  is also in the MDC of every log line of that request, so a client-quoted id finds the logs.
+  is also in the MDC of every log line of that request, so a client-quoted id finds the logs;
+  the contract declares it as required on every response and the contract check enforces it.
   Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages in the same order

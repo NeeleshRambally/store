@@ -4,6 +4,8 @@ import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
+import com.example.store.dto.CustomerOrderDTO;
+import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.CustomerService;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,6 +51,7 @@ class CustomerControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"name\":\"John Doe\"}"))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/customer/1"))
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.name").value("John Doe"))
                 .andExpect(jsonPath("$.orders").isEmpty())
@@ -82,6 +86,38 @@ class CustomerControllerTests {
                         .content("{\"name\":"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400));
+    }
+
+    @Test
+    void getByIdReturnsCustomerWithOrdersAndTheTotal() throws Exception {
+        when(customerService.findById(1L))
+                .thenReturn(new CustomerDTO(1L, "John Doe", List.of(new CustomerOrderDTO(43L, "Engine")), 7));
+
+        mockMvc.perform(get("/customer/1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.name").value("John Doe"))
+                .andExpect(jsonPath("$.orders[0].id").value(43))
+                .andExpect(jsonPath("$.orders[0].description").value("Engine"))
+                .andExpect(jsonPath("$.orderCount").value(7));
+    }
+
+    @Test
+    void getByIdReturnsNotFoundForUnknownCustomer() throws Exception {
+        when(customerService.findById(99L)).thenThrow(new ResourceNotFoundException("Customer", 99L));
+
+        mockMvc.perform(get("/customer/99"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.detail").value("Customer with id 99 was not found"));
+    }
+
+    @Test
+    void getByIdRejectsNonNumericId() throws Exception {
+        mockMvc.perform(get("/customer/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: 'abc'"));
+        verify(customerService, never()).findById(any());
     }
 
     @Test

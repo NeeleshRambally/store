@@ -100,6 +100,41 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void getsCustomerByIdWithItsNewestOrdersAndTheTotal() {
+        Long expectedCount =
+                jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = 1", Long.class);
+        List<Long> expectedIds = jdbcTemplate
+                .queryForList("select id from \"order\" where customer_id = 1 order by id desc limit 20", Long.class)
+                .stream()
+                .sorted()
+                .toList();
+
+        ResponseEntity<CustomerDTO> response = restTemplate.getForEntity("/customer/1", CustomerDTO.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().id()).isEqualTo(1L);
+        assertThat(response.getBody().name()).isEqualTo("Muriel Donnelly");
+        assertThat(response.getBody().orderCount()).isEqualTo(expectedCount);
+        assertThat(response.getBody().orders()).extracting(order -> order.id()).isEqualTo(expectedIds);
+    }
+
+    @Test
+    void returnsNotFoundForUnknownCustomer() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer/999999", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(response.getBody().getDetail()).isEqualTo("Customer with id 999999 was not found");
+    }
+
+    @Test
+    void rejectsNonNumericCustomerId() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer/abc", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: 'abc'");
+    }
+
+    @Test
     void rejectsClientSuppliedId() {
         ResponseEntity<ProblemDetail> response =
                 restTemplate.postForEntity("/customer", Map.of("id", 5, "name", "Overwrite"), ProblemDetail.class);
@@ -162,6 +197,35 @@ class CustomerApiIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().content()).isNotEmpty().allSatisfy(customer -> assertThat(customer.name())
                 .contains("%"));
+    }
+
+    @Test
+    void searchMatchesInsideAHyphenatedOrApostrophisedWord() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Jean-Pierre O'Neil"), CustomerDTO.class);
+
+        assertThat(search("n-P")).contains("Jean-Pierre O'Neil").allSatisfy(name -> assertThat(name)
+                .contains("n-P"));
+        assertThat(search("O'N")).contains("Jean-Pierre O'Neil").allSatisfy(name -> assertThat(name)
+                .contains("O'N"));
+    }
+
+    @Test
+    void searchTreatsAnUnderscoreLiterally() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Under_Score"), CustomerDTO.class);
+        restTemplate.postForEntity("/customer", Map.of("name", "Under Score"), CustomerDTO.class);
+
+        assertThat(search("r_S"))
+                .contains("Under_Score")
+                .doesNotContain("Under Score")
+                .allSatisfy(name -> assertThat(name).contains("_"));
+    }
+
+    private List<String> search(String word) {
+        URI uri = URI.create(restTemplate.getRootUri() + "/customer?name=" + word + "&size=100");
+        ResponseEntity<PageResponse<CustomerDTO>> response =
+                restTemplate.exchange(uri, HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return response.getBody().content().stream().map(CustomerDTO::name).toList();
     }
 
     @Test
