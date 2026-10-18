@@ -136,6 +136,62 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void orderPageFilteredByCustomerMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("customerId", "1", "size", "2"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction
+                        .json()
+                        .get("content")
+                        .get(0)
+                        .get("customer")
+                        .get("id")
+                        .asLong())
+                .isEqualTo(1L);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void orderCursorPageFilteredByProductMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("productId", "2", "after", "0", "size", "2"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("content")).hasSize(2).allSatisfy(order -> assertThat(
+                        order.get("products").findValues("id").stream()
+                                .map(JsonNode::asLong)
+                                .toList())
+                .contains(2L));
+        assertConforms(interaction);
+    }
+
+    @Test
+    void combinedOrderFiltersMatchTheContract() {
+        Interaction interaction = get("/order", Map.of("customerId", "1", "productId", "2"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void combinedOrderFiltersResponseEqualsTheDocumentedExample() {
+        Interaction interaction = get("/order", Map.of("customerId", "1", "productId", "2"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json()).isEqualTo(example("BadRequest", "combinedFilters"));
+    }
+
+    @Test
+    void zeroCustomerIdMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("customerId", "0"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("customerId");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void conflictingOrderMatchesTheContract() {
         Response conflict = SimpleResponse.Builder.status(HttpStatus.CONFLICT.value())
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)

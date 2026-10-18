@@ -5,7 +5,9 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderFilter;
 import com.example.store.dto.OrderProductDTO;
+import com.example.store.exception.InvalidOrderFilterException;
 import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.OrderService;
@@ -40,6 +42,7 @@ class OrderControllerTests {
 
     private static final OrderDTO ORDER = new OrderDTO(
             1L, "Test Order", new OrderCustomerDTO(1L, "John Doe"), List.of(new OrderProductDTO(2L, "Rustic Chair")));
+    private static final OrderFilter NO_FILTER = new OrderFilter(null, null);
 
     @Autowired
     private MockMvc mockMvc;
@@ -123,7 +126,7 @@ class OrderControllerTests {
 
     @Test
     void unexpectedErrorsDoNotLeakDetails() throws Exception {
-        when(orderService.findAll(any())).thenThrow(new IllegalStateException("secret internal detail"));
+        when(orderService.findAll(any(), any())).thenThrow(new IllegalStateException("secret internal detail"));
 
         mockMvc.perform(get("/order"))
                 .andExpect(status().isInternalServerError())
@@ -133,7 +136,7 @@ class OrderControllerTests {
 
     @Test
     void unknownSortPropertyIsABadRequest() throws Exception {
-        when(orderService.findAll(any())).thenThrow(new InvalidSortPropertyException("customer.name"));
+        when(orderService.findAll(any(), any())).thenThrow(new InvalidSortPropertyException("customer.name"));
 
         mockMvc.perform(get("/order").param("sort", "customer.name"))
                 .andExpect(status().isBadRequest())
@@ -169,7 +172,7 @@ class OrderControllerTests {
 
     @Test
     void getAllWithAfterReturnsACursorPage() throws Exception {
-        when(orderService.findAfter(new CursorRequest(5L, 20)))
+        when(orderService.findAfter(NO_FILTER, new CursorRequest(5L, 20)))
                 .thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, 1L));
 
         mockMvc.perform(get("/order").param("after", "5"))
@@ -179,12 +182,12 @@ class OrderControllerTests {
                 .andExpect(jsonPath("$.size").value(20))
                 .andExpect(jsonPath("$.nextCursor").value(1))
                 .andExpect(jsonPath("$.totalElements").doesNotExist());
-        verify(orderService, never()).findAll(any());
+        verify(orderService, never()).findAll(any(), any());
     }
 
     @Test
     void getAllWithAfterSerialisesAnExhaustedCursorAsNull() throws Exception {
-        when(orderService.findAfter(new CursorRequest(10000L, 5)))
+        when(orderService.findAfter(NO_FILTER, new CursorRequest(10000L, 5)))
                 .thenReturn(new CursorPageResponse<>(List.of(), 5, null));
 
         mockMvc.perform(get("/order").param("after", "10000").param("size", "5"))
@@ -199,8 +202,8 @@ class OrderControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
-        verify(orderService, never()).findAfter(any());
-        verify(orderService, never()).findAll(any());
+        verify(orderService, never()).findAfter(any(), any());
+        verify(orderService, never()).findAll(any(), any());
     }
 
     @Test
@@ -208,7 +211,7 @@ class OrderControllerTests {
         mockMvc.perform(get("/order").param("after", "0").param("sort", "id,desc"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
-        verify(orderService, never()).findAfter(any());
+        verify(orderService, never()).findAfter(any(), any());
     }
 
     @Test
@@ -218,13 +221,77 @@ class OrderControllerTests {
                 .andExpect(jsonPath("$.status").value(400))
                 .andExpect(jsonPath("$.errors[0].field").value("after"))
                 .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 0"));
-        verify(orderService, never()).findAfter(any());
+        verify(orderService, never()).findAfter(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAZeroCustomerId() throws Exception {
+        mockMvc.perform(get("/order").param("customerId", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 1"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAZeroProductId() throws Exception {
+        mockMvc.perform(get("/order").param("productId", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productId"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllPassesTheCustomerFilterToTheService() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(orderService.findAll(new OrderFilter(1L, null), pageable))
+                .thenReturn(new PageImpl<>(List.of(ORDER), pageable, 1));
+
+        mockMvc.perform(get("/order").param("customerId", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.totalElements").value(1));
+    }
+
+    @Test
+    void getAllPassesTheProductFilterToTheService() throws Exception {
+        Pageable pageable = PageRequest.of(0, 5, Sort.by("id"));
+        when(orderService.findAll(new OrderFilter(null, 2L), pageable))
+                .thenReturn(new PageImpl<>(List.of(ORDER), pageable, 1));
+
+        mockMvc.perform(get("/order").param("productId", "2").param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].products[0].id").value(2))
+                .andExpect(jsonPath("$.size").value(5));
+    }
+
+    @Test
+    void getAllWithAfterPassesTheFilterToTheCursorService() throws Exception {
+        when(orderService.findAfter(new OrderFilter(1L, null), new CursorRequest(0L, 20)))
+                .thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, null));
+
+        mockMvc.perform(get("/order").param("customerId", "1").param("after", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.nextCursor").value((Object) null));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsCombinedFilters() throws Exception {
+        when(orderService.findAll(any(), any())).thenThrow(new InvalidOrderFilterException());
+
+        mockMvc.perform(get("/order").param("customerId", "1").param("productId", "2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("customerId and productId cannot be combined"));
     }
 
     @Test
     void getAllReturnsPageOfOrders() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
-        when(orderService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 10000));
+        when(orderService.findAll(NO_FILTER, pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 10000));
 
         mockMvc.perform(get("/order"))
                 .andExpect(status().isOk())

@@ -60,10 +60,12 @@ runs, in one task and in one JVM:
 * an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are
   validated against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real
   requests cover the 200 offset and cursor pages of the three list endpoints and the two by-id
-  reads; the 201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`);
+  reads, and the customer-filtered page and the product-filtered cursor page of `/order`; the
+  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`);
   the 400 of a non-numeric id on both by-id paths, of an unknown sort property on `/order` and
-  `/products`, of a cursor combined with a page and of a negative `after` on `/order`, and of a
-  multi-word `name` on `/customer`; the 404 of an unknown order, of an unknown product and of
+  `/products`, of a cursor combined with a page, of a negative `after`, of a `customerId` of 0
+  and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` on
+  `/customer`; the 404 of an unknown order, of an unknown product and of
   an order for an unknown customer; and the 304 of a conditional `GET /order/{id}`,
   `GET /products/{id}` and `GET /customer` page. The 409 and 500 bodies are validated
   synthetically against `POST /order` and `GET /order`, because no real request reaches them
@@ -122,6 +124,8 @@ The contract is documented in `OpenAPI.yaml`.
 | `GET` | `/customer?name=onne` | Customers whose name contains the word fragment (single word, case-insensitive) |
 | `GET` | `/order?page=&size=&sort=` | Page of orders, each with its customer and products |
 | `GET` | `/order?after=&size=` | Cursor page of orders with an id greater than `after` |
+| `GET` | `/order?customerId=1` | The orders of one customer, in either paging mode; an unknown id is an empty page |
+| `GET` | `/order?productId=2` | The orders containing one product, in either paging mode; an unknown id is an empty page |
 | `GET` | `/order/{id}` | A single order with its customer and products |
 | `POST` | `/order` | Create an order: `{"description": "...", "customerId": 1, "productIds": [2, 8]}` |
 | `GET` | `/products?page=&size=&sort=` | Page of products, each with the ids of the orders containing it |
@@ -140,8 +144,14 @@ when the walk is complete. `after=0` starts a walk, `size` keeps its default and
 still filters customers. `after` cannot be combined with `page` (other than 0) or with a `sort`
 whose first property is not `id` ascending; that is a 400 problem detail with the detail
 `after cannot be combined with page or sort` (ADR 0003, "Keyset pagination").
+`GET /order` also accepts `customerId` or `productId` (each at least 1) to list the orders of
+one customer or the orders containing one product; the filter applies in both paging modes
+with the same `sort` whitelist, an id that matches nothing yields an empty page rather than a
+404, and the two filters together are a 400 problem detail with the detail
+`customerId and productId cannot be combined`. These are the uncapped lists behind the nested
+`orders` of a customer or a product.
 Errors are RFC 7807 problem details; validation failures, whether of a request body or of a
-query parameter such as `name` or `after`, include an `errors` array with the offending field
+query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
 names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
 never carry an id; unknown properties are rejected with 400. An order carries between 1 and 100
 products.

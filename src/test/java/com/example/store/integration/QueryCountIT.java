@@ -1,5 +1,7 @@
 package com.example.store.integration;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 import jakarta.persistence.EntityManagerFactory;
 
 import org.hibernate.SessionFactory;
@@ -178,6 +180,60 @@ class QueryCountIT extends AbstractIntegrationTest {
         ResponseEntity<String> response = restTemplate.getForEntity("/products?after=0&size=20", String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void orderPageFilteredByCustomerUsesThreeStatements() {
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity("/order?customerId=1&size=20", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).hasSize(20).allSatisfy(order -> assertThat(
+                        order.get("customer").get("id").asLong())
+                .isEqualTo(1L));
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+    }
+
+    @Test
+    void orderPageFilteredByProductUsesThreeStatements() {
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity("/order?productId=2&size=20", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).hasSize(20).allSatisfy(order -> assertThat(
+                        order.get("products").findValues("id").stream()
+                                .map(JsonNode::asLong)
+                                .toList())
+                .contains(2L));
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+    }
+
+    @Test
+    void orderKeysetPageFilteredByCustomerUsesTwoStatements() {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?customerId=1&after=0&size=20", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).hasSize(20).allSatisfy(order -> assertThat(
+                        order.get("customer").get("id").asLong())
+                .isEqualTo(1L));
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void orderKeysetPageFilteredByProductUsesTwoStatements() {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?productId=2&after=0&size=20", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).hasSize(20).allSatisfy(order -> assertThat(
+                        order.get("products").findValues("id").stream()
+                                .map(JsonNode::asLong)
+                                .toList())
+                .contains(2L));
         assertThat(statistics.getEntityLoadCount()).isZero();
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
     }

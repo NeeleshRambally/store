@@ -5,10 +5,12 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderFilter;
 import com.example.store.dto.OrderProductDTO;
 import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
+import com.example.store.exception.InvalidOrderFilterException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.OrderMapper;
 import com.example.store.repository.CustomerRepository;
@@ -74,16 +76,44 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public Page<OrderDTO> findAll(Pageable pageable) {
-        Page<OrderRow> page = orderRepository.findRows(SORT_POLICY.validate(pageable));
+    public Page<OrderDTO> findAll(OrderFilter filter, Pageable pageable) {
+        validate(filter);
+        Page<OrderRow> page = findRows(filter, SORT_POLICY.validate(pageable));
         Map<Long, List<OrderProductDTO>> products = productsByOrder(page.getContent());
         return page.map(row -> toOrder(row, products));
     }
 
     @Override
-    public CursorPageResponse<OrderDTO> findAfter(CursorRequest request) {
-        List<OrderRow> rows = orderRepository.findRowsAfter(request.after(), Limit.of(request.size() + 1));
+    public CursorPageResponse<OrderDTO> findAfter(OrderFilter filter, CursorRequest request) {
+        validate(filter);
+        List<OrderRow> rows = findRowsAfter(filter, request.after(), Limit.of(request.size() + 1));
         return CursorPageResponse.from(rows, request.size(), OrderRow::id, this::toOrders);
+    }
+
+    private static void validate(OrderFilter filter) {
+        if (filter.customerId() != null && filter.productId() != null) {
+            throw new InvalidOrderFilterException();
+        }
+    }
+
+    private Page<OrderRow> findRows(OrderFilter filter, Pageable pageable) {
+        if (filter.customerId() != null) {
+            return orderRepository.findRowsByCustomer(filter.customerId(), pageable);
+        }
+        if (filter.productId() != null) {
+            return orderRepository.findRowsByProduct(filter.productId(), pageable);
+        }
+        return orderRepository.findRows(pageable);
+    }
+
+    private List<OrderRow> findRowsAfter(OrderFilter filter, long after, Limit limit) {
+        if (filter.customerId() != null) {
+            return orderRepository.findRowsByCustomerAfter(filter.customerId(), after, limit);
+        }
+        if (filter.productId() != null) {
+            return orderRepository.findRowsByProductAfter(filter.productId(), after, limit);
+        }
+        return orderRepository.findRowsAfter(after, limit);
     }
 
     private List<OrderDTO> toOrders(List<OrderRow> rows) {
