@@ -31,6 +31,15 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void sequencesAllocateBlocksOfFifty() {
+        List<Long> increments = jdbcTemplate.queryForList(
+                "SELECT increment_by FROM pg_sequences WHERE sequencename IN ('customer_id_seq', 'order_id_seq', 'product_id_seq')",
+                Long.class);
+
+        assertThat(increments).hasSize(3).containsOnly(50L);
+    }
+
+    @Test
     void orderCustomerIdIsIndexed() {
         List<String> indexes =
                 jdbcTemplate.queryForList("SELECT indexname FROM pg_indexes WHERE tablename = 'order'", String.class);
