@@ -131,6 +131,11 @@ delivered.
 
 ## Things the pipeline should verify before promotion (README note)
 Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,
-acceptance scenarios, line coverage, a successful image build, an image vulnerability scan and
-an SBOM. Deployment promotion would additionally need a smoke test of the started container
-against its readiness probe, which the Compose setup demonstrates locally.
+acceptance scenarios, line coverage, a successful image build, an image vulnerability scan, an
+SBOM and a smoke test of the started container. The smoke test runs on every build: the image
+that was just built is started with Compose against a fresh PostgreSQL and must become ready
+(`/actuator/health/readiness` reports `UP` within 120 seconds) and answer the API on 8080
+(`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page) with the actuator on 8081
+only. The gate is worded precisely: a failing smoke test fails the `docker` job (the `smoke` job
+on GitLab), the merge procedure requires both jobs green and a review, and the platform cannot
+enforce required checks on a private free-plan repository, so the procedure is the gate.
