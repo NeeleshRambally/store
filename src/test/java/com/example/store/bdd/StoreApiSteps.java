@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -95,6 +96,13 @@ public class StoreApiSteps {
         get("/order/" + id);
     }
 
+    @When("I request order {int} again with that ETag")
+    public void requestOrderWithETag(int id) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(response.getHeaders().getETag());
+        capture(restTemplate.exchange("/order/" + id, HttpMethod.GET, new HttpEntity<>(headers), String.class));
+    }
+
     @When("I search customers by name {string}")
     public void searchCustomersByName(String name) throws Exception {
         get(UriComponentsBuilder.fromPath("/customer")
@@ -180,6 +188,11 @@ public class StoreApiSteps {
         assertThat(body.get("description").asText()).isEqualTo(description);
         assertThat(body.get("id").asLong()).isGreaterThan(100L);
         assertThat(body.get("orders")).isEmpty();
+    }
+
+    @Then("the response carries a weak ETag")
+    public void responseCarriesWeakETag() {
+        assertThat(response.getHeaders().getETag()).startsWith("W/\"");
     }
 
     @Then("the response product has id {int} and its orders include {int} and {int}")

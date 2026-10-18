@@ -27,5 +27,6 @@ class CompressionIT extends AbstractIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getHeaders().getFirst(HttpHeaders.CONTENT_ENCODING)).isEqualTo("gzip");
         assertThat(response.getBody().length).isLessThan(4000);
+        assertThat(response.getHeaders().getETag()).startsWith("W/\"");
     }
 }
