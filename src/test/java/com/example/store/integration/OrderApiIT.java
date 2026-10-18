@@ -149,6 +149,22 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void sortedPagesHaveDeterministicBoundaries() {
+        List<Long> expected = jdbcTemplate.queryForList(
+                "select id from \"order\" order by description desc, id desc limit 100", Long.class);
+
+        List<Long> collected = new ArrayList<>();
+        for (int page = 0; page < 2; page++) {
+            ResponseEntity<JsonNode> response =
+                    restTemplate.getForEntity("/order?sort=description,desc&size=50&page=" + page, JsonNode.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            collected.addAll(ids(response.getBody()));
+        }
+
+        assertThat(collected).hasSize(100).containsExactlyElementsOf(expected);
+    }
+
+    @Test
     void rejectsSortByNestedProperty() {
         ResponseEntity<ProblemDetail> response =
                 restTemplate.getForEntity("/order?sort=customer.name", ProblemDetail.class);

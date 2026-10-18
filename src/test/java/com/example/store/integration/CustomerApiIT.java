@@ -261,6 +261,24 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void sortedPagesHaveDeterministicBoundaries() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Aaron Tie"), CustomerDTO.class);
+        restTemplate.postForEntity("/customer", Map.of("name", "Aaron Tie"), CustomerDTO.class);
+        List<Long> expected =
+                jdbcTemplate.queryForList("select id from customer order by name asc, id asc limit 100", Long.class);
+
+        List<Long> collected = new ArrayList<>();
+        for (int page = 0; page < 2; page++) {
+            ResponseEntity<JsonNode> response =
+                    restTemplate.getForEntity("/customer?sort=name,asc&size=50&page=" + page, JsonNode.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            collected.addAll(ids(response.getBody()));
+        }
+
+        assertThat(collected).hasSize(100).containsExactlyElementsOf(expected);
+    }
+
+    @Test
     void rejectsUnknownSortProperty() {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer?sort=nope", ProblemDetail.class);
 

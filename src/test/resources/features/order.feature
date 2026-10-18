@@ -78,6 +78,11 @@ Feature: Order management
     Then the response status is 400
     And the response problem detail is "Unknown sort property: customer.name"
 
+  Scenario: Sorted pages break ties by id in the same direction
+    When I request orders sorted by "description,desc" with page 0 and size 50
+    Then the response status is 200
+    And the page lists the orders in description descending order with ties broken by id descending
+
   Scenario: Fetch a single order by id
     When I request order 1
     Then the response status is 200

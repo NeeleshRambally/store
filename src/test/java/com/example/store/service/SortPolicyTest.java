@@ -29,6 +29,32 @@ class SortPolicyTest {
     }
 
     @Test
+    void appendsAnIdTieBreakInTheDirectionOfTheLastProperty() {
+        Pageable pageable = PageRequest.of(2, 50, Sort.by(Sort.Order.desc("description")));
+
+        Pageable validated = policy.validate(pageable);
+
+        assertThat(validated.getPageNumber()).isEqualTo(2);
+        assertThat(validated.getPageSize()).isEqualTo(50);
+        assertThat(validated.getSort()).containsExactly(Sort.Order.desc("description"), Sort.Order.desc("id"));
+    }
+
+    @Test
+    void appendsAnAscendingIdTieBreakAfterAnAscendingProperty() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.asc("description")));
+
+        assertThat(policy.validate(pageable).getSort())
+                .containsExactly(Sort.Order.asc("description"), Sort.Order.asc("id"));
+    }
+
+    @Test
+    void leavesAnUnpagedSortedRequestUntouched() {
+        Pageable pageable = Pageable.unpaged(Sort.by(Sort.Order.desc("description")));
+
+        assertThat(policy.validate(pageable)).isSameAs(pageable);
+    }
+
+    @Test
     void rejectsTheFirstPropertyThatIsNotListed() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id", "customer.name", "nope"));
 

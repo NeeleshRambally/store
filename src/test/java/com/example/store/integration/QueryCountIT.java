@@ -288,13 +288,32 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void createOrderWithThreeProductsUsesAtMostFiveStatements() {
+    void emptyOrderPageFilteredByCustomerUsesOneStatement() {
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity("/order?customerId=999999", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    @Test
+    void emptyOrderKeysetPageFilteredByCustomerUsesOneStatement() {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?customerId=999999&after=0", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    @Test
+    void createOrderWithThreeProductsUsesFourStatementsPlusTheBlockAllocation() {
         ResponseEntity<String> response = restTemplate.postForEntity(
                 "/order",
                 Map.of("description", "Batched", "customerId", 1, "productIds", List.of(1, 2, 3)),
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(5);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(4L, 5L);
     }
 }

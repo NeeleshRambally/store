@@ -155,7 +155,10 @@ by Syft; both scans print the findings table to the job log and neither stores a
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or
 more products. A customer has an id, a name, and zero or more orders. A product has an id and a
-description and can appear in any number of orders.
+description and can appear in any number of orders. Beyond the primary keys, the schema indexes
+`order.customer_id`, the two sides of `order_product`, `lower(customer.name)` with trigrams for
+the substring search, and each whitelisted sort column together with `id`
+(`idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id`).
 
 ## API
 The contract is documented in `OpenAPI.yaml`.
@@ -181,7 +184,8 @@ The contract is documented in `OpenAPI.yaml`.
 List responses are a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`.
 The default page size is 20, the maximum 100, and the default sort is by `id`. `sort` takes
 `property,(asc|desc)` and accepts only `id` and `description` on `/order` and `/products` and
-`id` and `name` on `/customer`; any other property is a 400 problem detail (ADR 0006).
+`id` and `name` on `/customer`; any other property is a 400 problem detail, and ties are broken
+by `id` in the same direction as the last property so page boundaries are deterministic (ADR 0006).
 With `after` the same endpoints switch to keyset (cursor) pagination: the response is a cursor
 envelope (`content`, `size`, `nextCursor`) holding the elements whose id is greater than `after`
 in ascending id order; `nextCursor` is the id of the last element while more exist and `null`
