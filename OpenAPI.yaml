@@ -490,7 +490,10 @@ components:
         productIds:
           type: array
           minItems: 1
-          description: Ids of the products contained in the order; every id must exist
+          maxItems: 100
+          description: >-
+            Ids of the products contained in the order, between 1 and 100 of them; every id must
+            exist
           items:
             type: integer
             format: int64

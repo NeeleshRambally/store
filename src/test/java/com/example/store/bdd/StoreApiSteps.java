@@ -17,6 +17,7 @@ import io.cucumber.java.en.When;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -56,6 +57,19 @@ public class StoreApiSteps {
                         customerId,
                         "productIds",
                         List.of(firstProduct, secondProduct))));
+    }
+
+    @When("I create an order {string} for customer {int} with {int} products")
+    public void createOrderWithManyProducts(String description, int customerId, int productCount) throws Exception {
+        post(
+                "/order",
+                objectMapper.writeValueAsString(Map.of(
+                        "description",
+                        description,
+                        "customerId",
+                        customerId,
+                        "productIds",
+                        LongStream.rangeClosed(1, productCount).boxed().toList())));
     }
 
     @When("I create a product described as {string}")
