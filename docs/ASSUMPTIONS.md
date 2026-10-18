@@ -8,7 +8,8 @@ delivered.
 ## Production posture
 - The project is treated as a production service: every change ships with tests at the unit,
   integration (real PostgreSQL via Testcontainers) and acceptance (Cucumber) level, and CI fails
-  on any failing test, formatting violation or coverage below 80% of lines.
+  on any failing test, formatting violation or coverage below 80% of lines, measured outside the
+  generated MapStruct implementations and the launcher class (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
@@ -277,9 +278,13 @@ delivered.
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages in the same order
   for GitLab but is provided for portability and has not been executed in this project.
-- The image is scanned on every pull request and a critical, fixable vulnerability blocks the
-  merge; unfixable findings are reported but do not block, because there is nothing a code
-  change can do about them. An SBOM is produced for every build so the deployed dependency set
+- The image is scanned on every pull request and a critical or high fixable vulnerability
+  blocks the merge; unfixable findings are reported but do not block, because there is nothing
+  a code change can do about them. Spring Boot 3.5.16 is the last BOM of a line that left
+  open-source support on 2026-06-30, so a fixable finding in a Boot-managed library is closed
+  by a per-library version override in `build.gradle` until the upgrade to Spring Boot 4.1.x,
+  due in the next dependency window and before the 2027-01-31 expiry of the accepted
+  exceptions (ADR 0004). An SBOM is produced for every build so the deployed dependency set
   is auditable. The image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
