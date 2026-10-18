@@ -1,10 +1,10 @@
 package com.example.store.service;
 
+import com.example.store.config.NestedOrdersProperties;
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
-import com.example.store.entity.Order;
 import com.example.store.entity.Product;
 import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
@@ -32,6 +32,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,20 +45,10 @@ class ProductServiceImplTest {
 
     private ProductServiceImpl service;
 
-    private Product product;
-
     @BeforeEach
     void setUp() {
-        service = new ProductServiceImpl(productRepository, Mappers.getMapper(ProductMapper.class));
-        product = new Product();
-        product.setId(2L);
-        product.setDescription("Rustic Chair");
-        Order first = new Order();
-        first.setId(43L);
-        Order second = new Order();
-        second.setId(1L);
-        product.getOrders().add(first);
-        product.getOrders().add(second);
+        service = new ProductServiceImpl(
+                productRepository, Mappers.getMapper(ProductMapper.class), new NestedOrdersProperties(20));
     }
 
     @Test
@@ -74,21 +65,38 @@ class ProductServiceImplTest {
         assertThat(result.id()).isEqualTo(101L);
         assertThat(result.description()).isEqualTo("Rustic Chair");
         assertThat(result.orders()).isEmpty();
+        assertThat(result.orderCount()).isZero();
     }
 
     @Test
-    void findByIdReturnsProductWithSortedOrderIds() {
-        when(productRepository.findById(2L)).thenReturn(Optional.of(product));
+    void findByIdReturnsProductWithItsNewestOrderIdsAndTheTotal() {
+        service = new ProductServiceImpl(
+                productRepository, Mappers.getMapper(ProductMapper.class), new NestedOrdersProperties(2));
+        when(productRepository.findRow(2L)).thenReturn(Optional.of(new ProductRow(2L, "Rustic Chair")));
+        when(productRepository.findOrderRows(List.of(2L), 2))
+                .thenReturn(List.of(new ProductOrderRow(2L, 1L, 3), new ProductOrderRow(2L, 43L, 3)));
 
         ProductDTO result = service.findById(2L);
 
         assertThat(result.description()).isEqualTo("Rustic Chair");
         assertThat(result.orders()).containsExactly(1L, 43L);
+        assertThat(result.orderCount()).isEqualTo(3);
+    }
+
+    @Test
+    void findByIdReturnsAProductWithoutOrders() {
+        when(productRepository.findRow(9L)).thenReturn(Optional.of(new ProductRow(9L, "Lamp")));
+        when(productRepository.findOrderRows(List.of(9L), 20)).thenReturn(List.of());
+
+        ProductDTO result = service.findById(9L);
+
+        assertThat(result.orders()).isEmpty();
+        assertThat(result.orderCount()).isZero();
     }
 
     @Test
     void findByIdRejectsUnknownProduct() {
-        when(productRepository.findById(99L)).thenReturn(Optional.empty());
+        when(productRepository.findRow(99L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.findById(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
@@ -101,8 +109,8 @@ class ProductServiceImplTest {
         when(productRepository.findRows(pageable))
                 .thenReturn(new PageImpl<>(
                         List.of(new ProductRow(2L, "Rustic Chair"), new ProductRow(8L, "Oak Table")), pageable, 100));
-        when(productRepository.findOrderRows(List.of(2L, 8L)))
-                .thenReturn(List.of(new ProductOrderRow(2L, 1L), new ProductOrderRow(2L, 43L)));
+        when(productRepository.findOrderRows(List.of(2L, 8L), 20))
+                .thenReturn(List.of(new ProductOrderRow(2L, 1L, 2), new ProductOrderRow(2L, 43L, 2)));
 
         Page<ProductDTO> result = service.findAll(pageable);
 
@@ -110,7 +118,9 @@ class ProductServiceImplTest {
         assertThat(result.getContent()).extracting(ProductDTO::id).containsExactly(2L, 8L);
         assertThat(result.getContent().get(0).description()).isEqualTo("Rustic Chair");
         assertThat(result.getContent().get(0).orders()).containsExactly(1L, 43L);
+        assertThat(result.getContent().get(0).orderCount()).isEqualTo(2);
         assertThat(result.getContent().get(1).orders()).isEmpty();
+        assertThat(result.getContent().get(1).orderCount()).isZero();
     }
 
     @Test
@@ -121,7 +131,7 @@ class ProductServiceImplTest {
         Page<ProductDTO> result = service.findAll(pageable);
 
         assertThat(result.getContent()).isEmpty();
-        verify(productRepository, never()).findOrderRows(any());
+        verify(productRepository, never()).findOrderRows(any(), anyInt());
     }
 
     @Test
@@ -131,8 +141,8 @@ class ProductServiceImplTest {
                         new ProductRow(2L, "Rustic Chair"),
                         new ProductRow(8L, "Oak Table"),
                         new ProductRow(9L, "Lamp")));
-        when(productRepository.findOrderRows(List.of(2L, 8L)))
-                .thenReturn(List.of(new ProductOrderRow(2L, 1L), new ProductOrderRow(2L, 43L)));
+        when(productRepository.findOrderRows(List.of(2L, 8L), 20))
+                .thenReturn(List.of(new ProductOrderRow(2L, 1L, 2), new ProductOrderRow(2L, 43L, 2)));
 
         CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(1L, 2));
 
@@ -147,7 +157,7 @@ class ProductServiceImplTest {
     void findAfterReturnsNoCursorWhenExactlySizeRowsRemain() {
         when(productRepository.findRowsAfter(1L, Limit.of(3)))
                 .thenReturn(List.of(new ProductRow(2L, "Rustic Chair"), new ProductRow(8L, "Oak Table")));
-        when(productRepository.findOrderRows(List.of(2L, 8L))).thenReturn(List.of());
+        when(productRepository.findOrderRows(List.of(2L, 8L), 20)).thenReturn(List.of());
 
         CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(1L, 2));
 
@@ -162,7 +172,7 @@ class ProductServiceImplTest {
         CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(100L, 20));
 
         assertThat(result.content()).isEmpty();
-        verify(productRepository, never()).findOrderRows(any());
+        verify(productRepository, never()).findOrderRows(any(), anyInt());
     }
 
     @Test

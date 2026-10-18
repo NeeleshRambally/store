@@ -13,6 +13,7 @@ import java.util.List;
 
 @Mapper(componentModel = "spring")
 public interface ProductMapper {
+    @Mapping(target = "orderCount", constant = "0L")
     ProductDTO productToProductDTO(Product product);
 
     @Mapping(target = "id", ignore = true)

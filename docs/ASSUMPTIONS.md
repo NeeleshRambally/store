@@ -42,6 +42,12 @@ delivered.
   of one customer containing one product filters the smaller list itself, which keeps the
   query shapes to the two indexed ones. These endpoints are the uncapped lists behind the
   nested `orders` of a customer and of a product.
+- The nested `orders` of a customer and of a product are bounded: the newest
+  `NESTED_ORDERS_LIMIT` (20 by default, 1 to 100) by highest id, returned in ascending id order,
+  next to `orderCount`, the total. The README's "0 or more orders" and the task's "list of the
+  order IDs" are still met: the list is there, with its total, and the complete list is one
+  request away (`GET /order?customerId=`, `GET /order?productId=`). Originally the DTOs carried
+  every order; see ADR 0003, "Nested collections", for why that could not stay.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
@@ -90,10 +96,11 @@ delivered.
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such
   orders need a one-off data migration (a backfill changeset or an operator script) before the
   invariant can be asserted on historical data.
-- `GET /products` and `GET /products/{id}` return the product with the ascending ids of the
-  orders that contain it, as the task asks. The list is paged like every other list endpoint and
-  the order ids are loaded with the same fixed-cost two-query pattern (3 statements per page,
-  1 for a single product). The task's "all products" is delivered through that same paging:
+- `GET /products` and `GET /products/{id}` return the product with `orderCount` and the
+  ascending ids of the newest `NESTED_ORDERS_LIMIT` orders that contain it (20 by default); the
+  complete list is `GET /order?productId=`. The list is paged like every other list endpoint and
+  the order ids come from one window query over `order_product` (3 statements per page, 2 for a
+  single product: the product row and that window). The task's "all products" is delivered through that same paging:
   `size=100` returns the whole seeded catalogue of 100 products in one page, and the cursor walk
   with `after` covers a catalogue of any size.
 - `GET /order` and `GET /order/{id}` return the products in the order (`id` and `description`),
@@ -110,8 +117,17 @@ delivered.
   its depth (also pinned).
 - The list endpoints select their columns into records with JPQL constructor expressions and
   build the DTOs from those rows, so a page loads no entities (`getEntityLoadCount()` is 0,
-  also pinned by the integration test). The by-id endpoints and the create paths keep the
-  entity-and-mapper route.
+  also pinned by the integration test). `GET /order/{id}` and the create paths keep the
+  entity-and-mapper route; `GET /products/{id}` reads the product row and the bounded order ids
+  (2 statements, no entities, pinned).
+- The nested collections are bounded as well as the pages. A customer embeds its newest
+  `NESTED_ORDERS_LIMIT` orders (default 20) and a product the ids of its newest
+  `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query
+  (`row_number() over (partition by parent order by id desc)` and `count(*) over (partition by
+  parent)`) returns the newest rows and the total of every parent on the page in one statement,
+  so the statement counts are unchanged and the payload no longer grows with the orders per
+  customer (about 100 in the seed) or per product (about 200). See ADR 0003, "Nested
+  collections".
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
 - Open-in-view is disabled so no query can run outside a service transaction.
 - Ids are allocated from the database sequences in blocks of 50 (`pooled-lo` optimiser, see
@@ -123,7 +139,7 @@ delivered.
 - `GET /order/{id}` and `GET /products/{id}` are cached in memory for 60 s (`CACHE_TTL`,
   `CACHE_TYPE=none` to disable): a repeated read runs no statement and opens no session (pinned
   by the integration test). An order never changes after creation, so `orders` entries are never
-  evicted; a product's order ids change on `POST /order`, so those `products` entries are
+  evicted; a product's order ids and `orderCount` change on `POST /order`, so those `products` entries are
   evicted after the commit on the node that served the write. On another replica, or after a
   write that bypasses the service, a product can be stale for up to the TTL; that bound is the
   reason the default is short. See ADR 0007.
@@ -155,7 +171,9 @@ delivered.
   the validator); `Order`, `Customer` and `Product` declare their required properties so a
   dropped `customer`, `products` or `orders` fails the check; the request strings carry
   `pattern: '\S'` next to `minLength: 1` so a whitespace-only value is rejected by the
-  specification as it is by the server; and `productIds` declares `maxItems: 100`.
+  specification as it is by the server; `productIds` declares `maxItems: 100`; and `Customer`
+  and `Product` declare `orderCount` as required, which failed eight contract cases until the
+  DTOs carried it.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

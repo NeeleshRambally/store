@@ -2,4 +2,4 @@ package com.example.store.dto;
 
 import java.util.List;
 
-public record CustomerDTO(Long id, String name, List<CustomerOrderDTO> orders) {}
+public record CustomerDTO(Long id, String name, List<CustomerOrderDTO> orders, long orderCount) {}

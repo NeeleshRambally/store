@@ -1,3 +1,3 @@
 package com.example.store.repository.view;
 
-public record CustomerOrderRow(Long customerId, Long orderId, String description) {}
+public record CustomerOrderRow(Long customerId, Long orderId, String description, long orderCount) {}

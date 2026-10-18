@@ -1,5 +1,6 @@
 package com.example.store.service;
 
+import com.example.store.config.NestedOrdersProperties;
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
@@ -33,6 +34,7 @@ public class ProductServiceImpl implements ProductService {
 
     private final ProductRepository productRepository;
     private final ProductMapper productMapper;
+    private final NestedOrdersProperties nestedOrders;
 
     @Override
     @Transactional
@@ -43,16 +45,14 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Cacheable("products")
     public ProductDTO findById(Long id) {
-        return productRepository
-                .findById(id)
-                .map(productMapper::productToProductDTO)
-                .orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        ProductRow row = productRepository.findRow(id).orElseThrow(() -> new ResourceNotFoundException("Product", id));
+        return toProducts(List.of(row)).get(0);
     }
 
     @Override
     public Page<ProductDTO> findAll(Pageable pageable) {
         Page<ProductRow> page = productRepository.findRows(SORT_POLICY.validate(pageable));
-        Map<Long, List<Long>> orders = orderIdsByProduct(page.getContent());
+        Map<Long, NestedOrders> orders = orderIdsByProduct(page.getContent());
         return page.map(row -> toProduct(row, orders));
     }
 
@@ -63,23 +63,30 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private List<ProductDTO> toProducts(List<ProductRow> rows) {
-        Map<Long, List<Long>> orders = orderIdsByProduct(rows);
+        Map<Long, NestedOrders> orders = orderIdsByProduct(rows);
         return rows.stream().map(row -> toProduct(row, orders)).toList();
     }
 
-    private static ProductDTO toProduct(ProductRow row, Map<Long, List<Long>> orders) {
-        return new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of()));
+    private static ProductDTO toProduct(ProductRow row, Map<Long, NestedOrders> orders) {
+        NestedOrders nested = orders.getOrDefault(row.id(), NestedOrders.NONE);
+        return new ProductDTO(row.id(), row.description(), nested.orderIds(), nested.total());
     }
 
-    private Map<Long, List<Long>> orderIdsByProduct(List<ProductRow> rows) {
+    private Map<Long, NestedOrders> orderIdsByProduct(List<ProductRow> rows) {
         if (rows.isEmpty()) {
             return Map.of();
         }
-        Map<Long, List<Long>> orders = new LinkedHashMap<>();
+        Map<Long, NestedOrders> orders = new LinkedHashMap<>();
         for (ProductOrderRow row : productRepository.findOrderRows(
-                rows.stream().map(ProductRow::id).toList())) {
-            orders.computeIfAbsent(row.productId(), id -> new ArrayList<>()).add(row.orderId());
+                rows.stream().map(ProductRow::id).toList(), nestedOrders.limit())) {
+            orders.computeIfAbsent(row.productId(), id -> new NestedOrders(new ArrayList<>(), row.orderCount()))
+                    .orderIds()
+                    .add(row.orderId());
         }
         return orders;
+    }
+
+    private record NestedOrders(List<Long> orderIds, long total) {
+        private static final NestedOrders NONE = new NestedOrders(List.of(), 0);
     }
 }

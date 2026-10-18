@@ -557,6 +557,7 @@ components:
         - id
         - description
         - orders
+        - orderCount
       properties:
         id:
           type: integer
@@ -565,10 +566,17 @@ components:
           type: string
         orders:
           type: array
-          description: Ids of the orders that contain this product, ascending
+          description: >-
+            Ids of the newest orders that contain this product (the highest ids), at most the
+            configured limit (20 by default), in ascending id order; the full list is
+            GET /order?productId={id}
           items:
             type: integer
             format: int64
+        orderCount:
+          type: integer
+          format: int64
+          description: Total number of orders that contain this product, listed or not
     ProductPage:
       title: ProductPage
       allOf:
@@ -640,6 +648,7 @@ components:
         - id
         - name
         - orders
+        - orderCount
       properties:
         id:
           type: integer
@@ -648,6 +657,9 @@ components:
           type: string
         orders:
           type: array
+          description: >-
+            The newest orders of the customer (the highest ids), at most the configured limit
+            (20 by default), in ascending id order; the full list is GET /order?customerId={id}
           items:
             type: object
             properties:
@@ -656,6 +668,10 @@ components:
                 format: int64
               description:
                 type: string
+        orderCount:
+          type: integer
+          format: int64
+          description: Total number of orders of the customer, listed or not
     OrderPage:
       title: OrderPage
       allOf:

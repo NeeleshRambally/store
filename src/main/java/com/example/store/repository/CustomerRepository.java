@@ -37,7 +37,12 @@ public interface CustomerRepository extends JpaRepository<Customer, Long> {
     List<CustomerRow> findRowsByNameContainingWordAfter(
             @Param("word") String escapedWord, @Param("after") long after, Limit limit);
 
-    @Query("select new com.example.store.repository.view.CustomerOrderRow(c.id, o.id, o.description)"
-            + " from Order o join o.customer c where c.id in :ids order by c.id, o.id")
-    List<CustomerOrderRow> findOrderRows(@Param("ids") Collection<Long> ids);
+    @Query(
+            nativeQuery = true,
+            value = "select customer_id as \"customerId\", id as \"orderId\", description as \"description\","
+                    + " total as \"orderCount\" from (select o.customer_id, o.id, o.description,"
+                    + " row_number() over (partition by o.customer_id order by o.id desc) as rn,"
+                    + " count(*) over (partition by o.customer_id) as total from \"order\" o"
+                    + " where o.customer_id in (:ids)) t where rn <= :max order by customer_id, id")
+    List<CustomerOrderRow> findOrderRows(@Param("ids") Collection<Long> ids, @Param("max") int max);
 }

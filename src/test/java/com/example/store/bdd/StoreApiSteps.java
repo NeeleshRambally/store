@@ -10,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import io.cucumber.java.en.Then;
@@ -29,6 +30,9 @@ public class StoreApiSteps {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     private ResponseEntity<String> response;
     private JsonNode body;
@@ -192,6 +196,7 @@ public class StoreApiSteps {
         assertThat(body.get("name").asText()).isEqualTo(name);
         assertThat(body.get("id").asLong()).isGreaterThan(100L);
         assertThat(body.get("orders")).isEmpty();
+        assertThat(body.get("orderCount").asLong()).isZero();
     }
 
     @Then("the response order is {string} for customer {string} with a generated id")
@@ -239,12 +244,14 @@ public class StoreApiSteps {
         assertThat(body.get("description").asText()).isEqualTo(description);
         assertThat(body.get("id").asLong()).isGreaterThan(100L);
         assertThat(body.get("orders")).isEmpty();
+        assertThat(body.get("orderCount").asLong()).isZero();
     }
 
     @Then("the response product has no orders")
     public void responseProductHasNoOrders() {
         assertThat(body.get("id").asLong()).isEqualTo(createdProductId);
         assertThat(body.get("orders")).isEmpty();
+        assertThat(body.get("orderCount").asLong()).isZero();
     }
 
     @Then("the response product lists the order created above")
@@ -253,6 +260,7 @@ public class StoreApiSteps {
         List<Long> orders = new java.util.ArrayList<>();
         body.get("orders").forEach(node -> orders.add(node.asLong()));
         assertThat(orders).containsExactly(createdOrderId);
+        assertThat(body.get("orderCount").asLong()).isEqualTo(1L);
     }
 
     @Then("the response carries a weak ETag")
@@ -260,12 +268,24 @@ public class StoreApiSteps {
         assertThat(response.getHeaders().getETag()).startsWith("W/\"");
     }
 
-    @Then("the response product has id {int} and its orders include {int} and {int}")
-    public void responseProductHasOrders(int id, int first, int second) {
+    @Then("the response product has id {int} with its {int} newest orders and the total count")
+    public void responseProductHasNewestOrders(int id, int limit) {
+        Long total =
+                jdbcTemplate.queryForObject("select count(*) from order_product where product_id = ?", Long.class, id);
+        List<Long> newest = jdbcTemplate
+                .queryForList(
+                        "select order_id from order_product where product_id = ? order by order_id desc limit ?",
+                        Long.class,
+                        id,
+                        limit)
+                .stream()
+                .sorted()
+                .toList();
         assertThat(body.get("id").asInt()).isEqualTo(id);
-        List<Integer> orders = new java.util.ArrayList<>();
-        body.get("orders").forEach(node -> orders.add(node.asInt()));
-        assertThat(orders).contains(first, second);
+        assertThat(body.get("orderCount").asLong()).isEqualTo(total);
+        List<Long> orders = new java.util.ArrayList<>();
+        body.get("orders").forEach(node -> orders.add(node.asLong()));
+        assertThat(orders).hasSize(limit).isEqualTo(newest);
     }
 
     @Then("the page has {int} products starting at id {int}")
@@ -273,10 +293,12 @@ public class StoreApiSteps {
         pageHasElementsStartingAt(count, firstId);
     }
 
-    @Then("every product on the page lists at least one order id")
-    public void everyProductListsOrders() {
+    @Then("every product on the page lists its newest order ids and the total count")
+    public void everyProductListsNewestOrders() {
         for (JsonNode product : body.get("content")) {
-            assertThat(product.get("orders")).isNotEmpty();
+            assertThat(product.get("orders")).isNotEmpty().hasSizeLessThanOrEqualTo(20);
+            assertThat(product.get("orderCount").asLong())
+                    .isGreaterThanOrEqualTo(product.get("orders").size());
         }
     }
 
@@ -356,11 +378,12 @@ public class StoreApiSteps {
         assertThat(body.get("size").asInt()).isEqualTo(size);
     }
 
-    @Then("every customer on the page includes its orders")
-    public void everyCustomerIncludesOrders() {
+    @Then("every customer on the page includes its newest orders and the total count")
+    public void everyCustomerIncludesNewestOrders() {
         for (JsonNode customer : body.get("content")) {
-            assertThat(customer.get("orders").isArray()).isTrue();
-            assertThat(customer.get("orders")).isNotEmpty();
+            assertThat(customer.get("orders")).isNotEmpty().hasSizeLessThanOrEqualTo(20);
+            assertThat(customer.get("orderCount").asLong())
+                    .isGreaterThanOrEqualTo(customer.get("orders").size());
         }
     }
 

@@ -9,6 +9,7 @@ import org.mapstruct.Mapping;
 
 @Mapper(componentModel = "spring")
 public interface CustomerMapper {
+    @Mapping(target = "orderCount", constant = "0L")
     CustomerDTO customerToCustomerDTO(Customer customer);
 
     @Mapping(target = "id", ignore = true)

@@ -13,10 +13,10 @@ Feature: Product catalogue
     Then the response status is 400
     And the response problem lists a validation error for "description"
 
-  Scenario: Fetch a product with the orders that contain it
+  Scenario: Fetch a product with the newest orders that contain it
     When I request product 2
     Then the response status is 200
-    And the response product has id 2 and its orders include 1 and 43
+    And the response product has id 2 with its 20 newest orders and the total count
 
   Scenario: Fetching an unknown product is a not found
     When I request product 999999
@@ -27,14 +27,14 @@ Feature: Product catalogue
     When I request products with page 0 and size 5
     Then the response status is 200
     And the page has 5 products starting at id 1
-    And every product on the page lists at least one order id
+    And every product on the page lists its newest order ids and the total count
 
   Scenario: Walk products with a cursor
     When I request products after 0 with size 5
     Then the response status is 200
     And the page has 5 products starting at id 1
     And the next cursor is 5
-    And every product on the page lists at least one order id
+    And every product on the page lists its newest order ids and the total count
     When I request products after 5 with size 5
     Then the page has 5 products starting at id 6
     And the next cursor is 10
