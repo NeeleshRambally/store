@@ -4,6 +4,7 @@ import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -199,6 +200,10 @@ class OrderApiIT extends AbstractIntegrationTest {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order?after=-1", ProblemDetail.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("after");
     }
 
     private static List<Long> ids(JsonNode page) {

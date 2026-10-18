@@ -2,6 +2,7 @@ package com.example.store.exception;
 
 import lombok.extern.slf4j.Slf4j;
 
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -10,8 +11,10 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.Map;
@@ -53,5 +56,29 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                         .map(error -> Map.of("field", error.getField(), "message", error.getDefaultMessage()))
                         .toList());
         return ResponseEntity.status(status).headers(headers).body(problem);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(
+            HandlerMethodValidationException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        ProblemDetail problem = ex.getBody();
+        problem.setProperty(
+                "errors",
+                ex.getParameterValidationResults().stream()
+                        .flatMap(result -> result.getResolvableErrors().stream()
+                                .map(error -> Map.of(
+                                        "field",
+                                        parameterName(result.getMethodParameter()),
+                                        "message",
+                                        error.getDefaultMessage())))
+                        .toList());
+        return ResponseEntity.status(status).headers(headers).body(problem);
+    }
+
+    private static String parameterName(MethodParameter parameter) {
+        RequestParam requestParam = parameter.getParameterAnnotation(RequestParam.class);
+        return requestParam != null && !requestParam.name().isEmpty()
+                ? requestParam.name()
+                : parameter.getParameterName();
     }
 }

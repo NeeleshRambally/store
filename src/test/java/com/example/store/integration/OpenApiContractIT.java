@@ -125,6 +125,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void negativeCursorMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("after", "-1"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("after");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void conflictingOrderMatchesTheContract() {
         Response conflict = SimpleResponse.Builder.status(HttpStatus.CONFLICT.value())
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
@@ -209,6 +220,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
         assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
         assertThat(interaction.json().get("content")).isNotEmpty();
         assertConforms(interaction);
+    }
+
+    @Test
+    void multiWordCustomerSearchMatchesTheContract() {
+        Interaction interaction = get("/customer", Map.of("name", "Muriel Donnelly"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("name");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
     }
 
     @Test

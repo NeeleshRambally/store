@@ -67,6 +67,11 @@ Feature: Order management
     Then the page has 5 orders starting at id 6
     And the next cursor is 10
 
+  Scenario: A negative cursor is rejected
+    When I request orders after -1 with size 5
+    Then the response status is 400
+    And the response problem lists a validation error for "after"
+
   Scenario: A cursor cannot be combined with a page number
     When I request orders after 0 on page 1
     Then the response status is 400
