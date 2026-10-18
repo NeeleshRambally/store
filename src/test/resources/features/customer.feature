@@ -70,3 +70,13 @@ Feature: Customer management
     When I search customers by name ""
     Then the response status is 400
     And the response problem lists a validation error for "name"
+
+  Scenario: Fetch a single customer by id
+    When I request customer 1
+    Then the response status is 200
+    And the response customer has id 1 named "Muriel Donnelly" with its 20 newest orders and the total count
+
+  Scenario: Fetching an unknown customer is a not found
+    When I request customer 999999
+    Then the response status is 404
+    And the response problem detail is "Customer with id 999999 was not found"

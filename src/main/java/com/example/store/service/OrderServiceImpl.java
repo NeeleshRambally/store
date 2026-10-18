@@ -143,12 +143,11 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private List<Product> loadProducts(List<Long> productIds) {
-        Set<Long> requested = new HashSet<>(productIds);
         List<Product> products = productRepository.findAllById(productIds);
-        if (products.size() != requested.size()) {
+        if (products.size() != productIds.size()) {
             Set<Long> found =
                     new HashSet<>(products.stream().map(Product::getId).toList());
-            Long missing = requested.stream()
+            Long missing = productIds.stream()
                     .filter(id -> !found.contains(id))
                     .min(Comparator.naturalOrder())
                     .orElseThrow();

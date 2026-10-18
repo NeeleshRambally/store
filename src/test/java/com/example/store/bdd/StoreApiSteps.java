@@ -131,6 +131,11 @@ public class StoreApiSteps {
         get("/order?sort=" + sort);
     }
 
+    @When("I request customer {int}")
+    public void requestCustomer(int id) throws Exception {
+        get("/customer/" + id);
+    }
+
     @When("I request order {int}")
     public void requestOrder(int id) throws Exception {
         get("/order/" + id);
@@ -285,6 +290,27 @@ public class StoreApiSteps {
         assertThat(body.get("orderCount").asLong()).isEqualTo(total);
         List<Long> orders = new java.util.ArrayList<>();
         body.get("orders").forEach(node -> orders.add(node.asLong()));
+        assertThat(orders).hasSize(limit).isEqualTo(newest);
+    }
+
+    @Then("the response customer has id {int} named {string} with its {int} newest orders and the total count")
+    public void responseCustomerHasNewestOrders(int id, String name, int limit) {
+        Long total =
+                jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = ?", Long.class, id);
+        List<Long> newest = jdbcTemplate
+                .queryForList(
+                        "select id from \"order\" where customer_id = ? order by id desc limit ?",
+                        Long.class,
+                        id,
+                        limit)
+                .stream()
+                .sorted()
+                .toList();
+        assertThat(body.get("id").asInt()).isEqualTo(id);
+        assertThat(body.get("name").asText()).isEqualTo(name);
+        assertThat(body.get("orderCount").asLong()).isEqualTo(total);
+        List<Long> orders = new java.util.ArrayList<>();
+        body.get("orders").forEach(node -> orders.add(node.get("id").asLong()));
         assertThat(orders).hasSize(limit).isEqualTo(newest);
     }
 

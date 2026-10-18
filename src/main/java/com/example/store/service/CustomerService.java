@@ -11,6 +11,8 @@ import org.springframework.data.domain.Pageable;
 public interface CustomerService {
     CustomerDTO create(CreateCustomerRequest request);
 
+    CustomerDTO findById(Long id);
+
     Page<CustomerDTO> findAll(Pageable pageable);
 
     Page<CustomerDTO> search(String nameWord, Pageable pageable);

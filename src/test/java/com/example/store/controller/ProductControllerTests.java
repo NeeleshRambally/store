@@ -26,6 +26,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,6 +50,7 @@ class ProductControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"description\":\"Rustic Chair\"}"))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/products/101"))
                 .andExpect(jsonPath("$.id").value(101))
                 .andExpect(jsonPath("$.description").value("Rustic Chair"))
                 .andExpect(jsonPath("$.orders").isEmpty())

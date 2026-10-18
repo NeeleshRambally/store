@@ -22,6 +22,11 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "productIds"
 
+  Scenario: An order with a repeated product is rejected
+    When I create an order "Twice" for customer 1 with products 2 and 2
+    Then the response status is 400
+    And the response problem lists a validation error for "productIds"
+
   Scenario: An order with an unknown product is rejected
     When I create an order "Analytical Engine" for customer 1 with products 2 and 999999
     Then the response status is 404

@@ -43,6 +43,23 @@ class HttpCacheIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void customerByIdCarriesAWeakETagAndIsNotModifiedWhenItMatches() {
+        ResponseEntity<String> first = restTemplate.getForEntity("/customer/1", String.class);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(first.getHeaders().getETag()).startsWith("W/\"");
+        assertThat(first.getHeaders().getCacheControl()).isEqualTo("no-cache");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setIfNoneMatch(first.getHeaders().getETag());
+
+        ResponseEntity<String> response =
+                restTemplate.exchange("/customer/1", HttpMethod.GET, new HttpEntity<>(headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_MODIFIED);
+        assertThat(response.getBody()).isNull();
+        assertThat(response.getHeaders().getETag()).isEqualTo(first.getHeaders().getETag());
+    }
+
+    @Test
     void listResponsesCarryAnETagToo() {
         ResponseEntity<String> response = restTemplate.getForEntity("/customer?name=onne&size=5", String.class);
 

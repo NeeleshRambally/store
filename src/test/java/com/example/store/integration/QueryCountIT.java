@@ -71,6 +71,34 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void customerByIdUsesTwoStatementsAndLoadsNoEntities() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer/1", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void unknownCustomerByIdUsesOneStatement() {
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer/999999", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    @Test
+    void secondReadOfACustomerByIdIsNotCached() {
+        restTemplate.getForEntity("/customer/1", String.class);
+        statistics.clear();
+
+        ResponseEntity<String> response = restTemplate.getForEntity("/customer/1", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
     void orderByIdUsesOneStatement() {
         ResponseEntity<String> response = restTemplate.getForEntity("/order/1", String.class);
 

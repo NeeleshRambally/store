@@ -34,6 +34,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -59,6 +60,7 @@ class OrderControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
                 .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/order/1"))
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.description").value("Test Order"))
                 .andExpect(jsonPath("$.customer.name").value("John Doe"))
@@ -84,6 +86,17 @@ class OrderControllerTests {
                         .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[]}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("productIds"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsRepeatedProductIds() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Twice\",\"customerId\":1,\"productIds\":[2,2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"))
+                .andExpect(jsonPath("$.errors[0].message").value("must only contain unique elements"));
         verify(orderService, never()).create(any());
     }
 

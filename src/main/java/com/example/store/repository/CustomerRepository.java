@@ -13,8 +13,13 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
+
+    @Query("select new com.example.store.repository.view.CustomerRow(c.id, c.name) from Customer c"
+            + " where c.id = :id")
+    Optional<CustomerRow> findRow(@Param("id") long id);
 
     @Query(
             value = "select new com.example.store.repository.view.CustomerRow(c.id, c.name) from Customer c",
