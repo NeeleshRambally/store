@@ -42,6 +42,7 @@ products) is loaded when the `seed` Liquibase context is active, which is the de
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
+| `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
 
 ## Development workflow
 Every change goes through a pull request. The pipeline must be green and the change reviewed
@@ -118,7 +119,7 @@ The contract is documented in `OpenAPI.yaml`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/customer?page=&size=&sort=` | Page of customers, each with its orders |
+| `GET` | `/customer?page=&size=&sort=` | Page of customers, each with its newest orders and `orderCount` |
 | `GET` | `/customer?after=&size=` | Cursor page of customers with an id greater than `after` |
 | `POST` | `/customer` | Create a customer: `{"name": "..."}` |
 | `GET` | `/customer?name=onne` | Customers whose name contains the word fragment (single word, case-insensitive) |
@@ -128,9 +129,9 @@ The contract is documented in `OpenAPI.yaml`.
 | `GET` | `/order?productId=2` | The orders containing one product, in either paging mode; an unknown id is an empty page |
 | `GET` | `/order/{id}` | A single order with its customer and products |
 | `POST` | `/order` | Create an order: `{"description": "...", "customerId": 1, "productIds": [2, 8]}` |
-| `GET` | `/products?page=&size=&sort=` | Page of products, each with the ids of the orders containing it |
+| `GET` | `/products?page=&size=&sort=` | Page of products, each with the ids of the newest orders containing it and `orderCount` |
 | `GET` | `/products?after=&size=` | Cursor page of products with an id greater than `after` |
-| `GET` | `/products/{id}` | A single product with the ids of the orders containing it |
+| `GET` | `/products/{id}` | A single product with the ids of the newest orders containing it and `orderCount` |
 | `POST` | `/products` | Create a product: `{"description": "..."}` |
 
 List responses are a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`.
@@ -149,7 +150,10 @@ one customer or the orders containing one product; the filter applies in both pa
 with the same `sort` whitelist, an id that matches nothing yields an empty page rather than a
 404, and the two filters together are a 400 problem detail with the detail
 `customerId and productId cannot be combined`. These are the uncapped lists behind the nested
-`orders` of a customer or a product.
+`orders` of a customer or a product: a customer on a list response carries its newest
+`NESTED_ORDERS_LIMIT` orders (20 by default; the highest ids, returned in ascending id order) and
+`orderCount`, the total; a product on the list and by-id responses carries the ids of the newest
+orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collections").
 Errors are RFC 7807 problem details; validation failures, whether of a request body or of a
 query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
 names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
@@ -159,7 +163,7 @@ Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; send
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
 unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the
 service for `CACHE_TTL`; `products` entries are evicted when an order containing the product is
-created.
+created, so its order ids and `orderCount` reflect the new order on the next read.
 
 ## Operations
 The service listens on two ports. The API is served on 8080; the actuator is served on a

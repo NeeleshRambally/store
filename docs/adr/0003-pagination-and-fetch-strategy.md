@@ -3,8 +3,8 @@
 ## Status
 Accepted; the fetch strategy for list pages is superseded by ADR 0006 (constructor projections
 replace the entity graph and the fetch-join queries; the statement counts are unchanged).
-Amended with the "Keyset pagination" section below; the `customerId` and `productId` filters
-of `GET /order` (below, under Decision) apply in both paging modes.
+Amended with the "Keyset pagination" and "Nested collections" sections below; the `customerId`
+and `productId` filters of `GET /order` (below, under Decision) apply in both paging modes.
 
 ## Context
 `GET /order` returned every order (10,000 rows, ~950 KB) and `GET /customer` returned every
@@ -61,3 +61,38 @@ depth (pinned by `QueryCountIT`).
   parameter and the envelope stay, only the cursor's content changes.
 - Offset pagination remains available unchanged for clients that need `totalElements` or random
   access to a page; the two modes share the row projections, the child queries and the DTOs.
+
+## Nested collections
+Paging bounded the rows per request but not what each row carried. The original `CustomerDTO`
+embedded every order of the customer and the original `ProductDTO` every order id containing
+the product, so a customer page grew with the orders per customer (the default page of 20
+customers carried 1,941 orders on the seed) and a product with the orders per product (about
+200 ids each), without any bound a client or an operator could rely on.
+
+From this release the nested `orders` of a customer, on every list response, are its newest
+`store.nested-orders.limit` orders (environment variable `NESTED_ORDERS_LIMIT`, default 20,
+validated to 1..100 at start-up), where newest means the highest ids, returned in ascending id
+order like every other list; `orderCount` carries the total. A product on the list and by-id
+responses carries the ids of its newest `limit` orders the same way, plus `orderCount`. The
+child query is a native window query: `row_number() over (partition by customer_id order by id
+desc)` filtered to `<= :max` and `count(*) over (partition by customer_id)`, over the ids of the
+page (the same over `order_product` for products), so the newest rows and the total of every
+parent on the page still cost one statement and the per-request counts are unchanged (3 per
+page, 2 per cursor page, pinned by `QueryCountIT`). `GET /products/{id}` reads the product row
+and that window instead of the entity graph: 2 statements, no entity, cached and evicted as
+before.
+
+- The README's "a customer has 0 or more orders" and the products task's "list of the order
+  IDs" are still met: the list is present on every response, bounded and with its total, and
+  nothing is lost because the complete lists are `GET /order?customerId=` and
+  `GET /order?productId=`, paged, filtered on the indexed foreign keys and added for exactly this
+  purpose before the bound was introduced.
+- Newest rather than oldest because a bounded list that never changes once full tells an
+  operator nothing; the newest orders plus the total answer "is this customer active and how
+  much" directly, and the ascending order inside the list keeps the response shape of every
+  other list.
+- The limit is configuration, not a request parameter, so a client cannot raise the cost of a
+  page; raising it above 100 is refused at start-up (`@Validated`, `@Max(100)`).
+- `orderCount` is required in `OpenAPI.yaml` for `Customer` and `Product` and the `orders`
+  descriptions state the bound and the full-list endpoint; a client that needs every order
+  follows the link rather than the nested list.
