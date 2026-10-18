@@ -133,10 +133,11 @@ no GitLab project for this repository. It follows the same order: `build` runs
 `./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule, `package` builds the
 image once and saves it as the `image.tar` artifact, `smoke` loads that tarball, starts the stack
 with Compose inside `docker:27-dind` and runs the same script against `http://docker:8080` and
-`http://docker:8081`, `scan` runs Trivy 0.76.0 (the version `aquasecurity/trivy-action@v0.36.0`
-uses on GitHub) on the tarball with the same severity, `--ignore-unfixed` and `.trivyignore`
-settings, and `publish`, on the default branch only, loads the same tarball and pushes it as
-`$CI_REGISTRY_IMAGE:<short sha>` and `:latest` after `package`, `smoke` and `scan` have passed.
+`http://docker:8081`, `scan` runs Trivy 0.70.0 (the version `aquasecurity/trivy-action@v0.36.0`
+installs by default on GitHub) on the tarball with the same severity, `--ignore-unfixed` and
+`.trivyignore` settings, and `publish`, on the default branch only, loads the same tarball and
+pushes it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` after `package`, `smoke` and `scan`
+have passed.
 One detail differs from GitHub: the SBOM is CycloneDX produced by Trivy rather than SPDX produced
 by Syft; both scans print the findings table to the job log and neither stores a report.
 

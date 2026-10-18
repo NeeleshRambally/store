@@ -64,7 +64,7 @@ smoke:
 scan:
   stage: scan
   image:
-    name: aquasec/trivy:0.76.0
+    name: aquasec/trivy:0.70.0
     entrypoint: [""]
   needs: [package]
   script:
