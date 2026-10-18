@@ -14,6 +14,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -103,6 +104,18 @@ class CustomerApiIT extends AbstractIntegrationTest {
 
         assertThat(response.getBody().size()).isEqualTo(100);
         assertThat(response.getBody().content()).hasSize(100);
+    }
+
+    @Test
+    void sortsANameSearchByNameDescending() {
+        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                "/customer?name=a&sort=name,desc&size=5", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content())
+                .hasSize(5)
+                .extracting(CustomerDTO::name)
+                .isSortedAccordingTo(Comparator.reverseOrder());
     }
 
     @Test
