@@ -122,7 +122,7 @@ creates in the Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
 Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
-majors, and the base images as one grouped pull request with the Java major excluded. Actions are
+majors except for `gradle/actions`, and the base images as one grouped pull request with the Java major excluded. Actions are
 referenced by major tag rather than commit SHA on purpose: the grouped weekly pull request is the
 update path, and a SHA pin would freeze the pipeline on a deprecated revision without automation
 that rewrites the SHA. `gradle/actions/setup-gradle` stays on v5 because v6 moved the build cache
