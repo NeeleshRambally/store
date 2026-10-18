@@ -68,7 +68,9 @@ delivered.
 - `GET /products` and `GET /products/{id}` return the product with the ascending ids of the
   orders that contain it, as the task asks. The list is paged like every other list endpoint and
   the order ids are loaded with the same fixed-cost two-query pattern (3 statements per page,
-  1 for a single product).
+  1 for a single product). The task's "all products" is delivered through that same paging:
+  `size=100` returns the whole seeded catalogue of 100 products in one page, and the cursor walk
+  with `after` covers a catalogue of any size.
 - `GET /order` and `GET /order/{id}` return the products in the order (`id` and `description`),
   loaded with one extra statement per page and none for a single order.
 - The path is `/products` (plural) because the task names it so; see the note on `/customer`
@@ -115,7 +117,9 @@ delivered.
   undocumented fields rejected, request parameters checked). Where the specification and the
   implementation disagreed the specification was corrected: `size` above 100 is capped, as
   ADR 0003 states, so the parameter schema no longer declares a `maximum` that a client built
-  from the specification would enforce before the request is sent.
+  from the specification would enforce before the request is sent; and the request schemas
+  declare `minLength: 1` for `name` and `description`, because the server rejects blank values
+  with 400 and the contract check requires the specification to reject the same request.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
