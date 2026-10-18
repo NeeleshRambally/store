@@ -1,5 +1,6 @@
 package com.example.store.integration;
 
+import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.example.store.dto.ProductDTO;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,6 +46,32 @@ class ProductApiIT extends AbstractIntegrationTest {
                 .hasSizeGreaterThanOrEqualTo(200)
                 .contains(1L, 43L)
                 .isSorted();
+    }
+
+    @Test
+    void productOrdersReflectAnOrderCreatedAfterItWasCached() {
+        Long productId = restTemplate
+                .postForEntity("/products", Map.of("description", "Cached Lamp"), ProductDTO.class)
+                .getBody()
+                .id();
+        assertThat(restTemplate
+                        .getForEntity("/products/" + productId, ProductDTO.class)
+                        .getBody()
+                        .orders())
+                .isEmpty();
+
+        Long orderId = restTemplate
+                .postForEntity(
+                        "/order",
+                        Map.of("description", "Lamp order", "customerId", 1, "productIds", List.of(productId)),
+                        OrderDTO.class)
+                .getBody()
+                .id();
+
+        ResponseEntity<ProductDTO> response = restTemplate.getForEntity("/products/" + productId, ProductDTO.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().orders()).containsExactly(orderId);
     }
 
     @Test

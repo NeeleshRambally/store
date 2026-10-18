@@ -20,6 +20,7 @@ import com.example.store.repository.view.OrderRow;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -45,6 +46,7 @@ public class OrderServiceImpl implements OrderService {
     private final CustomerRepository customerRepository;
     private final ProductRepository productRepository;
     private final OrderMapper orderMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
@@ -54,8 +56,12 @@ public class OrderServiceImpl implements OrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Customer", request.customerId()));
         Order order = orderMapper.toEntity(request);
         order.setCustomer(customer);
-        order.getProducts().addAll(loadProducts(request.productIds()));
-        return orderMapper.orderToOrderDTO(orderRepository.save(order));
+        List<Product> products = loadProducts(request.productIds());
+        order.getProducts().addAll(products);
+        OrderDTO created = orderMapper.orderToOrderDTO(orderRepository.save(order));
+        eventPublisher.publishEvent(
+                new OrderCreatedEvent(products.stream().map(Product::getId).toList()));
+        return created;
     }
 
     @Override

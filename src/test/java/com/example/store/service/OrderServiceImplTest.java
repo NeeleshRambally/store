@@ -25,6 +25,7 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -54,6 +55,9 @@ class OrderServiceImplTest {
     @Mock
     private ProductRepository productRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private OrderServiceImpl service;
 
     private Customer customer;
@@ -63,7 +67,11 @@ class OrderServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new OrderServiceImpl(
-                orderRepository, customerRepository, productRepository, Mappers.getMapper(OrderMapper.class));
+                orderRepository,
+                customerRepository,
+                productRepository,
+                Mappers.getMapper(OrderMapper.class),
+                eventPublisher);
         customer = new Customer();
         customer.setId(1L);
         customer.setName("Ada Lovelace");
@@ -100,6 +108,17 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void createPublishesTheProductIdsOfTheNewOrderAfterSaving() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findAllById(List.of(8L, 2L))).thenReturn(List.of(chair, table));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(8L, 2L)));
+
+        verify(eventPublisher).publishEvent(new OrderCreatedEvent(List.of(2L, 8L)));
+    }
+
+    @Test
     void createRejectsUnknownProduct() {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
         when(productRepository.findAllById(List.of(2L, 99L))).thenReturn(List.of(chair));
@@ -108,6 +127,7 @@ class OrderServiceImplTest {
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessage("Product with id 99 was not found");
         verify(orderRepository, never()).save(any());
+        verify(eventPublisher, never()).publishEvent(any());
     }
 
     @Test
