@@ -2,6 +2,7 @@ package com.example.store.exception;
 
 import lombok.extern.slf4j.Slf4j;
 
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.MethodParameter;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
@@ -41,7 +42,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
-        log.warn("Data integrity violation: {}", ex.getMostSpecificCause().getMessage());
+        Throwable cause = ex.getMostSpecificCause();
+        if (ex.getCause() instanceof ConstraintViolationException violation) {
+            log.warn(
+                    "Data integrity violation: SQL state {}, constraint {}",
+                    violation.getSQLState(),
+                    violation.getConstraintName());
+        } else {
+            log.warn("Data integrity violation: {}", cause.getClass().getName());
+        }
+        log.debug("Data integrity violation", cause);
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "The request conflicts with existing data");
     }
 
