@@ -85,11 +85,18 @@ delivered.
   matched literally. The empty query (`?name=`) is a 400, not an unfiltered list.
 - LIKE wildcards in the query (`%`, `_`) are escaped and matched literally.
 - The search shares the list endpoint (`GET /customer?name=`) and its paging, sorting and
-  order-fetching behaviour, so it costs the same fixed 3 statements per request.
-- A trigram GIN index on `lower(name)` (`pg_trgm`) serves the `ILIKE '%...%'` predicate.
-  Creating the extension needs a privileged role on first migration; in production the DBA
-  installs it once and the changeset is a no-op thereafter (ADR 0008 records the migration
-  execution model and the roles involved).
+  order-fetching behaviour, so a full page costs the same 3 statements as the unfiltered list
+  (page, count, orders of the page), 2 when the first page is shorter than `size` because
+  Spring Data skips the count, and 2 in cursor mode; `QueryCountIT` pins all three.
+- The predicate is `lower(name) LIKE lower('%...%')` (wildcards in the word escaped) and a
+  trigram GIN index on `lower(name)` (`pg_trgm`) makes it indexable: on the 100-row seed the
+  planner still prefers a sequential scan, on 200,000 rows it uses the index unaided, and a
+  pattern shorter than three characters always falls back to a scan because `pg_trgm` extracts
+  no trigrams from it (`docs/PERFORMANCE.md`, "Substring search", has the plans; `MigrationIT`
+  pins that the predicate shape is served by the index). Creating the extension needs a
+  privileged role on first migration; in production the DBA installs it once and the changeset
+  is a no-op thereafter (ADR 0008 records the migration execution model and the roles
+  involved).
 
 ## Products (README task 4)
 - A product has an id and a description. Orders and products are many-to-many through an
@@ -128,11 +135,14 @@ delivered.
 
 ## Performance (README task 3)
 - The database is remote with high latency, so the metric that matters is round trips per
-  request, not rows. Each list endpoint now performs a fixed number of statements (3 for orders,
-  3 for customers and 3 for products) regardless of page size, and an integration test pins
-  those numbers. In cursor mode (`after`) the count query is skipped and the page query seeks
-  to `id > after` instead of discarding `OFFSET` rows, so a cursor page is 2 statements whatever
-  its depth (also pinned).
+  request, not rows. Each list endpoint now performs at most 3 statements regardless of page
+  size (the page, its count and the children of exactly that page, for orders, customers and
+  products alike), and an integration test pins those numbers. 3 is the full-page cost: the
+  count is skipped when the first page is shorter than `size` and the child query when the page
+  is empty (a short first page of a name search is 2, also pinned). In cursor mode (`after`) the
+  count query is always skipped and the page query seeks to `id > after` instead of discarding
+  `OFFSET` rows, so a cursor page is 2 statements whatever its depth (also pinned), 1 when it is
+  empty.
 - The list endpoints select their columns into records with JPQL constructor expressions and
   build the DTOs from those rows, so a page loads no entities (`getEntityLoadCount()` is 0,
   also pinned by the integration test). `GET /order/{id}` and the create paths keep the
@@ -143,11 +153,16 @@ delivered.
   `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query
   (`row_number() over (partition by parent order by id desc)` and `count(*) over (partition by
   parent)`) returns the newest rows and the total of every parent on the page in one statement,
-  so the statement counts are unchanged and the payload no longer grows with the orders per
-  customer (about 100 in the seed) or per product (about 200). See ADR 0003, "Nested
-  collections".
+  so the statement counts are unchanged. What a response is bounded by is now exact: rows per
+  page (`size`, at most 100), orders per customer and order ids per product
+  (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at
+  creation); nothing in a response grows with the tables, whereas before the bound a customer
+  carried about 100 orders and a product about 200 ids on the seed. See ADR 0003, "Nested
+  collections", and the measured payloads in `docs/PERFORMANCE.md`.
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
-- Open-in-view is disabled so no query can run outside a service transaction.
+- Open-in-view is disabled so no query can run outside a service transaction; `QueryCountIT`
+  pins that the context has no `OpenEntityManagerInViewInterceptor`, because nothing lazy-loads
+  any more and the suite would otherwise stay green if the property were dropped.
 - Ids are allocated from the database sequences in blocks of 50 (`pooled-lo` optimiser, see
   ADR 0005), so inserts are deferred to flush and batched (`jdbc.batch_size: 50`, multi-row
   rewrite in the driver). `POST /order` with three products went from 6 to 4 prepared
