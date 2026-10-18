@@ -11,9 +11,20 @@ delivered.
   on any failing test, formatting violation or coverage below 80% of lines.
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime.
-- Sample data is loaded only when the `seed` Liquibase context is active. It is active by
-  default for a developer's convenience and must be switched off in production with
-  `LIQUIBASE_CONTEXTS=prod` (any value other than `seed`).
+- Configuration fails closed. The base profile has no default for `DB_USERNAME` or
+  `DB_PASSWORD` and applies only the context-free Liquibase changesets (`LIQUIBASE_CONTEXTS`
+  defaults to `prod`), so an environment that forgets a variable gets no sample credentials
+  and no sample data. The failure is at the first database connection, not at start-up
+  parsing: Spring Boot binds an unresolved placeholder literally, Liquibase's first connection
+  is refused (`password authentication failed for user "${DB_USERNAME}"`, or `Connection
+  refused` when nothing answers) and the process exits before serving a request. The original
+  code hard-coded `admin:admin`; an earlier revision kept the pair as the fallback, which is
+  the same defect with an opt-out. The README path (`admin:admin`, port 5433, sample data) lives
+  in the `local` profile, which `./gradlew bootRun` selects as the default profile; the tests
+  take their credentials from Testcontainers and `compose.yaml` sets every variable explicitly.
+- Sample data is loaded only when the `seed` Liquibase context is active: under the `local`
+  profile, in the tests and in `compose.yaml`. The seed changesets are the only ones with a
+  context, so `prod` (or any value other than `seed`) applies the schema and nothing else.
 
 ## API contract
 - Clients can never supply an id. Request bodies are explicit records; unknown properties are
@@ -77,7 +88,8 @@ delivered.
   order-fetching behaviour, so it costs the same fixed 3 statements per request.
 - A trigram GIN index on `lower(name)` (`pg_trgm`) serves the `ILIKE '%...%'` predicate.
   Creating the extension needs a privileged role on first migration; in production the DBA
-  installs it once and the changeset is a no-op thereafter.
+  installs it once and the changeset is a no-op thereafter (ADR 0008 records the migration
+  execution model and the roles involved).
 
 ## Products (README task 4)
 - A product has an id and a description. Orders and products are many-to-many through an
@@ -181,8 +193,12 @@ delivered.
   the free GitHub plan, so the gate is enforced by process rather than by the platform.
 - The container image runs as a non-root user on a JRE, with layered jar extraction for
   efficient caching. Liveness and readiness probes are exposed for Kubernetes on the management
-  port (8081), which the ingress does not publish; no Docker `HEALTHCHECK` is declared because
-  orchestrators ignore it.
+  port (8081), which the ingress does not publish; readiness includes the database indicator
+  (ADR 0008); no Docker `HEALTHCHECK` is declared because orchestrators ignore it.
+- Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
+  is also in the MDC of every log line of that request, so a client-quoted id finds the logs.
+  Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
+  consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` is an equivalent for GitLab.
 - The image is scanned on every pull request and a critical, fixable vulnerability blocks the
   merge; unfixable findings are reported but do not block, because there is nothing a code
@@ -198,7 +214,8 @@ Formatting, compilation, unit and slice tests, integration tests against a real 
 acceptance scenarios, the OpenAPI contract check, line coverage, a successful image build, an
 image vulnerability scan, an SBOM and a smoke test of the started container. The smoke test runs on every build: the image
 that was just built is started with Compose against a fresh PostgreSQL and must become ready
-(`/actuator/health/readiness` reports `UP` within 120 seconds) and answer the API on 8080
+(`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds) and
+answer the API on 8080
 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page) with the actuator on 8081
 only. The gate is worded precisely: a failing smoke test fails the `docker` job (the `smoke` job
 on GitLab), the merge procedure requires both jobs green and a review, and the platform cannot
