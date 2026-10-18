@@ -15,6 +15,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -94,6 +95,18 @@ class ProductApiIT extends AbstractIntegrationTest {
         assertThat(page.content().get(0).id()).isEqualTo(1L);
         assertThat(page.content())
                 .allSatisfy(product -> assertThat(product.orders()).isNotEmpty());
+    }
+
+    @Test
+    void sortsProductsByDescriptionDescending() {
+        ResponseEntity<PageResponse<ProductDTO>> response = restTemplate.exchange(
+                "/products?sort=description,desc&size=5", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content())
+                .hasSize(5)
+                .extracting(ProductDTO::description)
+                .isSortedAccordingTo(Comparator.reverseOrder());
     }
 
     @Test

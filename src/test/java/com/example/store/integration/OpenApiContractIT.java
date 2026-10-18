@@ -195,6 +195,16 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectedCustomerMatchesTheContract() {
+        Interaction interaction = post("/customer", Map.of("name", ""));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void productPageMatchesTheContract() {
         Interaction interaction = get("/products", Map.of("size", "2"));
 
