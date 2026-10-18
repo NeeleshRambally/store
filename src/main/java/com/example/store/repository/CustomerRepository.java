@@ -1,6 +1,8 @@
 package com.example.store.repository;
 
 import com.example.store.entity.Customer;
+import com.example.store.repository.view.CustomerOrderRow;
+import com.example.store.repository.view.CustomerRow;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,9 +15,19 @@ import java.util.List;
 
 public interface CustomerRepository extends JpaRepository<Customer, Long> {
 
-    @Query("select c from Customer c left join fetch c.orders where c.id in :ids")
-    List<Customer> findAllWithOrdersByIdIn(@Param("ids") Collection<Long> ids);
+    @Query(
+            value = "select new com.example.store.repository.view.CustomerRow(c.id, c.name) from Customer c",
+            countQuery = "select count(c) from Customer c")
+    Page<CustomerRow> findRows(Pageable pageable);
 
-    @Query("select c from Customer c where lower(c.name) like lower(concat('%', :word, '%')) escape '!'")
-    Page<Customer> findByNameContainingWord(@Param("word") String escapedWord, Pageable pageable);
+    @Query(
+            value = "select new com.example.store.repository.view.CustomerRow(c.id, c.name) from Customer c"
+                    + " where lower(c.name) like lower(concat('%', :word, '%')) escape '!'",
+            countQuery = "select count(c) from Customer c"
+                    + " where lower(c.name) like lower(concat('%', :word, '%')) escape '!'")
+    Page<CustomerRow> findRowsByNameContainingWord(@Param("word") String escapedWord, Pageable pageable);
+
+    @Query("select new com.example.store.repository.view.CustomerOrderRow(c.id, o.id, o.description)"
+            + " from Order o join o.customer c where c.id in :ids order by c.id, o.id")
+    List<CustomerOrderRow> findOrderRows(@Param("ids") Collection<Long> ids);
 }

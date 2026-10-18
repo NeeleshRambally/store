@@ -42,6 +42,11 @@ Feature: Order management
     And the first order on the page belongs to customer "Vicki Kutch"
     And every order on the page lists at least one product
 
+  Scenario: Sorting orders by a property outside the documented list is rejected
+    When I request orders sorted by "customer.name"
+    Then the response status is 400
+    And the response problem detail is "Unknown sort property: customer.name"
+
   Scenario: Fetch a single order by id
     When I request order 1
     Then the response status is 200

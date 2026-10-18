@@ -107,5 +107,6 @@ class CustomerApiIT extends AbstractIntegrationTest {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer?sort=nope", ProblemDetail.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Unknown sort property: nope");
     }
 }
