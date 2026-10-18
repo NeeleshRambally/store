@@ -49,12 +49,18 @@ gets the schema and no sample rows. More data can be generated with the script d
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
+| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail |
 
 A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
 binds the unresolved placeholder as a literal, so the process fails at Liquibase's first
 connection (`password authentication failed for user "${DB_USERNAME}"` when a server answers,
 `Connection refused` otherwise; HikariCP makes one attempt) and exits. That is the fail-closed
 behaviour: no environment can start on the sample credentials by omission.
+`FailClosedStartupIT` observes it against a real database: a second, non-web application
+started without the two variables fails with `password authentication failed for user
+"${DB_USERNAME}"` as the root cause. The graceful drain (see Operations) is documented but not
+observed by a test, because the API has no slow request to hold open while a shutdown is
+signalled; ADR 0008 says the same.
 
 ## Development workflow
 Every change goes through a pull request. The pipeline must be green and the change reviewed
@@ -195,7 +201,11 @@ orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collecti
 Errors are RFC 7807 problem details; validation failures, whether of a request body or of a
 query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
 names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
-never carry an id; unknown properties are rejected with 400. An order carries between 1 and 100
+never carry an id; unknown properties are rejected with 400. A request body over
+`REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds
+65536 bytes`), judged by the declared `Content-Length` before any byte is read or by the bytes
+counted while a chunked body is read; Tomcat appends `Connection: close` to the 413 and
+discards the unread remainder, up to its 2 MB swallow limit. An order carries between 1 and 100
 products, each id at most once: a repeated id is a 400 naming `productIds`, not a silent
 de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
 the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
@@ -237,9 +247,14 @@ probes and metrics are reachable from inside the cluster but never from the publ
   the header is where a gateway's or a later tracer's id attaches.
 * `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
   interceptor are registered for the API paths only
+* `RequestBodyLimitFilter` enforces `REQUEST_MAX_BODY_BYTES` and, like `RequestIdFilter`, is a
+  `@Component` filter registered on the API connector only: the management connector's child
+  context does not inherit it, and the actuator takes no request bodies
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`)
   with `service.name` and `service.version` taken from `spring.application.name` and the
-  build version, and `requestId` as a field on every line written while a request is handled
+  build version, and `requestId` as a field on every line written while a request is handled;
+  a data-integrity conflict is logged at WARN by SQL state and constraint name, never with
+  the driver message that quotes the request's values (the full cause is at DEBUG)
 * Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
   stop grace for it, and a Kubernetes deployment needs the same margin in
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`

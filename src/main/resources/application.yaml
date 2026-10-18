@@ -43,6 +43,8 @@ spring:
 store:
   nested-orders:
     limit: ${NESTED_ORDERS_LIMIT:20}
+  request:
+    max-body-bytes: ${REQUEST_MAX_BODY_BYTES:65536}
 
 server:
   shutdown: graceful

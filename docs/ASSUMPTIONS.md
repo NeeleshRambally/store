@@ -17,7 +17,8 @@ delivered.
   and no sample data. The failure is at the first database connection, not at start-up
   parsing: Spring Boot binds an unresolved placeholder literally, Liquibase's first connection
   is refused (`password authentication failed for user "${DB_USERNAME}"`, or `Connection
-  refused` when nothing answers) and the process exits before serving a request. The original
+  refused` when nothing answers) and the process exits before serving a request;
+  `FailClosedStartupIT` observes exactly that against a real database. The original
   code hard-coded `admin:admin`; an earlier revision kept the pair as the fallback, which is
   the same defect with an opt-out. The README path (`admin:admin`, port 5433, sample data) lives
   in the `local` profile, which `./gradlew bootRun` selects as the default profile; the tests
@@ -130,8 +131,22 @@ delivered.
   sample products by the seed changeset so the invariant also holds for the sample data.
 - An order carries at most 100 products (`@Size(max = 100)` on `productIds`, `maxItems: 100`
   in the specification). The bound keeps a single request to one `IN` clause of at most 100
-  ids and one insert batch of at most 100 join rows; without it the only limit was the 2 MB
-  request body.
+  ids and one insert batch of at most 100 join rows.
+- Until this release no server-side bound on a JSON body existed, and an earlier revision of
+  this document wrongly cited Tomcat's 2 MB default, which applies to form-parameter parsing
+  only (`server.tomcat.max-http-form-post-size`); an oversized `description` was parsed into
+  memory before `@Size` rejected it. `RequestBodyLimitFilter` now rejects any body over
+  `REQUEST_MAX_BODY_BYTES` (64 KiB by default, at least 1 KiB) with a 413 problem detail
+  (`Request body exceeds 65536 bytes`) before it is parsed: by the declared `Content-Length`
+  when there is one, otherwise by counting the bytes of a chunked body as they are read. The
+  largest valid body (a 255-character description and 100 product ids) is about 2 KB, so the
+  bound is thirty times the largest request the API accepts. The 413 response is guaranteed
+  up to Tomcat's 2 MB swallow limit (`server.tomcat.max-swallow-size`): Tomcat appends
+  `Connection: close` and discards the unread remainder; beyond 2 MB it closes the connection
+  without reading the rest and the client may see a reset instead of the problem detail.
+  `RequestBodyLimitFilterTests`, `RequestBodyLimitIT` (declared and chunked), the contract
+  case, the Cucumber scenario and the container smoke test pin it; there is no 411, because a
+  chunked body is legal HTTP/1.1 and is what the test client sends.
 - The invariant is enforced for orders created through the API from this release. The seed
   changeset runs only under the `seed` context, so in a production database an order that
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such
@@ -201,7 +216,9 @@ delivered.
 
 ## Testing strategy
 - TDD for every production change: each test was observed failing before the code that makes
-  it pass was written.
+  it pass was written. A test that pins behaviour which already existed (for example
+  `FailClosedStartupIT`) is labelled as such in its pull request, with the temporary change
+  that made it fail.
 - One PostgreSQL container per test run. All integration tests and the Cucumber scenarios share
   a single Spring context; tests therefore never assert on absolute seed counts after writes
   and never truncate tables.

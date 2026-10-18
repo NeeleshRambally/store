@@ -260,6 +260,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void oversizedOrderMatchesTheContract() {
+        Interaction interaction =
+                post("/order", Map.of("description", "a".repeat(70_000), "customerId", 1, "productIds", List.of(1)));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+        assertThat(interaction.json().get("detail").asText()).isEqualTo("Request body exceeds 65536 bytes");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void unknownSortPropertyMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("sort", "nope"));
 
