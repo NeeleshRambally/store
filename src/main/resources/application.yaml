@@ -9,6 +9,8 @@ spring:
       maximum-pool-size: ${DB_POOL_SIZE:10}
       connection-timeout: 5000
       validation-timeout: 2000
+      data-source-properties:
+        reWriteBatchedInserts: true
   jpa:
     open-in-view: false
     hibernate:
@@ -16,6 +18,10 @@ spring:
     properties:
       hibernate:
         default_batch_fetch_size: 100
+        id.optimizer.pooled.preferred: pooled-lo
+        jdbc.batch_size: 50
+        order_inserts: true
+        order_updates: true
   data:
     web:
       pageable:
