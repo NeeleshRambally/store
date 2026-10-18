@@ -21,6 +21,8 @@ paths:
       tags:
         - store
       parameters:
+        - $ref: '#/components/parameters/customerId'
+        - $ref: '#/components/parameters/productId'
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/orderSort'
@@ -48,8 +50,10 @@ paths:
           $ref: '#/components/responses/ServerError'
       operationId: getOrders
       description: >-
-        Get a page of orders, each with its customer and the products it contains. Without after
-        the page is addressed by page and size; with after the page is the orders whose id is
+        Get a page of orders, each with its customer and the products it contains, optionally
+        restricted to the orders of one customer (customerId) or to the orders containing one
+        product (productId); the two filters cannot be combined. Without after the page is
+        addressed by page and size; with after the page is the (matching) orders whose id is
         greater than after, in ascending id order (keyset pagination, cheaper for deep pages).
     post:
       summary: Create Order
@@ -330,6 +334,36 @@ components:
         format: int64
         minimum: 0
         example: 0
+    customerId:
+      name: customerId
+      in: query
+      required: false
+      description: >-
+        Only the orders placed by this customer, in both paging modes. An id that matches no
+        order (including an unknown customer) yields an empty page with totalElements 0, not a
+        404; a value below 1 is rejected with 400. Cannot be combined with productId: such a
+        request is rejected with 400 (see the combinedFilters example of the BadRequest
+        response).
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+        example: 1
+    productId:
+      name: productId
+      in: query
+      required: false
+      description: >-
+        Only the orders that contain this product, in both paging modes. An id that matches no
+        order (including an unknown product) yields an empty page with totalElements 0, not a
+        404; a value below 1 is rejected with 400. Cannot be combined with customerId: such a
+        request is rejected with 400 (see the combinedFilters example of the BadRequest
+        response).
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+        example: 2
     orderSort:
       name: sort
       in: query
@@ -389,7 +423,7 @@ components:
     BadRequest:
       description: >-
         The request is malformed, fails validation, sorts by a property outside the documented
-        list or combines after with page or sort
+        list, combines after with page or sort, or combines customerId with productId
       content:
         application/problem+json:
           schema:
@@ -410,6 +444,14 @@ components:
                 title: Bad Request
                 status: 400
                 detail: after cannot be combined with page or sort
+                instance: /order
+            combinedFilters:
+              summary: GET /order?customerId=1&productId=2
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: customerId and productId cannot be combined
                 instance: /order
     NotFound:
       description: The referenced resource does not exist

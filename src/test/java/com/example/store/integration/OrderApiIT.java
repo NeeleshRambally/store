@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -25,6 +26,9 @@ class OrderApiIT extends AbstractIntegrationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void createsOrderForExistingCustomer() {
@@ -204,6 +208,118 @@ class OrderApiIT extends AbstractIntegrationTest {
                 .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
                 .extracting(error -> error.get("field"))
                 .containsExactly("after");
+    }
+
+    @Test
+    void filtersOrdersByCustomer() {
+        Long expected = jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = 1", Long.class);
+
+        ResponseEntity<PageResponse<OrderDTO>> response = restTemplate.exchange(
+                "/order?customerId=1&size=100", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().totalElements()).isEqualTo(expected);
+        assertThat(response.getBody().content())
+                .isNotEmpty()
+                .allSatisfy(order -> assertThat(order.customer().id()).isEqualTo(1L));
+        assertThat(response.getBody().content())
+                .allSatisfy(order -> assertThat(order.products()).isNotEmpty());
+    }
+
+    @Test
+    void filtersOrdersByProduct() {
+        Long expected =
+                jdbcTemplate.queryForObject("select count(*) from order_product where product_id = 2", Long.class);
+
+        ResponseEntity<PageResponse<OrderDTO>> response = restTemplate.exchange(
+                "/order?productId=2&size=50&sort=description,desc",
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().totalElements()).isEqualTo(expected);
+        assertThat(response.getBody().content()).hasSize(50).allSatisfy(order -> assertThat(order.products())
+                .extracting(p -> p.id())
+                .contains(2L));
+        assertThat(response.getBody().content())
+                .extracting(OrderDTO::description)
+                .isSortedAccordingTo(Comparator.reverseOrder());
+    }
+
+    @Test
+    void walksACustomersOrdersWithACursor() {
+        List<Long> expected = jdbcTemplate.queryForList(
+                "select id from \"order\" where customer_id = 1 order by id limit 10", Long.class);
+
+        ResponseEntity<JsonNode> first =
+                restTemplate.getForEntity("/order?customerId=1&after=0&size=5", JsonNode.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(first.getBody())).isEqualTo(expected.subList(0, 5));
+        assertThat(first.getBody().get("nextCursor").asLong()).isEqualTo(expected.get(4));
+        first.getBody().get("content").forEach(order -> assertThat(
+                        order.get("customer").get("id").asLong())
+                .isEqualTo(1L));
+
+        ResponseEntity<JsonNode> second = restTemplate.getForEntity(
+                "/order?customerId=1&after=" + first.getBody().get("nextCursor").asLong() + "&size=5", JsonNode.class);
+
+        assertThat(ids(second.getBody())).isEqualTo(expected.subList(5, 10));
+        assertThat(second.getBody().get("nextCursor").asLong()).isEqualTo(expected.get(9));
+    }
+
+    @Test
+    void walksAProductsOrdersWithACursor() {
+        List<Long> expected = jdbcTemplate.queryForList(
+                "select order_id from order_product where product_id = 2 order by order_id limit 3", Long.class);
+
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?productId=2&after=0&size=3", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(response.getBody())).isEqualTo(expected);
+        assertThat(response.getBody().get("nextCursor").asLong()).isEqualTo(expected.get(2));
+    }
+
+    @Test
+    void rejectsCustomerAndProductFiltersTogether() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/order?customerId=1&productId=2", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("customerId and productId cannot be combined");
+    }
+
+    @Test
+    void returnsAnEmptyPageForAnUnknownCustomer() {
+        ResponseEntity<PageResponse<OrderDTO>> response = restTemplate.exchange(
+                "/order?customerId=999999", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().content()).isEmpty();
+        assertThat(response.getBody().totalElements()).isZero();
+    }
+
+    @Test
+    void returnsAnEmptyCursorPageForAnUnknownProduct() {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?productId=999999&after=0", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(response.getBody().get("nextCursor").isNull()).isTrue();
+    }
+
+    @Test
+    void rejectsAZeroProductId() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order?productId=0", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("productId");
     }
 
     private static List<Long> ids(JsonNode page) {

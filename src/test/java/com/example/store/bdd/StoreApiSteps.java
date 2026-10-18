@@ -162,6 +162,21 @@ public class StoreApiSteps {
         get("/products?after=" + after + "&size=" + size);
     }
 
+    @When("I request orders of customer {int}")
+    public void requestOrdersOfCustomer(int customerId) throws Exception {
+        get("/order?customerId=" + customerId);
+    }
+
+    @When("I request orders containing product {int}")
+    public void requestOrdersContainingProduct(int productId) throws Exception {
+        get("/order?productId=" + productId);
+    }
+
+    @When("I request orders of customer {int} containing product {int}")
+    public void requestOrdersOfCustomerContainingProduct(int customerId, int productId) throws Exception {
+        get("/order?customerId=" + customerId + "&productId=" + productId);
+    }
+
     @When("I request orders with page {int} and size {int}")
     public void requestOrdersPage(int page, int size) throws Exception {
         get("/order?page=" + page + "&size=" + size);
@@ -269,6 +284,25 @@ public class StoreApiSteps {
     public void everyOrderListsProducts() {
         for (JsonNode order : body.get("content")) {
             assertThat(order.get("products")).isNotEmpty();
+        }
+    }
+
+    @Then("every order on the page belongs to customer {int}")
+    public void everyOrderBelongsToCustomer(int customerId) {
+        assertThat(body.get("content")).isNotEmpty();
+        for (JsonNode order : body.get("content")) {
+            assertThat(order.get("customer").get("id").asInt()).isEqualTo(customerId);
+        }
+    }
+
+    @Then("every order on the page contains product {int}")
+    public void everyOrderContainsProduct(int productId) {
+        assertThat(body.get("content")).isNotEmpty();
+        for (JsonNode order : body.get("content")) {
+            assertThat(order.get("products").findValues("id").stream()
+                            .map(JsonNode::asInt)
+                            .toList())
+                    .contains(productId);
         }
     }
 

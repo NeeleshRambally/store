@@ -47,6 +47,22 @@ Feature: Order management
     And the first order on the page belongs to customer "Vicki Kutch"
     And every order on the page lists at least one product
 
+  Scenario: Orders of one customer
+    When I request orders of customer 1
+    Then the response status is 200
+    And every order on the page belongs to customer 1
+    And every order on the page lists at least one product
+
+  Scenario: Orders containing one product
+    When I request orders containing product 2
+    Then the response status is 200
+    And every order on the page contains product 2
+
+  Scenario: The customer and product filters cannot be combined
+    When I request orders of customer 1 containing product 2
+    Then the response status is 400
+    And the response problem detail is "customerId and productId cannot be combined"
+
   Scenario: Sorting orders by a property outside the documented list is rejected
     When I request orders sorted by "customer.name"
     Then the response status is 400
