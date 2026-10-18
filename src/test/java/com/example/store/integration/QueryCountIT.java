@@ -11,6 +11,9 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+import java.util.Map;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 // Pins the number of database round trips per request so an N+1 regression fails the build.
@@ -76,5 +79,16 @@ class QueryCountIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+    }
+
+    @Test
+    void createOrderWithThreeProductsUsesAtMostFiveStatements() {
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/order",
+                Map.of("description", "Batched", "customerId", 1, "productIds", List.of(1, 2, 3)),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isLessThanOrEqualTo(5);
     }
 }
