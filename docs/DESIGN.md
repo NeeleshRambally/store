@@ -56,7 +56,12 @@ runs, in one task and in one JVM:
 * unit tests (JUnit 5, Mockito),
 * controller slice tests (`@WebMvcTest`),
 * integration tests against a real PostgreSQL started by Testcontainers,
-* Cucumber acceptance scenarios in `src/test/resources/features`.
+* Cucumber acceptance scenarios in `src/test/resources/features`,
+* an OpenAPI contract check (`OpenApiContractIT`): real requests and responses of every
+  endpoint, including the 400, 404 and 304 cases, are validated against the checked-in
+  `OpenAPI.yaml` with `swagger-request-validator`; an undocumented response field, a missing
+  required field or a request the specification would reject fails the build, so the
+  specification cannot drift from the implementation.
 
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Reports land
 in `build/reports`.
