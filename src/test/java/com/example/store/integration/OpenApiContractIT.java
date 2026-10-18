@@ -24,6 +24,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
@@ -267,8 +268,9 @@ class OpenApiContractIT extends AbstractIntegrationTest {
             request.withBody(body);
         }
 
+        URI target = URI.create(restTemplate.getRootUri() + uri.build().encode().toUriString());
         ResponseEntity<String> entity =
-                restTemplate.exchange(uri.toUriString(), method, new HttpEntity<>(body, headers), String.class);
+                restTemplate.exchange(target, method, new HttpEntity<>(body, headers), String.class);
 
         SimpleResponse.Builder response =
                 new SimpleResponse.Builder(entity.getStatusCode().value());
