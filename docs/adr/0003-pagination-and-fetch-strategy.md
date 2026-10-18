@@ -25,7 +25,7 @@ production database is not co-located with the service, so round trips dominate 
   page.
 - 3 is the full-page cost and the maximum: Spring Data skips the count query when the first
   page is shorter than `size`, and the services skip the child query when the page is empty, so
-  a short first page costs 2 and an empty one 1.
+  a short first page costs 2 and an empty one 1 (both pinned by `QueryCountIT`).
   Fetch-joining a collection together with `Pageable` is deliberately avoided because Hibernate
   would page in memory after loading every row (`HHH90003004`).
 - Open-in-view is disabled. Services are transactional and return DTOs, so no lazy loading can
@@ -52,7 +52,7 @@ The repository query is `where id > :after order by id` with a `Limit` of `size 
 service trims the extra row, which tells it whether more rows exist, before loading the
 children of the page, and sets `nextCursor` to the id of the last returned element or `null`
 when the walk is complete. The count query is skipped, so a cursor page is 2 statements at any
-depth (pinned by `QueryCountIT`), 1 when it is empty.
+depth (pinned by `QueryCountIT`), 1 when it is empty (also pinned).
 
 - The cursor is deliberately transparent: it is the id itself, not an opaque token. Clients can
   start at `after=0`, resume after a known id, and read the cursor in logs and tests. The price

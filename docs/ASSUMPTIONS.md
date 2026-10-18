@@ -158,7 +158,9 @@ delivered.
   the order ids come from one window query over `order_product` (3 statements per page, 2 for a
   single product: the product row and that window). The task's "all products" is delivered through that same paging:
   `size=100` returns the whole seeded catalogue of 100 products in one page, and the cursor walk
-  with `after` covers a catalogue of any size.
+  with `after` covers a catalogue of any size (`ProductApiIT.cursorWalkReturnsTheWholeCatalogue`
+  walks `/products?after=` to the null cursor past a product it creates and checks the collected
+  ids cover a snapshot of the product table).
 - `GET /order` and `GET /order/{id}` return the products in the order (`id` and `description`),
   loaded with one extra statement per page and none for a single order.
 - The path is `/products` (plural) because the task names it so; see the note on `/customer`
@@ -176,10 +178,12 @@ delivered.
   size (the page, its count and the children of exactly that page, for orders, customers and
   products alike), and an integration test pins those numbers. 3 is the full-page cost: the
   count is skipped when the first page is shorter than `size` and the child query when the page
-  is empty (a short first page of a name search is 2, also pinned). In cursor mode (`after`) the
+  is empty (a short first page of a name search is 2 and an empty filtered page 1, both pinned).
+  In cursor mode (`after`) the
   count query is always skipped and the page query seeks to `id > after` instead of discarding
   `OFFSET` rows, so a cursor page is 2 statements whatever its depth (also pinned), 1 when it is
-  empty.
+  empty (`QueryCountIT.emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`,
+  `customerId=999999&after=0`).
 - The list endpoints select their columns into records with JPQL constructor expressions and
   build the DTOs from those rows, so a page loads no entities (`getEntityLoadCount()` is 0,
   also pinned by the integration test). `GET /order/{id}` and the create paths keep the
@@ -197,6 +201,11 @@ delivered.
   carried about 100 orders and a product about 200 ids on the seed. See ADR 0003, "Nested
   collections", and the measured payloads in `docs/PERFORMANCE.md`.
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
+- Every whitelisted sort property is indexed together with `id` (changeset 7), and the service
+  appends `id` as a tie-break in the direction of the last sort property, so a sorted offset page
+  has a deterministic boundary and a shallow one is an index scan rather than a sort of the whole
+  table; deep sorted offset pages still pay the offset, and cursor mode stays `id`-ordered only
+  (ADR 0006, `docs/PERFORMANCE.md` "Sorted pages").
 - Open-in-view is disabled so no query can run outside a service transaction; `QueryCountIT`
   pins that the context has no `OpenEntityManagerInViewInterceptor`, because nothing lazy-loads
   any more and the suite would otherwise stay green if the property were dropped.

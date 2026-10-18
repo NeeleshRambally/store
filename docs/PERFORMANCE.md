@@ -36,8 +36,9 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /customer/{id}`: the customer row plus the bounded order window below | 2 statements, no entity loaded; 1 on a miss; deliberately not cached in the service because `orderCount` changes on every `POST /order` |
 | Nested collections bounded: a customer carries its newest `NESTED_ORDERS_LIMIT` orders (default 20) and a product the ids of its newest `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query per page (`row_number() over (partition by customer_id order by id desc)` with `count(*) over (partition by customer_id)`, the same over `order_product`) returns the newest rows and the total of every parent on the page | Statement counts unchanged (3 per page, 2 per cursor page); the orders per customer and the ids per product no longer grow with the table, `orderCount` carries the total and `GET /order?customerId=` / `?productId=` the full list (ADR 0003, "Nested collections") |
 | `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements for a full page, 2 for a short first page; the predicate is `lower(name) LIKE lower('%...%')`, which the index serves once the table is large enough and never for a pattern shorter than three characters (see "Substring search" below) |
-| `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006) |
+| `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs, and `id` is appended as a tie-break in the direction of the last property unless the client already sorts by it | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006); equal values no longer leave the page boundary to the planner, so pages 0 and 1 of a sorted walk never share or skip a row (`OrderApiIT.sortedPagesHaveDeterministicBoundaries`, `CustomerApiIT`, the Cucumber scenario) |
 | Index on `order.customer_id` | Lookups of a customer's orders are index scans |
+| B-tree indexes on the whitelisted sort columns with `id` as the trailing column: `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` (changeset 7) | A shallow sorted offset page is a backward index scan over the entries it returns instead of a top-N sort of the whole table; a deep sorted offset page still pays the offset (see "Sorted pages" below); `MigrationIT` pins the three plans |
 | `spring.jpa.open-in-view: false`; services are `@Transactional(readOnly = true)` and return DTOs | No query can run outside a service transaction; the connection is returned before serialisation starts |
 | `default_batch_fetch_size: 100` | Safety net only; no endpoint relies on it |
 | HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the by-id bodies stay below the threshold and are sent as is |
@@ -47,7 +48,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
-| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached) | A reintroduced N+1, a list page that starts loading entities again or a by-id read that stops being cached fails the build, not production |
+| `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page in both paging modes (1) and of `POST /order` (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
 
 ## Results
 
@@ -66,7 +67,9 @@ advanced past the seeded ids, so the first insert failed outright.
 3 is the full-page cost and the maximum: Spring Data skips the count query when the first page
 is shorter than `size`, and the services skip the child query when the page is empty, so a
 short first page costs 2 (`QueryCountIT.shortFirstPageSkipsTheCountQuery`, `name=onne&size=5`
-on the seed) and an empty page 1; a cursor page is 2, or 1 when empty. The payload column was
+on the seed) and an empty page 1 (`emptyOrderPageFilteredByCustomerUsesOneStatement`,
+`/order?customerId=999999`); a cursor page is 2, or 1 when empty
+(`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`, `customerId=999999&after=0`). The payload column was
 measured on 2026-10-18 against the Compose stack built from `main` (`426e08f`, `docker compose
 up -d --build`, the seeded database), with
 `curl -s -o /dev/null -w '%{size_download}'`, once as is and once with
@@ -111,8 +114,12 @@ about 98 KB) and a product every order containing it (about 200 ids each), so th
 with the orders per customer and per product even though the statement count was fixed. The
 child query is now a native window query: `row_number() over (partition by customer_id order by
 id desc)` keeps the newest `NESTED_ORDERS_LIMIT` orders of each customer on the page and
-`count(*) over (partition by customer_id)` supplies `orderCount`, in one statement over
-`idx_order_customer_id`; the same shape over `order_product` serves the products. What is bounded
+`count(*) over (partition by customer_id)` supplies `orderCount`, in one statement; the same
+shape over `order_product` serves the products. The statement is served by
+`idx_order_customer_id` when the page's customers own a small share of the order table
+(`MigrationIT.customerOrderWindowIsServedByTheCustomerIdIndex` pins a `Bitmap Index Scan` for
+three customers with sequential scans disabled); a `size=100` page on the 100-customer seed
+legitimately scans the whole table, because those customers own all of it. What is bounded
 now: rows per page (`size`, at most 100), orders per customer and order ids per product
 (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
 The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
@@ -139,6 +146,52 @@ cursor is the last id of the page (`nextCursor`), so a client walks the whole ta
 `ceil(n / size)` requests of constant cost, and `QueryCountIT` pins the 2 statements for all
 four cursor queries.
 
+## Sorted pages
+The whitelisted sort properties (`description` on orders and products, `name` on customers)
+had no B-tree index, so a request such as `GET /order?sort=description,desc` sorted the whole
+order table before applying the limit, and the order of equal descriptions (5,317 distinct among
+the 10,000 seeded orders) was whatever the sort happened to produce, so a page boundary could
+split or repeat a tie. Two changes:
+
+- `SortPolicy` appends `id` in the direction of the last client property (`description desc`
+  becomes `description desc, id desc`) unless the client already sorts by `id`; an unsorted
+  request keeps the default `id` order. The tie-break is for a deterministic boundary, not for
+  the plan: `order by description desc` alone gets the backward index scan below, and keeping
+  the tie-break in the same direction keeps the plan a plain index scan (a mixed
+  `description desc, id asc` produces an `Incremental Sort`).
+- Changeset 7 adds `idx_order_description_id` on `"order" (description, id)`,
+  `idx_product_description_id` on `product (description, id)` and `idx_customer_name_id` on
+  `customer (name, id)`: 512 kB, 16 kB and 16 kB on the seed.
+
+Plans measured with `EXPLAIN (ANALYZE)` on PostgreSQL 16.2 with the seeded 10,000 orders
+(local database, warm cache; the ratio is what matters):
+
+| Request | Page query | Plan | Query time |
+|---------|------------|------|------------|
+| `GET /order?sort=description,desc&size=20` before | `order by description desc fetch first 20 rows only` | `Limit → Sort (top-N heapsort) → Hash Join → Seq Scan` over 10,000 rows | 2.9 ms |
+| the same after | `order by description desc, id desc fetch first 20 rows only` | `Limit → Nested Loop → Index Scan Backward using idx_order_description_id`, 20 entries | 0.49 ms |
+| `GET /order?sort=description,desc&page=499&size=20` after, default planner | `... offset 9980 rows fetch first 20 rows only` | `Sort → Hash Join → Seq Scan` (the planner prefers it) | 32 ms |
+| the same with the index forced (`enable_seqscan = off`) | | `Index Scan Backward using idx_order_description_id` walking 10,000 entries | 6.4 ms |
+
+```
+Limit
+  ->  Nested Loop
+        ->  Index Scan Backward using idx_order_description_id on "order" o
+        ->  Index Scan using customer_pkey on customer c
+```
+
+So the index removes the full-table work for shallow sorted pages only; a deep sorted offset
+page still costs the offset, exactly as "Deep pages" describes for the `id` order, and cursor
+mode remains the constant-cost walk in `id` order only (`after` cannot be combined with
+`sort`). For `product` and `customer` the page selects only indexed columns, so the plans read
+`Index Only Scan Backward using idx_product_description_id` and
+`Index Only Scan using idx_customer_name_id`. `MigrationIT` pins the three plans with
+`SET LOCAL enable_seqscan = off` on the seed (`sortedOrderPageIsServedByTheDescriptionIndex`,
+`sortedProductPageIsServedByTheDescriptionIndex`, `sortedCustomerPageIsServedByTheNameIndex`),
+so a sort rendered in a shape the index cannot serve fails the build. The filtered pages
+(`customerId`, `productId`) and the name search keep their plans (`idx_order_customer_id`, the
+trigram index).
+
 ## Substring search
 `GET /customer?name=<word>` runs `lower(c.name) like lower(concat('%', :word, '%')) escape '!'`
 (`CustomerRepository`), which PostgreSQL plans as `lower(name) ~~ '%word%'`. Changeset 4 creates
@@ -150,7 +203,10 @@ page is cheaper than a GIN lookup, so the seed never shows the index. Plans meas
 
 The 100 seeded customers, unaided, and then with `SET LOCAL enable_seqscan = off`, which is
 what `MigrationIT.customerNameSearchPredicateIsServedByTheTrigramIndex` pins so a change to the
-predicate that stops matching the index expression fails the build:
+predicate that stops matching the index expression fails the build. Since changeset 7 the pin
+also drops `idx_customer_name_id` inside its rolled-back transaction: on 100 rows a full bitmap
+scan of that small B-tree (cost 8.6) beats the GIN lookup (cost 30), so with the sort index in
+place the planner never shows the trigram path on the seed even with sequential scans off.
 
 ```
 Seq Scan on customer  (cost=0.00..2.50 rows=1 width=23) (actual time=0.005..0.033 rows=1 loops=1)
@@ -171,7 +227,9 @@ Execution Time: 0.086 ms
 
 200,000 customers generated with `generate_series` (20 first names by 30 surnames, 6,666 of
 them matching `%onne%`), unaided: the planner picks the index, and reads 1,786 buffers instead
-of the whole table:
+of the whole table (re-checked after changeset 7 on a throwaway table carrying both
+`idx_customer_name_trgm` and `idx_customer_name_id`: the plan is still the
+`Bitmap Index Scan on idx_customer_name_trgm`, 8.2 ms for 33,300 matching rows):
 
 ```
 Bitmap Heap Scan on customer  (cost=2184.07..3562.88 rows=6387 width=21) (actual time=2.490..5.513 rows=6666 loops=1)
@@ -209,7 +267,7 @@ Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionI
 
 | Scenario | Before | After | Why |
 |----------|--------|-------|-----|
-| `GET /order/1` repeated with the `ETag` of the first response in `If-None-Match` | 200 with the ~100 B body on every call | `304 Not Modified`, no body, the ETag echoed | `ShallowEtagHeaderFilter` on `/order`, `/order/*`, `/customer`, `/customer/*`, `/products`, `/products/*`; the ETag is weak so Tomcat still compresses, and `Cache-Control: no-cache` makes caches revalidate instead of serving stale bodies |
+| `GET /order/1` repeated with the `ETag` of the first response in `If-None-Match` | 200 with the 178 B body on every call | `304 Not Modified`, no body, the ETag echoed | `ShallowEtagHeaderFilter` on `/order`, `/order/*`, `/customer`, `/customer/*`, `/products`, `/products/*`; the ETag is weak so Tomcat still compresses, and `Cache-Control: no-cache` makes caches revalidate instead of serving stale bodies |
 | `GET /order?size=100` with `Accept-Encoding: gzip` | gzipped, under 4 KB | gzipped, under 4 KB, plus the ETag; a revalidation sends 0 bytes of body | Weak ETags are not excluded from compression |
 | `GET /order/1` twice, `GET /products/2` twice | 1 (order) or 2 (product) statements and 1 session per call | second call: 0 statements, 0 sessions (`getPrepareStatementCount()`, `getSessionOpenCount()`) | `@Cacheable` on `findById`; `@EnableCaching(order = HIGHEST_PRECEDENCE)` places the cache advice outside the transaction advice, so a hit never enters the transactional method |
 | `GET /products/{id}` after `POST /order` containing that product | n/a | the next read lists the new order (2 statements, then cached again) | `OrderCreatedEvent` → `ProductCacheEvictor`, `AFTER_COMMIT` |
@@ -234,8 +292,12 @@ Hibernate statistics (`QueryCountIT`, `InsertBatchingIT`):
 
 | Scenario | Prepared statements before | Prepared statements after | Why |
 |----------|----------------------------|---------------------------|-----|
-| `POST /order` with three products | 6 (customer + products lookups, 1 order insert, 3 join-table inserts) | 4, plus 1 `nextval` once per 50 orders | `jdbc.batch_size` turns the three `order_product` inserts into one batched statement |
-| Three orders with three products each in one flush | 12 (3 order inserts + 9 join-table inserts) | 3 (`nextval`, 1 batched order insert, 1 batched join-table insert) | Ids come from the sequence block, so the inserts are deferred and batched per table |
+| `POST /order` with three products | 6 (customer + products lookups, 1 order insert, 3 join-table inserts) | 4 (5 on the request that allocates the next block of 50 ids) | `jdbc.batch_size` turns the three `order_product` inserts into one batched statement |
+| Three orders with three products each in one flush | 12 (3 order inserts + 9 join-table inserts) | 2 (3 on the flush that allocates the block): 1 batched order insert, 1 batched join-table insert | Ids come from the sequence block, so the inserts are deferred and batched per table |
+
+`QueryCountIT` asserts 4 to 5 and `InsertBatchingIT` 2 to 3: the suite creates well under 50
+orders per JVM, so exactly one request or flush per run pays the `nextval`, and which one it is
+depends on test order. With `jdbc.batch_size: 1` the two counts rise to 7 and 12.
 
 The API inserts one order per request today, so the second row matters for future bulk paths
 (an import endpoint, a migration job) rather than for the current endpoints; it is also the
