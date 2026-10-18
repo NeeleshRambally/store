@@ -69,6 +69,12 @@ dependencies {
     testAnnotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"
 }
 
+springBoot {
+    buildInfo {
+        excludes = ['time']
+    }
+}
+
 bootRun {
     systemProperty 'spring.profiles.default', 'local'
 }

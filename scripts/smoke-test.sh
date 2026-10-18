@@ -38,7 +38,8 @@ until [ "$(request "$mgmt/actuator/health/readiness")" = 200 ] && grep -q '"stat
   [ "$(date +%s)" -lt "$deadline" ] || fail "readiness: not UP within 120 s"
   sleep 2
 done
-echo "ok   readiness -> UP"
+contains "readiness" '"db"'
+echo "ok   readiness -> UP with db"
 
 expect "GET /order/1" 200 "$app/order/1"
 contains "GET /order/1" '"id":1'
