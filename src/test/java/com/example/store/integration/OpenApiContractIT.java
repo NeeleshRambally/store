@@ -116,6 +116,30 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void nonNumericOrderIdMatchesTheContract() {
+        Interaction interaction = get("/order/abc", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void conflictingOrderMatchesTheContract() {
+        Response conflict = SimpleResponse.Builder.status(HttpStatus.CONFLICT.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withBody(toJson(Map.of(
+                        "type", "about:blank",
+                        "title", "Conflict",
+                        "status", 409,
+                        "detail", "The request conflicts with existing data",
+                        "instance", "/order")))
+                .build();
+
+        assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.POST, conflict));
+    }
+
+    @Test
     void createOrderMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "Contract order", "customerId", 1, "productIds", List.of(1, 2)));
@@ -206,6 +230,16 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void whitespaceOnlyCustomerMatchesTheContract() {
+        Interaction interaction = post("/customer", Map.of("name", "   "));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void productPageMatchesTheContract() {
         Interaction interaction = get("/products", Map.of("size", "2"));
 
@@ -223,11 +257,47 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void productCursorPageMatchesTheContract() {
+        Interaction interaction = get("/products", Map.of("after", "0", "size", "3"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("nextCursor").asLong()).isEqualTo(3L);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void unknownProductMatchesTheContract() {
+        Interaction interaction = get("/products/999999", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void nonNumericProductIdMatchesTheContract() {
+        Interaction interaction = get("/products/abc", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void createProductMatchesTheContract() {
         Interaction interaction = post("/products", Map.of("description", "Contract product"));
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.CREATED);
         assertConforms(interaction);
+    }
+
+    @Test
+    void rejectedProductMatchesTheContract() {
+        Interaction interaction = post("/products", Map.of("description", ""));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
     }
 
     private static void assertConforms(Interaction interaction) {

@@ -44,11 +44,13 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '304':
           $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: getOrders
       description: >-
-        Get a page of orders, each with its customer. Without after the page is addressed by
-        page and size; with after the page is the orders whose id is greater than after, in
-        ascending id order (keyset pagination, cheaper for deep pages).
+        Get a page of orders, each with its customer and the products it contains. Without after
+        the page is addressed by page and size; with after the page is the orders whose id is
+        greater than after, in ascending id order (keyset pagination, cheaper for deep pages).
     post:
       summary: Create Order
       tags:
@@ -64,8 +66,14 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: createOrder
-      description: Create a new order for an existing customer
+      description: >-
+        Create a new order for an existing customer containing the given products; the response
+        carries the customer and the products
       requestBody:
         required: true
         content:
@@ -81,6 +89,7 @@ paths:
         - name: id
           in: path
           required: true
+          description: A non-numeric value is rejected with 400
           schema:
             type: integer
             format: int64
@@ -97,12 +106,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Order'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '304':
           $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: getOrder
-      description: Get a single order by id, with its customer
+      description: Get a single order by id, with its customer and the products it contains
   /customer:
     get:
       summary: Get Customers
@@ -142,6 +155,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '304':
           $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: getCustomers
       description: >-
         Get a page of customers, each with its orders, optionally filtered by a word substring of
@@ -160,6 +175,10 @@ paths:
                 $ref: '#/components/schemas/Customer'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: createCustomer
       description: Create a new customer
       requestBody:
@@ -197,6 +216,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '304':
           $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: getProducts
       description: >-
         Get a page of products, each with the ids of the orders that contain it. Without after the
@@ -215,6 +236,10 @@ paths:
                 $ref: '#/components/schemas/Product'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: createProduct
       description: Create a new product
       requestBody:
@@ -232,6 +257,7 @@ paths:
         - name: id
           in: path
           required: true
+          description: A non-numeric value is rejected with 400
           schema:
             type: integer
             format: int64
@@ -248,10 +274,14 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Product'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
         '304':
           $ref: '#/components/responses/NotModified'
+        '500':
+          $ref: '#/components/responses/ServerError'
       operationId: getProduct
       description: Get a single product with the ids of the orders that contain it
 components:
@@ -387,6 +417,33 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+    Conflict:
+      description: >-
+        The write conflicts with existing data (a database constraint rejected it); the body
+        is a problem detail without internal details
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: about:blank
+            title: Conflict
+            status: 409
+            detail: The request conflicts with existing data
+            instance: /order
+    ServerError:
+      description: >-
+        An unexpected failure; the body is a problem detail without internal details (no
+        detail property, no stack trace)
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: about:blank
+            title: Internal Server Error
+            status: 500
+            instance: /order
   schemas:
     ProblemDetail:
       title: ProblemDetail
@@ -426,6 +483,7 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
         customerId:
           type: integer
           format: int64
@@ -446,9 +504,14 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
     Product:
       title: Product
       type: object
+      required:
+        - id
+        - description
+        - orders
       properties:
         id:
           type: integer
@@ -491,9 +554,15 @@ components:
           type: string
           minLength: 1
           maxLength: 255
+          pattern: '\S'
     Order:
       title: Order
       type: object
+      required:
+        - id
+        - description
+        - customer
+        - products
       properties:
         id:
           type: integer
@@ -510,6 +579,7 @@ components:
               type: string
         products:
           type: array
+          description: The products contained in the order, ascending by id
           items:
             type: object
             properties:
@@ -521,6 +591,10 @@ components:
     Customer:
       title: Customer
       type: object
+      required:
+        - id
+        - name
+        - orders
       properties:
         id:
           type: integer
