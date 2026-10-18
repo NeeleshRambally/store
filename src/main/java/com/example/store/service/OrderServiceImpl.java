@@ -19,6 +19,7 @@ import com.example.store.repository.view.OrderRow;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -58,6 +59,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
+    @Cacheable("orders")
     public OrderDTO findById(Long id) {
         return orderRepository
                 .findById(id)

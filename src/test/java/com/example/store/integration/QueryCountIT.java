@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.cache.CacheManager;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -16,7 +17,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Pins the number of database round trips per request so an N+1 regression fails the build.
+// Pins the number of database round trips per request so an N+1 regression fails the build; caches start cold.
 class QueryCountIT extends AbstractIntegrationTest {
 
     @Autowired
@@ -25,10 +26,14 @@ class QueryCountIT extends AbstractIntegrationTest {
     @Autowired
     private EntityManagerFactory entityManagerFactory;
 
+    @Autowired
+    private CacheManager cacheManager;
+
     private Statistics statistics;
 
     @BeforeEach
     void resetStatistics() {
+        cacheManager.getCacheNames().forEach(name -> cacheManager.getCache(name).clear());
         statistics = entityManagerFactory.unwrap(SessionFactory.class).getStatistics();
         statistics.clear();
     }
@@ -63,6 +68,30 @@ class QueryCountIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(1);
+    }
+
+    @Test
+    void secondReadOfAnOrderByIdOpensNoSessionAndRunsNoStatement() {
+        restTemplate.getForEntity("/order/1", String.class);
+        statistics.clear();
+
+        ResponseEntity<String> response = restTemplate.getForEntity("/order/1", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getPrepareStatementCount()).isZero();
+        assertThat(statistics.getSessionOpenCount()).isZero();
+    }
+
+    @Test
+    void secondReadOfAProductByIdOpensNoSessionAndRunsNoStatement() {
+        restTemplate.getForEntity("/products/2", String.class);
+        statistics.clear();
+
+        ResponseEntity<String> response = restTemplate.getForEntity("/products/2", String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(statistics.getPrepareStatementCount()).isZero();
+        assertThat(statistics.getSessionOpenCount()).isZero();
     }
 
     @Test
