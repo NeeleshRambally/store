@@ -1,6 +1,8 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateProductRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
@@ -17,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mapstruct.factory.Mappers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -118,6 +121,47 @@ class ProductServiceImplTest {
         Page<ProductDTO> result = service.findAll(pageable);
 
         assertThat(result.getContent()).isEmpty();
+        verify(productRepository, never()).findOrderRows(any());
+    }
+
+    @Test
+    void findAfterTrimsTheExtraRowAndGroupsOrderIdsByProduct() {
+        when(productRepository.findRowsAfter(1L, Limit.of(3)))
+                .thenReturn(List.of(
+                        new ProductRow(2L, "Rustic Chair"),
+                        new ProductRow(8L, "Oak Table"),
+                        new ProductRow(9L, "Lamp")));
+        when(productRepository.findOrderRows(List.of(2L, 8L)))
+                .thenReturn(List.of(new ProductOrderRow(2L, 1L), new ProductOrderRow(2L, 43L)));
+
+        CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(1L, 2));
+
+        assertThat(result.content()).extracting(ProductDTO::id).containsExactly(2L, 8L);
+        assertThat(result.content().get(0).orders()).containsExactly(1L, 43L);
+        assertThat(result.content().get(1).orders()).isEmpty();
+        assertThat(result.size()).isEqualTo(2);
+        assertThat(result.nextCursor()).isEqualTo(8L);
+    }
+
+    @Test
+    void findAfterReturnsNoCursorWhenExactlySizeRowsRemain() {
+        when(productRepository.findRowsAfter(1L, Limit.of(3)))
+                .thenReturn(List.of(new ProductRow(2L, "Rustic Chair"), new ProductRow(8L, "Oak Table")));
+        when(productRepository.findOrderRows(List.of(2L, 8L))).thenReturn(List.of());
+
+        CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(1L, 2));
+
+        assertThat(result.content()).extracting(ProductDTO::id).containsExactly(2L, 8L);
+        assertThat(result.nextCursor()).isNull();
+    }
+
+    @Test
+    void findAfterIssuesNoOrdersQueryPastTheEnd() {
+        when(productRepository.findRowsAfter(100L, Limit.of(21))).thenReturn(List.of());
+
+        CursorPageResponse<ProductDTO> result = service.findAfter(new CursorRequest(100L, 20));
+
+        assertThat(result.content()).isEmpty();
         verify(productRepository, never()).findOrderRows(any());
     }
 
