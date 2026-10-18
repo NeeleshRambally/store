@@ -17,7 +17,8 @@ image:
 ```shell
 docker compose up --build
 ```
-The API is then available on http://localhost:8080 and the database on localhost:5434.
+The API is then available on http://localhost:8080, the actuator on http://localhost:8081 and
+the database on localhost:5434.
 
 To run the service from Gradle against that database instead:
 ```shell
@@ -38,6 +39,7 @@ products) is loaded when the `seed` Liquibase context is active, which is the de
 | `DB_PASSWORD` | `admin` | Database password |
 | `LIQUIBASE_CONTEXTS` | `seed` | Liquibase contexts to apply |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
+| `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 
@@ -114,9 +116,19 @@ service for `CACHE_TTL`; `products` entries are evicted when an order containing
 created.
 
 ## Operations
-* `GET /actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`
-* `GET /actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}` shows
-  the hit rate of the `orders` and `products` caches
+The service listens on two ports. The API is served on 8080; the actuator is served on a
+separate management connector, 8081 by default (`MANAGEMENT_PORT`), and is absent from 8080
+(`/actuator/health` on the application port is a 404). The ingress exposes 8080 only, so the
+probes and metrics are reachable from inside the cluster but never from the public network.
+* `GET :8081/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`;
+  readiness is Spring's `ReadinessState`, which flips to `ACCEPTING_TRAFFIC` once the context
+  has started and back on shutdown, so it does not prove that the API connector answers; the
+  container smoke test of the pipeline does that
+* `GET :8081/actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}`
+  shows the hit rate of the `orders` and `products` caches, and `http_server_requests_seconds`
+  covers the API port only (management traffic is not recorded)
+* `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
+  interceptor are registered for the API paths only
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`)
 * Shutdown is graceful with a 20 second drain
 

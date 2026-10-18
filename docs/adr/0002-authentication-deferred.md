@@ -17,8 +17,10 @@ web test and provide no actual protection.
   exception messages or stack traces, actuator exposure limited to `health`, `info` and
   `prometheus` with health details hidden, and a container image that runs as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
-  based authorisation (for example `orders:write` on `POST /order`), and moves actuator
-  endpoints to a separate management port that is not exposed through the public ingress.
+  based authorisation (for example `orders:write` on `POST /order`).
+- The management port was separated ahead of that phase: the actuator is served on
+  `management.server.port` (8081 by default) and is absent from the API port, so it is not
+  exposed through the public ingress. Management traffic is absent from `http.server.requests`.
 
 ## Consequences
 - Until that phase the service must not be reachable from untrusted networks.
