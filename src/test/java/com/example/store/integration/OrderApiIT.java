@@ -113,4 +113,13 @@ class OrderApiIT extends AbstractIntegrationTest {
         assertThat(page.content())
                 .allSatisfy(order -> assertThat(order.products()).isNotEmpty());
     }
+
+    @Test
+    void rejectsSortByNestedProperty() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/order?sort=customer.name", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Unknown sort property: customer.name");
+    }
 }

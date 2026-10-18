@@ -1,7 +1,9 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateOrderRequest;
+import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderProductDTO;
 import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
@@ -10,6 +12,8 @@ import com.example.store.mapper.OrderMapper;
 import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.OrderRepository;
 import com.example.store.repository.ProductRepository;
+import com.example.store.repository.view.OrderProductRow;
+import com.example.store.repository.view.OrderRow;
 
 import lombok.RequiredArgsConstructor;
 
@@ -18,15 +22,20 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class OrderServiceImpl implements OrderService {
+
+    private static final SortPolicy SORT_POLICY = SortPolicy.of("id", "description");
 
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
@@ -55,12 +64,26 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public Page<OrderDTO> findAll(Pageable pageable) {
-        Page<Order> page = orderRepository.findAll(pageable);
-        if (page.hasContent()) {
-            orderRepository.findAllWithProductsByIdIn(
-                    page.getContent().stream().map(Order::getId).toList());
+        Page<OrderRow> page = orderRepository.findRows(SORT_POLICY.validate(pageable));
+        Map<Long, List<OrderProductDTO>> products = productsByOrder(page.getContent());
+        return page.map(row -> new OrderDTO(
+                row.id(),
+                row.description(),
+                new OrderCustomerDTO(row.customerId(), row.customerName()),
+                products.getOrDefault(row.id(), List.of())));
+    }
+
+    private Map<Long, List<OrderProductDTO>> productsByOrder(List<OrderRow> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
         }
-        return page.map(orderMapper::orderToOrderDTO);
+        Map<Long, List<OrderProductDTO>> products = new LinkedHashMap<>();
+        for (OrderProductRow row :
+                orderRepository.findProductRows(rows.stream().map(OrderRow::id).toList())) {
+            products.computeIfAbsent(row.orderId(), id -> new ArrayList<>())
+                    .add(new OrderProductDTO(row.productId(), row.description()));
+        }
+        return products;
     }
 
     private List<Product> loadProducts(List<Long> productIds) {

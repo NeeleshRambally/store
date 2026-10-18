@@ -22,6 +22,10 @@ delivered.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
+- `sort` accepts only the properties listed in `OpenAPI.yaml` for each endpoint (`id` and
+  `description` for orders and products, `id` and `name` for customers). Anything else, including
+  nested paths such as `customer.name`, is a 400 problem detail with the detail
+  `Unknown sort property: <property>`. See ADR 0006.
 - `POST /order` takes `customerId` rather than a nested customer object; an unknown customer is
   a 404 and a missing one a 400.
 - Errors are RFC 7807 problem details. Validation failures list the offending fields; nothing
@@ -67,6 +71,10 @@ delivered.
   request, not rows. Each list endpoint now performs a fixed number of statements (3 for orders,
   3 for customers and 3 for products) regardless of page size, and an integration test pins
   those numbers.
+- The list endpoints select their columns into records with JPQL constructor expressions and
+  build the DTOs from those rows, so a page loads no entities (`getEntityLoadCount()` is 0,
+  also pinned by the integration test). The by-id endpoints and the create paths keep the
+  entity-and-mapper route.
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
 - Open-in-view is disabled so no query can run outside a service transaction.
 - Ids are allocated from the database sequences in blocks of 50 (`pooled-lo` optimiser, see

@@ -23,7 +23,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
-        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/orderSort'
       responses:
         '200':
           description: OK
@@ -99,7 +99,7 @@ paths:
             example: onne
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
-        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/customerSort'
       responses:
         '200':
           description: OK
@@ -140,7 +140,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
-        - $ref: '#/components/parameters/sort'
+        - $ref: '#/components/parameters/productSort'
       responses:
         '200':
           description: OK
@@ -215,20 +215,54 @@ components:
         minimum: 1
         maximum: 100
         default: 20
-    sort:
+    orderSort:
       name: sort
       in: query
-      description: Sort criteria in the form property,(asc|desc); defaults to id ascending
+      description: >-
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
+        contract: the only accepted properties are id and description. Any other property,
+        including nested paths such as customer.name, is rejected with 400 (see the
+        unknownSortProperty example of the BadRequest response).
       schema:
         type: string
-        example: id,asc
+        example: description,desc
+    customerSort:
+      name: sort
+      in: query
+      description: >-
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
+        contract: the only accepted properties are id and name. Any other property, including
+        nested paths such as orders.description, is rejected with 400 (see the
+        unknownSortProperty example of the BadRequest response).
+      schema:
+        type: string
+        example: name,asc
+    productSort:
+      name: sort
+      in: query
+      description: >-
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
+        contract: the only accepted properties are id and description. Any other property is
+        rejected with 400 (see the unknownSortProperty example of the BadRequest response).
+      schema:
+        type: string
+        example: description,asc
   responses:
     BadRequest:
-      description: The request is malformed or fails validation
+      description: The request is malformed, fails validation or sorts by a property outside the documented list
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            unknownSortProperty:
+              summary: GET /order?sort=customer.name
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: 'Unknown sort property: customer.name'
+                instance: /order
     NotFound:
       description: The referenced resource does not exist
       content:
