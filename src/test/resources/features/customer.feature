@@ -36,6 +36,7 @@ Feature: Customer management
   Scenario: Sorting by an unknown property is rejected
     When I request customers sorted by "nope"
     Then the response status is 400
+    And the response problem detail is "Unknown sort property: nope"
 
   Scenario: Search customers by part of a word in their name
     When I search customers by name "onne"

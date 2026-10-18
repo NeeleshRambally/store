@@ -4,6 +4,7 @@ import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.OrderProductDTO;
+import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.OrderService;
 
@@ -111,6 +112,16 @@ class OrderControllerTests {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.status").value(500))
                 .andExpect(jsonPath("$.detail").doesNotExist());
+    }
+
+    @Test
+    void unknownSortPropertyIsABadRequest() throws Exception {
+        when(orderService.findAll(any())).thenThrow(new InvalidSortPropertyException("customer.name"));
+
+        mockMvc.perform(get("/order").param("sort", "customer.name"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Unknown sort property: customer.name"));
     }
 
     @Test

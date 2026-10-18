@@ -28,17 +28,19 @@ advanced past the seeded ids, so the first insert failed outright.
 | Measure | Effect |
 |---------|--------|
 | Pagination on both list endpoints (default 20, maximum 100, sorted by `id`) | Payload and work per request are bounded and no longer grow with the table |
-| `GET /order`: `@EntityGraph("customer")` on the paged query, then one `left join fetch o.products where o.id in (...)` | 3 statements per request (page + count + products); the to-one join lets the database apply the limit |
-| `GET /customer`: page the customers, then one `left join fetch c.orders where c.id in (...)` | 3 statements per request; avoids Hibernate's in-memory pagination (`HHH90003004`) that a fetch-joined collection with `Pageable` would trigger |
-| `GET /order/{id}`: `@EntityGraph("customer")` on `findById` | 1 statement |
+| `GET /order`: a constructor-expression query for the page rows (`id`, `description`, customer `id` and `name` through the to-one join), the count, then one row query for the products of exactly those orders (`where o.id in (...)`) | 3 statements per request (page + count + products); the to-one join lets the database apply the limit, and no entity is instantiated (see "Hydration" below) |
+| `GET /customer`: the same shape, rows then one row query for the orders of exactly those customers | 3 statements per request; avoids Hibernate's in-memory pagination (`HHH90003004`) that a fetch-joined collection with `Pageable` would trigger |
+| `GET /products`: the same shape, rows then one row query for the order ids of exactly those products | 3 statements per request |
+| `GET /order/{id}`, `GET /products/{id}`: entity graph on `findById` | 1 statement; these paths still load entities and map them with MapStruct |
 | `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements; the `ILIKE '%...%'` predicate uses the index instead of scanning |
+| `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006) |
 | Index on `order.customer_id` | Lookups of a customer's orders are index scans |
 | `spring.jpa.open-in-view: false`; services are `@Transactional(readOnly = true)` and return DTOs | No query can run outside a service transaction; the connection is returned before serialisation starts |
 | `default_batch_fetch_size: 100` | Safety net only; no endpoint relies on it |
 | HTTP response compression (gzip for JSON above 1 KB) | A 100-item order page shrinks from roughly 10 KB to under 4 KB on the wire |
 | HikariCP pool size and timeouts made explicit and configurable | Predictable behaviour under load; fail fast when the database is unreachable |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
-| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order` | A reintroduced N+1 fails the build, not production |
+| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, and the zero entity loads of every list page | A reintroduced N+1, or a list page that starts loading entities again, fails the build, not production |
 
 ## Results
 
@@ -51,6 +53,27 @@ advanced past the seeded ids, so the first insert failed outright.
 
 With a remote database the request latency is now a small constant number of round trips
 regardless of data volume, and the amount of data transferred is bounded by the page size.
+
+## Hydration
+The list endpoints originally loaded entities (the page, their to-one associations and the
+fetch-joined children) and mapped them to DTOs. Every loaded entity costs a persistence-context
+entry, a collection wrapper per association and the hydration of columns the response does not
+use. The list endpoints now select exactly the columns the DTOs need with JPQL constructor
+expressions (`select new ...Row(...)`) and build the DTOs from those rows, so nothing is tracked
+by the session. Measured with `getEntityLoadCount()` (`QueryCountIT`) on the seeded data set;
+the statement counts are unchanged.
+
+| Request | Entities loaded before | Entities loaded after | Statements |
+|---------|------------------------|-----------------------|------------|
+| `GET /order?size=100` | 263 (100 orders, their customers, the products of those orders) | 0 | 3 → 3 |
+| `GET /customer?size=50` | 4,999 (50 customers and their 4,949 orders) | 0 | 3 → 3 |
+| `GET /customer?name=a&size=5` | 502 | 0 | 3 → 3 |
+| `GET /products?size=20` | 3,422 (20 products and the 3,402 orders containing them) | 0 | 3 → 3 |
+
+This saves CPU and allocation on the service, not round trips. It does not save a dirty check:
+the read services were already `@Transactional(readOnly = true)`, which disables flushing. The
+by-id endpoints keep their single-statement entity-graph queries and MapStruct mapping; one
+entity with its children is cheap and the mapper is the only place that code lives.
 
 ## Write path
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch, and
@@ -70,8 +93,6 @@ inserts regardless of the batch size.
 ## Considered and not done (yet)
 - **Second-level or HTTP caching.** Orders and customers are mutable and the read patterns are
   paged scans; caching would add invalidation complexity without a demonstrated hit rate.
-- **Projections instead of entities for list endpoints.** Would save hydration cost, not round
-  trips, which are the bottleneck here. Worth doing if CPU on the service becomes the limit.
 - **Keyset (cursor) pagination.** `OFFSET` degrades on deep pages; keyset pagination on `id` is
   the next step if clients page deep into the order table.
 - **Separate management port.** Operational hardening rather than performance; planned with the

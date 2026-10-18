@@ -1,15 +1,20 @@
 package com.example.store.service;
 
 import com.example.store.dto.CreateOrderRequest;
+import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderProductDTO;
 import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
+import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.OrderMapper;
 import com.example.store.repository.CustomerRepository;
 import com.example.store.repository.OrderRepository;
 import com.example.store.repository.ProductRepository;
+import com.example.store.repository.view.OrderProductRow;
+import com.example.store.repository.view.OrderRow;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -22,6 +27,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 
 import java.util.List;
 import java.util.Optional;
@@ -139,25 +145,63 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void findAllPagesOrdersWithTheirCustomerAndFetchesProductsInOneQuery() {
-        Order order = new Order();
-        order.setId(5L);
-        order.setDescription("Analytical Engine");
-        order.setCustomer(customer);
-        order.getProducts().add(chair);
-        Pageable pageable = PageRequest.of(0, 20);
-        when(orderRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(order), pageable, 10000));
-        when(orderRepository.findAllWithProductsByIdIn(List.of(5L))).thenReturn(List.of(order));
+    void findAllBuildsOrdersFromRowsAndGroupsProductsByOrder() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "description"));
+        when(orderRepository.findRows(pageable))
+                .thenReturn(new PageImpl<>(
+                        List.of(
+                                new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"),
+                                new OrderRow(6L, "Difference Engine", 1L, "Ada Lovelace")),
+                        pageable,
+                        10000));
+        when(orderRepository.findProductRows(List.of(5L, 6L)))
+                .thenReturn(List.of(
+                        new OrderProductRow(5L, 2L, "Rustic Chair"),
+                        new OrderProductRow(5L, 8L, "Oak Table"),
+                        new OrderProductRow(6L, 8L, "Oak Table")));
 
         Page<OrderDTO> result = service.findAll(pageable);
 
-        verify(orderRepository).findAllWithProductsByIdIn(List.of(5L));
         assertThat(result.getTotalElements()).isEqualTo(10000);
-        assertThat(result.getContent().get(0).products())
-                .extracting(p -> p.id())
-                .containsExactly(2L);
-        assertThat(result.getContent()).hasSize(1);
-        assertThat(result.getContent().get(0).id()).isEqualTo(5L);
-        assertThat(result.getContent().get(0).customer().name()).isEqualTo("Ada Lovelace");
+        assertThat(result.getContent()).extracting(OrderDTO::id).containsExactly(5L, 6L);
+        OrderDTO first = result.getContent().get(0);
+        assertThat(first.description()).isEqualTo("Analytical Engine");
+        assertThat(first.customer()).isEqualTo(new OrderCustomerDTO(1L, "Ada Lovelace"));
+        assertThat(first.products())
+                .containsExactly(new OrderProductDTO(2L, "Rustic Chair"), new OrderProductDTO(8L, "Oak Table"));
+        assertThat(result.getContent().get(1).products()).containsExactly(new OrderProductDTO(8L, "Oak Table"));
+    }
+
+    @Test
+    void findAllLeavesProductsEmptyForOrdersWithoutProductRows() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(orderRepository.findRows(pageable))
+                .thenReturn(new PageImpl<>(List.of(new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"))));
+        when(orderRepository.findProductRows(List.of(5L))).thenReturn(List.of());
+
+        Page<OrderDTO> result = service.findAll(pageable);
+
+        assertThat(result.getContent().get(0).products()).isEmpty();
+    }
+
+    @Test
+    void findAllIssuesNoProductsQueryForAnEmptyPage() {
+        Pageable pageable = PageRequest.of(50, 20);
+        when(orderRepository.findRows(pageable)).thenReturn(Page.empty(pageable));
+
+        Page<OrderDTO> result = service.findAll(pageable);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(orderRepository, never()).findProductRows(any());
+    }
+
+    @Test
+    void findAllRejectsSortPropertiesOutsideTheWhitelist() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id", "customer.name"));
+
+        assertThatThrownBy(() -> service.findAll(pageable))
+                .isInstanceOf(InvalidSortPropertyException.class)
+                .hasMessage("Unknown sort property: customer.name");
+        verify(orderRepository, never()).findRows(any());
     }
 }

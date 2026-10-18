@@ -85,6 +85,11 @@ public class StoreApiSteps {
         get("/customer?sort=" + sort);
     }
 
+    @When("I request orders sorted by {string}")
+    public void requestOrdersSortedBy(String sort) throws Exception {
+        get("/order?sort=" + sort);
+    }
+
     @When("I request order {int}")
     public void requestOrder(int id) throws Exception {
         get("/order/" + id);

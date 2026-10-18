@@ -2,10 +2,11 @@ package com.example.store.service;
 
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.ProductDTO;
-import com.example.store.entity.Product;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.ProductMapper;
 import com.example.store.repository.ProductRepository;
+import com.example.store.repository.view.ProductOrderRow;
+import com.example.store.repository.view.ProductRow;
 
 import lombok.RequiredArgsConstructor;
 
@@ -14,10 +15,17 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ProductServiceImpl implements ProductService {
+
+    private static final SortPolicy SORT_POLICY = SortPolicy.of("id", "description");
 
     private final ProductRepository productRepository;
     private final ProductMapper productMapper;
@@ -38,11 +46,20 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public Page<ProductDTO> findAll(Pageable pageable) {
-        Page<Product> page = productRepository.findAll(pageable);
-        if (page.hasContent()) {
-            productRepository.findAllWithOrdersByIdIn(
-                    page.getContent().stream().map(Product::getId).toList());
+        Page<ProductRow> page = productRepository.findRows(SORT_POLICY.validate(pageable));
+        Map<Long, List<Long>> orders = orderIdsByProduct(page.getContent());
+        return page.map(row -> new ProductDTO(row.id(), row.description(), orders.getOrDefault(row.id(), List.of())));
+    }
+
+    private Map<Long, List<Long>> orderIdsByProduct(List<ProductRow> rows) {
+        if (rows.isEmpty()) {
+            return Map.of();
         }
-        return page.map(productMapper::productToProductDTO);
+        Map<Long, List<Long>> orders = new LinkedHashMap<>();
+        for (ProductOrderRow row : productRepository.findOrderRows(
+                rows.stream().map(ProductRow::id).toList())) {
+            orders.computeIfAbsent(row.productId(), id -> new ArrayList<>()).add(row.orderId());
+        }
+        return orders;
     }
 }
