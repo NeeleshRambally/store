@@ -118,7 +118,10 @@ in `build/reports`.
    8081. A failing check prints the container logs and fails the job; the stack is always torn
    down. On `main` the job then tags that same `store:ci` image and pushes it to GitHub Container
    Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`, so the digest delivered is
-   the digest that was scanned and smoke-tested, not a rebuild.
+   the digest that was scanned and smoke-tested, not a rebuild. The jar inside the image is
+   compiled from the same commit by the image build (wrapper-pinned Gradle, BOM-locked
+   versions) and the tested jar is the `build` job's, so the artifact identity is the commit,
+   not the jar bytes.
 
 Both jobs must be green and the change reviewed before a merge; GitHub cannot enforce required
 checks on a private free-plan repository, so that is a procedural gate. The workflow needs only
@@ -133,7 +136,11 @@ creates in the Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
 Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
-majors except for `gradle/actions`, and the base images as one grouped pull request with the Java major excluded. Actions are
+majors except for `gradle/actions`, and the base images as one grouped pull request with the
+Java major excluded. Both `FROM` lines of the `Dockerfile` are pinned by the multi-arch index
+digest with the tag kept for readability, so a rebuild resolves the same base image until
+Dependabot refreshes the digest (a digest refresh carries no major, so the exclusion does not
+suppress it). Actions are
 referenced by major tag rather than commit SHA on purpose: the grouped weekly pull request is the
 update path, and a SHA pin would freeze the pipeline on a deprecated revision without automation
 that rewrites the SHA. `gradle/actions/setup-gradle` stays on v5 because v6 moved the build cache
