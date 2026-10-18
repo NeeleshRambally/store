@@ -20,7 +20,8 @@ key is the id, the value is small, and the API has no `PUT` or `DELETE`.
   `Cache-Control: no-cache` on the same paths, so a browser or intermediary may store the
   response but must revalidate it with `If-None-Match` before reuse; it never serves a stale
   body on its own. The filter is shallow: the controller still runs and the body is still
-  produced, so a 304 saves transfer, not server work.
+  produced and buffered in memory to be hashed, so a 304 saves transfer, not server work; the
+  buffered copy is bounded because every page is (`docs/PERFORMANCE.md`, "Caching").
 - **Service-level cache.** `spring-boot-starter-cache` with Caffeine; `@EnableCaching(order =
   Ordered.HIGHEST_PRECEDENCE)` puts the cache advice outside the transaction advice, so a hit
   opens neither a transaction nor a session. `OrderServiceImpl.findById` is `@Cacheable("orders")`

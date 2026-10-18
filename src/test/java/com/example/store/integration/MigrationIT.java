@@ -3,6 +3,7 @@ package com.example.store.integration;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 
@@ -12,6 +13,9 @@ class MigrationIT extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Test
     void customerSequenceContinuesAfterSeededIds() {
@@ -56,6 +60,18 @@ class MigrationIT extends AbstractIntegrationTest {
                 .contains("idx_customer_name_trgm")
                 .contains("gin")
                 .contains("gin_trgm_ops"));
+    }
+
+    @Test
+    void customerNameSearchPredicateIsServedByTheTrigramIndex() {
+        List<String> plan = transactionTemplate.execute(status -> {
+            jdbcTemplate.execute("SET LOCAL enable_seqscan = off");
+            return jdbcTemplate.queryForList(
+                    "EXPLAIN SELECT id, name FROM customer WHERE lower(name) LIKE lower('%onne%') ESCAPE '!'",
+                    String.class);
+        });
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_customer_name_trgm"));
     }
 
     @Test

@@ -19,9 +19,13 @@ production database is not co-located with the service, so round trips dominate 
   so pages are stable under `LIMIT/OFFSET`.
 - `GET /order` joins the customer in the page query. A to-one join does not multiply rows, so
   the database applies the limit; the products of the page are loaded with one further
-  `where id in (...)` query: 3 statements per request (page + count + products).
+  `where id in (...)` query: 3 statements for a full page (page + count + products).
 - `GET /customer` pages the customers first and then loads the orders of exactly those
-  customers with one `left join fetch ... where id in (...)` query: 3 statements per request.
+  customers with one `left join fetch ... where id in (...)` query: 3 statements for a full
+  page.
+- 3 is the full-page cost and the maximum: Spring Data skips the count query when the first
+  page is shorter than `size`, and the services skip the child query when the page is empty, so
+  a short first page costs 2 and an empty one 1.
   Fetch-joining a collection together with `Pageable` is deliberately avoided because Hibernate
   would page in memory after loading every row (`HHH90003004`).
 - Open-in-view is disabled. Services are transactional and return DTOs, so no lazy loading can
@@ -48,7 +52,7 @@ The repository query is `where id > :after order by id` with a `Limit` of `size 
 service trims the extra row, which tells it whether more rows exist, before loading the
 children of the page, and sets `nextCursor` to the id of the last returned element or `null`
 when the walk is complete. The count query is skipped, so a cursor page is 2 statements at any
-depth (pinned by `QueryCountIT`).
+depth (pinned by `QueryCountIT`), 1 when it is empty.
 
 - The cursor is deliberately transparent: it is the id itself, not an opaque token. Clients can
   start at `after=0`, resume after a known id, and read the cursor in logs and tests. The price
@@ -93,6 +97,10 @@ before.
   other list.
 - The limit is configuration, not a request parameter, so a client cannot raise the cost of a
   page; raising it above 100 is refused at start-up (`@Validated`, `@Max(100)`).
+- What a response is bounded by is now exact: rows per page (`size`, at most 100), orders per
+  customer and order ids per product (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products
+  per order (at most 100 at creation). Nothing in a response grows with the tables; the measured
+  payloads are in `docs/PERFORMANCE.md`.
 - `orderCount` is required in `OpenAPI.yaml` for `Customer` and `Product` and the `orders`
   descriptions state the bound and the full-list endpoint; a client that needs every order
   follows the link rather than the nested list.
