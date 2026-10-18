@@ -116,6 +116,14 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void unknownOrderResponseEqualsTheDocumentedExample() {
+        Interaction interaction = get("/order/999999", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(interaction.json()).isEqualTo(example("NotFound", "unknownOrder"));
+    }
+
+    @Test
     void nonNumericOrderIdMatchesTheContract() {
         Interaction interaction = get("/order/abc", Map.of());
 

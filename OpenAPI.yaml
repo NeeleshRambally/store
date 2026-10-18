@@ -579,7 +579,9 @@ components:
                 detail: customerId and productId cannot be combined
                 instance: /order
     NotFound:
-      description: The referenced resource does not exist
+      description: >-
+        The referenced resource does not exist: the id in the path, or the customer or a
+        product named in a POST /order body (the detail names the lowest missing product id)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -587,6 +589,31 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            unknownOrder:
+              summary: GET /order/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Order with id 999999 was not found
+                instance: /order/999999
+            unknownProduct:
+              summary: GET /products/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Product with id 999999 was not found
+                instance: /products/999999
+            unknownCustomer:
+              summary: GET /customer/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Customer with id 999999 was not found
+                instance: /customer/999999
     Conflict:
       description: >-
         The write conflicts with existing data (a database constraint rejected it); the body
