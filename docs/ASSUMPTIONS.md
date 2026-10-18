@@ -36,8 +36,11 @@ delivered.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
-- Errors are RFC 7807 problem details. Validation failures list the offending fields; nothing
-  else about the failure is exposed.
+- Errors are RFC 7807 problem details. Validation failures list the offending fields, for a
+  request body and for a query parameter alike (`name`, `after`); nothing else about the
+  failure is exposed. A whitespace-only `name` or `description` is a validation failure, and the
+  specification says so (`pattern: '\S'`) so that a client built from it rejects the same
+  value.
 - `/customer` and `/order` stay singular to match the original README; `/products` will be
   plural because the task names it so. The inconsistency is acknowledged rather than silently
   changed.
@@ -50,6 +53,10 @@ delivered.
 - "A substring of one of the words in their name" is read literally: the query must be a single
   word (no whitespace; otherwise 400) and matches case-insensitively anywhere inside the name.
   Because the query contains no whitespace, any match necessarily lies within one word.
+- A "word" is defined as a whitespace-delimited token, as `\S+` (ASCII whitespace) defines it: a
+  hyphenated name such as `Jean-Pierre` is one word, so `n-P` matches it, and a non-ASCII
+  whitespace character such as U+00A0 is not a separator, so it is accepted in the query and
+  matched literally. The empty query (`?name=`) is a 400, not an unfiltered list.
 - LIKE wildcards in the query (`%`, `_`) are escaped and matched literally.
 - The search shares the list endpoint (`GET /customer?name=`) and its paging, sorting and
   order-fetching behaviour, so it costs the same fixed 3 statements per request.
@@ -65,6 +72,15 @@ delivered.
   non-empty `productIds` list and every id must exist (otherwise 404 naming the first missing
   id). Seeded orders are linked to one or two sample products by the seed changeset so the
   invariant also holds for the sample data.
+- An order carries at most 100 products (`@Size(max = 100)` on `productIds`, `maxItems: 100`
+  in the specification). The bound keeps a single request to one `IN` clause of at most 100
+  ids and one insert batch of at most 100 join rows; without it the only limit was the 2 MB
+  request body.
+- The invariant is enforced for orders created through the API from this release. The seed
+  changeset runs only under the `seed` context, so in a production database an order that
+  pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such
+  orders need a one-off data migration (a backfill changeset or an operator script) before the
+  invariant can be asserted on historical data.
 - `GET /products` and `GET /products/{id}` return the product with the ascending ids of the
   orders that contain it, as the task asks. The list is paged like every other list endpoint and
   the order ids are loaded with the same fixed-cost two-query pattern (3 statements per page,
@@ -120,6 +136,13 @@ delivered.
   from the specification would enforce before the request is sent; and the request schemas
   declare `minLength: 1` for `name` and `description`, because the server rejects blank values
   with 400 and the contract check requires the specification to reject the same request.
+- Later contract corrections, each driven by a contract case that failed first: the two by-id
+  paths declare the 400 of a non-numeric id; every `POST` declares 409 and every operation 500
+  (reusable problem-detail responses, no `default`, which would hide an undeclared status from
+  the validator); `Order`, `Customer` and `Product` declare their required properties so a
+  dropped `customer`, `products` or `orders` fails the check; the request strings carry
+  `pattern: '\S'` next to `minLength: 1` so a whitespace-only value is rejected by the
+  specification as it is by the server; and `productIds` declares `maxItems: 100`.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
