@@ -23,6 +23,16 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: utils/package-lock.json
+
+      - name: Test the data generator
+        working-directory: utils
+        run: npm ci && npm test
+
       - uses: gradle/actions/setup-gradle@v5
 
       - name: Build and run all tests
