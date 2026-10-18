@@ -132,7 +132,7 @@ The API inserts one order per request today, so the second row matters for futur
 test that proves the sequence switch, because `IDENTITY` would issue three separate order
 inserts regardless of the batch size.
 
-## Considered and not done (yet)
+## Deliberately not done
 - **Caching the list pages.** The by-id reads are cached (above); the pages are not. A page
   key would have to include page, size, sort, cursor and name filter, and every `POST /order`,
   `POST /customer` or `POST /products` changes the totals of at least one list, so the entries
