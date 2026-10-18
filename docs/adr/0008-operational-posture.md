@@ -37,7 +37,19 @@ nothing in a response or a log line identified the request a client was asking a
   matched by `stop_grace_period: 30s` on the Compose service, and a Kubernetes deployment
   needs `terminationGracePeriodSeconds` of at least the same (its default is 30 s). Readiness
   flips to `REFUSING_TRAFFIC` on shutdown, so an orchestrator routes new connections away
-  while in-flight requests complete.
+  while in-flight requests complete. The drain is documented but not observed by a test: the
+  API has no slow request to hold open while a shutdown is signalled, so a test could only
+  show that an idle server stops, which the configuration already states. The fail-closed
+  start-up, by contrast, is observed by `FailClosedStartupIT`.
+- **Request size.** `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API
+  connector only) wraps every request so that a declared `Content-Length` over
+  `REQUEST_MAX_BODY_BYTES` (64 KiB by default) fails before a byte is read and a chunked body
+  fails once more than the bound has been counted; both surface as a 413 problem detail with
+  the request id, and malformed JSON stays a 400. No Spring Boot property bounds a JSON body on
+  Tomcat (`max-http-form-post-size` is form parsing, `max-swallow-size` the post-abort swallow,
+  `max-http-request-header-size` the headers), which is why the filter exists. The largest
+  valid request is about 2 KB; Tomcat closes the connection after the 413 and swallows the
+  unread remainder up to 2 MB. There is no 411: chunked bodies are legal and common.
 - **Request ids, not tracing.** `RequestIdFilter` runs before every other filter, echoes an
   inbound `X-Request-Id` that matches `[A-Za-z0-9._-]{1,128}` and otherwise mints a UUID; the
   value is set on the response before the chain runs and put in the MDC as `requestId` until
@@ -49,12 +61,15 @@ nothing in a response or a log line identified the request a client was asking a
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
   rule and the grace periods; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`
-  and `RequestIdIT` pin them, and `scripts/smoke-test.sh` checks the `db` component on the
-  started container.
+  and `RequestIdIT` pin them, `RequestBodyLimitFilterTests`, `RequestBodyLimitFilterTest` and
+  `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
+  `scripts/smoke-test.sh` checks the `db` component and the 413 on the started container.
 - The runtime role still owns the schema until the migration job is split out; that split is
   the next step when a deployment target with separate roles exists.
-- A client that sends its own id gets it back on every status, including 304 and 500, and can
-  quote it to operations; log lines of one request share `requestId` in the ECS JSON output.
+- A client that sends its own id gets it back on every status, including 304, 413 and 500, and
+  can quote it to operations; log lines of one request share `requestId` in the ECS JSON
+  output. A data-integrity conflict is logged at WARN by SQL state and constraint name only,
+  never with the driver message that quotes the request's values; the full cause is at DEBUG.
 - Readiness and the database are coupled: a planned database maintenance window takes the
   service out of rotation for its duration, which is the intended behaviour and must be
   communicated as such.

@@ -18,6 +18,10 @@ web test and provide no actual protection.
   `prometheus` with health details hidden, and a container image that runs as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`).
+- Request bodies are bounded by the service itself, not only by the gateway: a body over
+  `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail before it is parsed
+  (ADR 0008, "Request size"). The gateway should bound bodies as well, but the service does not
+  rely on it.
 - The management port was separated ahead of that phase: the actuator is served on
   `management.server.port` (8081 by default) and is absent from the API port, so it is not
   exposed through the public ingress. Management traffic is absent from `http.server.requests`.
