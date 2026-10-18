@@ -1,0 +1,18 @@
+databaseChangeLog:
+  - changeSet:
+      id: 6-sequence-increment-fifty
+      author: developer@securitease.com
+      comment: Hibernate allocates ids in blocks of 50 (pooled-lo), so each sequence must advance by 50 per nextval
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              ALTER SEQUENCE customer_id_seq INCREMENT BY 50;
+              ALTER SEQUENCE order_id_seq INCREMENT BY 50;
+              ALTER SEQUENCE product_id_seq INCREMENT BY 50;
+      rollback:
+        - sql:
+            sql: |
+              ALTER SEQUENCE customer_id_seq INCREMENT BY 1;
+              ALTER SEQUENCE order_id_seq INCREMENT BY 1;
+              ALTER SEQUENCE product_id_seq INCREMENT BY 1;
