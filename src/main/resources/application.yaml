@@ -40,6 +40,10 @@ spring:
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
+store:
+  nested-orders:
+    limit: ${NESTED_ORDERS_LIMIT:20}
+
 server:
   shutdown: graceful
   compression:
