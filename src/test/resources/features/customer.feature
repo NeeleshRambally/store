@@ -71,6 +71,19 @@ Feature: Customer management
     Then the response status is 400
     And the response problem lists a validation error for "name"
 
+  Scenario: A name search can be sorted
+    When I search customers by name "a" sorted by "name,desc" with size 5
+    Then the response status is 200
+    And every customer on the page has a name containing "a"
+    And the page lists the customers in name descending order
+
+  Scenario: A name search can be walked with a cursor
+    When I search customers by name "a" after 0 with size 3
+    Then the response status is 200
+    And every customer on the page has a name containing "a"
+    And the page has 3 customers starting at id 2
+    And the next cursor is 4
+
   Scenario: Fetch a single customer by id
     When I request customer 1
     Then the response status is 200
