@@ -63,15 +63,35 @@ in `build/reports`.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
-1. `build`: `./gradlew spotlessCheck build`; a failing test fails the pipeline.
+1. `build`: `./gradlew spotlessCheck build test --rerun`; a failing test fails the pipeline.
+   `--rerun` makes the test suite execute on every run instead of being replayed from Gradle's
+   cache when only documentation changed.
 2. `docker`: builds the image, scans it with Trivy (a critical, fixable vulnerability fails the
-   pipeline; results appear under Security), attaches an SPDX SBOM as an artifact, and on `main`
-   pushes the image to GitHub Container Registry as `ghcr.io/<owner>/store:<sha>` and `:latest`.
+   pipeline; results appear under Security), attaches an SPDX SBOM as an artifact, starts the
+   built image with Compose (`STORE_IMAGE=store:ci docker compose up -d --no-build`) and runs
+   `scripts/smoke-test.sh` against it: the container must report readiness `UP` on 8081 within
+   120 seconds, serve `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page on
+   8080, answer 404 for `/actuator/health` on 8080 and 200 for the liveness probe on 8081. A
+   failing check prints the container logs and fails the job; the stack is always torn down. On
+   `main` the job then pushes the image to GitHub Container Registry as
+   `ghcr.io/<owner>/store:<sha>` and `:latest`.
+
+Both jobs must be green and the change reviewed before a merge; GitHub cannot enforce required
+checks on a private free-plan repository, so that is a procedural gate.
+
+The same smoke test runs locally against the Compose stack:
+```shell
+docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081
+```
+The script is POSIX `sh` and needs only `curl`. A local run leaves the `Smoke Test` customer it
+creates in the Compose volume; `docker compose down -v` clears it.
 
 Dependabot keeps Gradle dependencies, GitHub Actions and the base images current with weekly
 grouped pull requests, which the same pipeline validates.
 
-`.gitlab-ci.yml` is the equivalent pipeline for GitLab.
+`.gitlab-ci.yml` is the equivalent pipeline for GitLab: `build`, `package` (image saved as an
+artifact), `smoke` (loads the image, starts the stack with Compose inside `docker:27-dind` and
+runs the same script against `http://docker:8080` and `http://docker:8081`) and `scan`.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or

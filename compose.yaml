@@ -17,7 +17,7 @@ services:
 
   store:
     build: .
-    image: store:local
+    image: ${STORE_IMAGE:-store:local}
     depends_on:
       postgres:
         condition: service_healthy
