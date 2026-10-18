@@ -4,6 +4,7 @@ import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ListResponse;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderFilter;
 import com.example.store.dto.PageResponse;
 import com.example.store.service.OrderService;
 
@@ -33,12 +34,15 @@ public class OrderController {
 
     @GetMapping
     public ListResponse<OrderDTO> getAllOrders(
+            @RequestParam(required = false) @Min(1) Long customerId,
+            @RequestParam(required = false) @Min(1) Long productId,
             @RequestParam(required = false) @Min(0) Long after,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+        OrderFilter filter = new OrderFilter(customerId, productId);
         if (after == null) {
-            return PageResponse.from(orderService.findAll(pageable));
+            return PageResponse.from(orderService.findAll(filter, pageable));
         }
-        return orderService.findAfter(CursorRequest.of(after, pageable));
+        return orderService.findAfter(filter, CursorRequest.of(after, pageable));
     }
 
     @GetMapping("/{id}")

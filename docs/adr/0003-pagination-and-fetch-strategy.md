@@ -3,7 +3,8 @@
 ## Status
 Accepted; the fetch strategy for list pages is superseded by ADR 0006 (constructor projections
 replace the entity graph and the fetch-join queries; the statement counts are unchanged).
-Amended with the "Keyset pagination" section below.
+Amended with the "Keyset pagination" section below; the `customerId` and `productId` filters
+of `GET /order` (below, under Decision) apply in both paging modes.
 
 ## Context
 `GET /order` returned every order (10,000 rows, ~950 KB) and `GET /customer` returned every
@@ -25,6 +26,12 @@ production database is not co-located with the service, so round trips dominate 
   would page in memory after loading every row (`HHH90003004`).
 - Open-in-view is disabled. Services are transactional and return DTOs, so no lazy loading can
   happen outside a transaction.
+- `GET /order` accepts `customerId` or `productId` (not both: 400) and then pages the orders of
+  that customer, or the orders containing that product, with the same page, count and products
+  queries restricted by the indexed foreign key (`idx_order_customer_id`,
+  `idx_order_product_product_id`). An id that matches nothing is an empty page, not a 404. This
+  is the uncapped list of a customer's or a product's orders; the nested `orders` of the
+  customer and product responses can therefore be bounded without losing any data path.
 - An integration test pins the statement counts, so a reintroduced N+1 fails the build.
 
 ## Consequences

@@ -33,6 +33,15 @@ delivered.
   (`after cannot be combined with page or sort`). See ADR 0003.
 - `POST /order` takes `customerId` rather than a nested customer object; an unknown customer is
   a 404 and a missing one a 400.
+- `GET /order` filters by `customerId` or `productId` (each at least 1, otherwise 400 with the
+  field named). The filters are filters, not lookups: an id that matches no order, including an
+  unknown customer or product, is a 200 with an empty page, not a 404. They work in both paging
+  modes under the same `sort` whitelist and cost the same statements as the unfiltered list
+  (`idx_order_customer_id` and `idx_order_product_product_id` serve them). The two cannot be
+  combined (`customerId and productId cannot be combined`, 400): a client that wants the orders
+  of one customer containing one product filters the smaller list itself, which keeps the
+  query shapes to the two indexed ones. These endpoints are the uncapped lists behind the
+  nested `orders` of a customer and of a product.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
@@ -136,6 +145,10 @@ delivered.
   from the specification would enforce before the request is sent; and the request schemas
   declare `minLength: 1` for `name` and `description`, because the server rejects blank values
   with 400 and the contract check requires the specification to reject the same request.
+- The `customerId` and `productId` filters of `GET /order` are contract-checked with a real
+  200 for each (a customer-filtered page and a product-filtered cursor page), the 400 of a
+  `customerId` of 0 (the specification's `minimum: 1` rejects the same request) and the 400 of
+  the two combined, whose body equals the documented `combinedFilters` example.
 - Later contract corrections, each driven by a contract case that failed first: the two by-id
   paths declare the 400 of a non-numeric id; every `POST` declares 409 and every operation 500
   (reusable problem-detail responses, no `default`, which would hide an undeclared status from

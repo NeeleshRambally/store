@@ -5,10 +5,12 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderFilter;
 import com.example.store.dto.OrderProductDTO;
 import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
+import com.example.store.exception.InvalidOrderFilterException;
 import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.OrderMapper;
@@ -45,6 +47,8 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class OrderServiceImplTest {
+
+    private static final OrderFilter NO_FILTER = new OrderFilter(null, null);
 
     @Mock
     private OrderRepository orderRepository;
@@ -183,7 +187,7 @@ class OrderServiceImplTest {
                         new OrderProductRow(5L, 8L, "Oak Table"),
                         new OrderProductRow(6L, 8L, "Oak Table")));
 
-        Page<OrderDTO> result = service.findAll(pageable);
+        Page<OrderDTO> result = service.findAll(NO_FILTER, pageable);
 
         assertThat(result.getTotalElements()).isEqualTo(10000);
         assertThat(result.getContent()).extracting(OrderDTO::id).containsExactly(5L, 6L);
@@ -202,7 +206,7 @@ class OrderServiceImplTest {
                 .thenReturn(new PageImpl<>(List.of(new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"))));
         when(orderRepository.findProductRows(List.of(5L))).thenReturn(List.of());
 
-        Page<OrderDTO> result = service.findAll(pageable);
+        Page<OrderDTO> result = service.findAll(NO_FILTER, pageable);
 
         assertThat(result.getContent().get(0).products()).isEmpty();
     }
@@ -212,7 +216,7 @@ class OrderServiceImplTest {
         Pageable pageable = PageRequest.of(50, 20);
         when(orderRepository.findRows(pageable)).thenReturn(Page.empty(pageable));
 
-        Page<OrderDTO> result = service.findAll(pageable);
+        Page<OrderDTO> result = service.findAll(NO_FILTER, pageable);
 
         assertThat(result.getContent()).isEmpty();
         verify(orderRepository, never()).findProductRows(any());
@@ -227,7 +231,7 @@ class OrderServiceImplTest {
         when(orderRepository.findProductRows(List.of(11L, 12L)))
                 .thenReturn(List.of(new OrderProductRow(11L, 2L, "Rustic Chair")));
 
-        CursorPageResponse<OrderDTO> result = service.findAfter(new CursorRequest(10L, 5));
+        CursorPageResponse<OrderDTO> result = service.findAfter(NO_FILTER, new CursorRequest(10L, 5));
 
         assertThat(result.size()).isEqualTo(5);
         assertThat(result.nextCursor()).isNull();
@@ -246,7 +250,7 @@ class OrderServiceImplTest {
                         new OrderRow(12L, "Difference Engine", 1L, "Ada Lovelace")));
         when(orderRepository.findProductRows(List.of(11L, 12L))).thenReturn(List.of());
 
-        CursorPageResponse<OrderDTO> result = service.findAfter(new CursorRequest(10L, 2));
+        CursorPageResponse<OrderDTO> result = service.findAfter(NO_FILTER, new CursorRequest(10L, 2));
 
         assertThat(result.content()).extracting(OrderDTO::id).containsExactly(11L, 12L);
         assertThat(result.nextCursor()).isNull();
@@ -261,7 +265,7 @@ class OrderServiceImplTest {
                         new OrderRow(13L, "Mill", 1L, "Ada Lovelace")));
         when(orderRepository.findProductRows(List.of(11L, 12L))).thenReturn(List.of());
 
-        CursorPageResponse<OrderDTO> result = service.findAfter(new CursorRequest(10L, 2));
+        CursorPageResponse<OrderDTO> result = service.findAfter(NO_FILTER, new CursorRequest(10L, 2));
 
         assertThat(result.content()).extracting(OrderDTO::id).containsExactly(11L, 12L);
         assertThat(result.size()).isEqualTo(2);
@@ -273,7 +277,7 @@ class OrderServiceImplTest {
     void findAfterIssuesNoProductsQueryPastTheEnd() {
         when(orderRepository.findRowsAfter(10000L, Limit.of(21))).thenReturn(List.of());
 
-        CursorPageResponse<OrderDTO> result = service.findAfter(new CursorRequest(10000L, 20));
+        CursorPageResponse<OrderDTO> result = service.findAfter(NO_FILTER, new CursorRequest(10000L, 20));
 
         assertThat(result.content()).isEmpty();
         assertThat(result.nextCursor()).isNull();
@@ -281,10 +285,91 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void findAllFiltersByCustomer() {
+        Pageable pageable = PageRequest.of(0, 20);
+        when(orderRepository.findRowsByCustomer(1L, pageable))
+                .thenReturn(new PageImpl<>(List.of(new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"))));
+        when(orderRepository.findProductRows(List.of(5L)))
+                .thenReturn(List.of(new OrderProductRow(5L, 2L, "Rustic Chair")));
+
+        Page<OrderDTO> result = service.findAll(new OrderFilter(1L, null), pageable);
+
+        assertThat(result.getContent()).extracting(OrderDTO::id).containsExactly(5L);
+        assertThat(result.getContent().get(0).products()).containsExactly(new OrderProductDTO(2L, "Rustic Chair"));
+        verify(orderRepository, never()).findRows(any());
+    }
+
+    @Test
+    void findAllFiltersByProduct() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("description"));
+        when(orderRepository.findRowsByProduct(2L, pageable))
+                .thenReturn(new PageImpl<>(List.of(new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"))));
+        when(orderRepository.findProductRows(List.of(5L))).thenReturn(List.of());
+
+        Page<OrderDTO> result = service.findAll(new OrderFilter(null, 2L), pageable);
+
+        assertThat(result.getContent()).extracting(OrderDTO::id).containsExactly(5L);
+        verify(orderRepository, never()).findRows(any());
+    }
+
+    @Test
+    void findAllRejectsBothFiltersBeforeAnyQuery() {
+        Pageable pageable = PageRequest.of(0, 20);
+
+        assertThatThrownBy(() -> service.findAll(new OrderFilter(1L, 2L), pageable))
+                .isInstanceOf(InvalidOrderFilterException.class)
+                .hasMessage("customerId and productId cannot be combined");
+        verify(orderRepository, never()).findRows(any());
+        verify(orderRepository, never()).findRowsByCustomer(any(Long.class), any());
+        verify(orderRepository, never()).findRowsByProduct(any(Long.class), any());
+    }
+
+    @Test
+    void findAfterFiltersByCustomer() {
+        when(orderRepository.findRowsByCustomerAfter(1L, 10L, Limit.of(3)))
+                .thenReturn(List.of(
+                        new OrderRow(11L, "Analytical Engine", 1L, "Ada Lovelace"),
+                        new OrderRow(12L, "Difference Engine", 1L, "Ada Lovelace"),
+                        new OrderRow(13L, "Mill", 1L, "Ada Lovelace")));
+        when(orderRepository.findProductRows(List.of(11L, 12L))).thenReturn(List.of());
+
+        CursorPageResponse<OrderDTO> result = service.findAfter(new OrderFilter(1L, null), new CursorRequest(10L, 2));
+
+        assertThat(result.content()).extracting(OrderDTO::id).containsExactly(11L, 12L);
+        assertThat(result.nextCursor()).isEqualTo(12L);
+        verify(orderRepository, never()).findRowsAfter(any(Long.class), any());
+    }
+
+    @Test
+    void findAfterFiltersByProduct() {
+        when(orderRepository.findRowsByProductAfter(2L, 0L, Limit.of(21)))
+                .thenReturn(List.of(new OrderRow(11L, "Analytical Engine", 1L, "Ada Lovelace")));
+        when(orderRepository.findProductRows(List.of(11L)))
+                .thenReturn(List.of(new OrderProductRow(11L, 2L, "Rustic Chair")));
+
+        CursorPageResponse<OrderDTO> result = service.findAfter(new OrderFilter(null, 2L), new CursorRequest(0L, 20));
+
+        assertThat(result.content()).extracting(OrderDTO::id).containsExactly(11L);
+        assertThat(result.content().get(0).products()).containsExactly(new OrderProductDTO(2L, "Rustic Chair"));
+        assertThat(result.nextCursor()).isNull();
+        verify(orderRepository, never()).findRowsAfter(any(Long.class), any());
+    }
+
+    @Test
+    void findAfterRejectsBothFilters() {
+        CursorRequest request = new CursorRequest(0L, 20);
+
+        assertThatThrownBy(() -> service.findAfter(new OrderFilter(1L, 2L), request))
+                .isInstanceOf(InvalidOrderFilterException.class)
+                .hasMessage("customerId and productId cannot be combined");
+        verify(orderRepository, never()).findRowsAfter(any(Long.class), any());
+    }
+
+    @Test
     void findAllRejectsSortPropertiesOutsideTheWhitelist() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id", "customer.name"));
 
-        assertThatThrownBy(() -> service.findAll(pageable))
+        assertThatThrownBy(() -> service.findAll(NO_FILTER, pageable))
                 .isInstanceOf(InvalidSortPropertyException.class)
                 .hasMessage("Unknown sort property: customer.name");
         verify(orderRepository, never()).findRows(any());

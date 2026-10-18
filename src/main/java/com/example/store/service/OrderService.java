@@ -4,6 +4,7 @@ import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderDTO;
+import com.example.store.dto.OrderFilter;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,7 +14,7 @@ public interface OrderService {
 
     OrderDTO findById(Long id);
 
-    Page<OrderDTO> findAll(Pageable pageable);
+    Page<OrderDTO> findAll(OrderFilter filter, Pageable pageable);
 
-    CursorPageResponse<OrderDTO> findAfter(CursorRequest request);
+    CursorPageResponse<OrderDTO> findAfter(OrderFilter filter, CursorRequest request);
 }
