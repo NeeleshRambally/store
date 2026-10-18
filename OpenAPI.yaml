@@ -424,6 +424,7 @@ components:
       properties:
         description:
           type: string
+          minLength: 1
           maxLength: 255
         customerId:
           type: integer
@@ -443,6 +444,7 @@ components:
       properties:
         description:
           type: string
+          minLength: 1
           maxLength: 255
     Product:
       title: Product
@@ -487,6 +489,7 @@ components:
       properties:
         name:
           type: string
+          minLength: 1
           maxLength: 255
     Order:
       title: Order
