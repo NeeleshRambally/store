@@ -25,8 +25,9 @@ delivered.
   in the `local` profile, which `./gradlew bootRun` selects as the default profile; the tests
   take their credentials from Testcontainers and `compose.yaml` sets every variable explicitly.
 - Sample data is loaded only when the `seed` Liquibase context is active: under the `local`
-  profile, in the tests and in `compose.yaml`. The seed changesets are the only ones with a
-  context, so `prod` (or any value other than `seed`) applies the schema and nothing else.
+  profile, in the tests and in the `migrate` job of `compose.yaml`. The seed changesets are
+  the only ones with a context, so `prod` (or any value other than `seed`) applies the schema
+  and nothing else.
 
 ## API contract
 - Clients can never supply an id. Request bodies are explicit records; unknown properties are
@@ -118,9 +119,9 @@ delivered.
   pattern shorter than three characters always falls back to a scan because `pg_trgm` extracts
   no trigrams from it (`docs/PERFORMANCE.md`, "Substring search", has the plans; `MigrationIT`
   pins that the predicate shape is served by the index). Creating the extension needs a
-  privileged role on first migration; in production the DBA installs it once and the changeset
-  is a no-op thereafter (ADR 0008 records the migration execution model and the roles
-  involved).
+  privileged role on first migration, which the Compose `migrate` job has (`admin`); in
+  production the DBA installs it once and the changeset is a no-op thereafter (ADR 0008
+  records the migration job, the runtime role and what each may do).
 
 ## Products (README task 4)
 - A product has an id and a description. Orders and products are many-to-many through an
@@ -271,6 +272,16 @@ delivered.
   efficient caching. Liveness and readiness probes are exposed for Kubernetes on the management
   port (8081), which the ingress does not publish; readiness includes the database indicator
   (ADR 0008); no Docker `HEALTHCHECK` is declared because orchestrators ignore it.
+- Migrations are a job and the runtime role cannot alter the schema. The Compose stack runs the
+  image once as `migrate` (no web server, schema owner `admin`, `seed` context) and starts
+  `store` only after it has exited 0; `store` connects as `store_app`, a role created by
+  `scripts/postgres-init/01-roles.sql` with connect, `SELECT`, `INSERT` and sequence usage on
+  everything `admin` creates and nothing else, with `SPRING_LIQUIBASE_ENABLED=false` so no
+  Liquibase bean exists at runtime. The smoke test's `compose` mode asserts the job's exit code
+  and the grants (a `create table` and an `update` as `store_app` must be denied). The two
+  passwords stay inline as README-path development values; an `env_file` split is a deployment
+  concern left open. `./gradlew bootRun` keeps in-process Liquibase as `admin` for development
+  (ADR 0008).
 - Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
   is also in the MDC of every log line of that request, so a client-quoted id finds the logs;
   the contract declares it as required on every response and the contract check enforces it.
@@ -297,13 +308,14 @@ delivered.
 ## Things the pipeline should verify before promotion (README note)
 Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,
 acceptance scenarios, the OpenAPI contract check, line coverage, a successful image build, an
-image vulnerability scan, an SBOM and a smoke test of the started container. The smoke test runs on every build: the image
-that was just built is started with Compose against a fresh PostgreSQL and must become ready
-(`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds) and
-answer the API on 8080
-(`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page) with the actuator on 8081
-only. The image that is published from the default branch is that scanned and smoke-tested
-image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
+image vulnerability scan, an SBOM and a smoke test of the started stack. The smoke test runs on
+every build: the image that was just built migrates a fresh PostgreSQL as the `migrate` job,
+is started with Compose as the restricted runtime role and must become ready
+(`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds), answer
+the API on 8080 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page, a 413 for
+an oversized body) with the actuator on 8081 only, and the job's exit code and the runtime
+role's grants are checked in the database container. The image that is published from the
+default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
 `docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
 review, and the platform cannot enforce required checks on a private free-plan repository, so
 the procedure is the gate.
