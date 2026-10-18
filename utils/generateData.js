@@ -14,6 +14,6 @@ for (let i = 1; i <= N; i++) {
 
 // Generate orders
 for (let i = 1; i <= M; i++) {
-    const customerId = Math.ceil(Math.random() * N);
+    const customerId = faker.datatype.number({ min: 1, max: N });
     console.log(`INSERT INTO "order" (id, description, customer_id) VALUES (${i}, '${escape(faker.commerce.productName())}', ${customerId});`);
 }

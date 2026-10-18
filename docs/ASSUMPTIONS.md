@@ -119,6 +119,12 @@ delivered.
   loaded with one extra statement per page and none for a single order.
 - The path is `/products` (plural) because the task names it so; see the note on `/customer`
   and `/order` above.
+- The delivered `OpenAPI.yaml` described `GET /products` as a single object rather than a list,
+  typed `Product.id` as `string` while every other id is `int64`, let `POST /products` accept an
+  `id` and had no `/products/{id}`. That section was treated as a draft and corrected: `/products`
+  is a paged list of `Product` with an `int64` id, consistent with `Order` and `Customer`, the
+  request body carries no id (clients never supply ids), and `/products/{id}` exists.
+  `OpenApiContractIT` enforces the corrected version.
 
 ## Performance (README task 3)
 - The database is remote with high latency, so the metric that matters is round trips per
@@ -226,3 +232,91 @@ image, retagged, never a rebuild. The gate is worded precisely: a failing smoke 
 `docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
 review, and the platform cannot enforce required checks on a private free-plan repository, so
 the procedure is the gate.
+
+## Defects found in the original code and what was done
+The README says bad choices were made deliberately. This is the consolidated list, one line per
+defect: where it was in the imported code (`git show 57a5fa1:<path>`, line numbers of that
+revision), what was done, and where the reasoning lives.
+- Controllers wired to repositories and entities (`CustomerController.java:20-31`,
+  `OrderController.java:20-31`): replaced by controller → service interface → repository, with
+  request and response records; ADR 0001.
+- Client-supplied ids bound straight from the request body (`@RequestBody Customer` and
+  `@RequestBody Order` at `CustomerController.java:30`, `OrderController.java:30`; `POST /customer`
+  with `{"id": 5}` overwrote row 5) and `CascadeType.ALL` from customer to orders
+  (`Customer.java:19`): request records have no id, unknown properties are rejected with 400,
+  the cascade is removed and only the order service writes orders; ADR 0001.
+- `@Data` on both bidirectional entities (`Customer.java:11`, `Order.java:8`), which generates
+  `equals`, `hashCode` and `toString` over the lazy collection: replaced by `@Getter`/`@Setter`,
+  id-based equality, a constant hash code and an id-only `toString`; ADR 0001.
+- Entity columns nullable while the schema is `NOT NULL` (`Customer.java:17`, `Order.java:15-18`
+  against `schema.sql:4,10-11`): `@Column(nullable = false)`, `optional = false` and
+  `@JoinColumn(nullable = false)`, so the mapping states what the schema enforces and
+  `ddl-auto: validate` checks the two against each other at start-up; a null never reaches the
+  entity because the request records reject it first; reasoning here.
+- `GenerationType.IDENTITY` (`Customer.java:14`, `Order.java:12`) and the serial sequences left
+  at 1 after the explicit-id seed (`data.sql`, `db.changelog-2.yaml`), so the first insert
+  failed: changeset 3 moves each sequence past the highest seeded id, and the entities now use
+  `SEQUENCE` with block allocation; ADR 0005 and `docs/PERFORMANCE.md`.
+- No index on `order.customer_id` (`schema.sql:8-13`): changeset 3 adds
+  `idx_order_customer_id`; `docs/PERFORMANCE.md` and ADR 0003.
+- Open-in-view left at its default and no transactions (the controllers called the
+  repositories directly): `spring.jpa.open-in-view: false` and transactional services that
+  return DTOs; ADR 0003.
+- `default_batch_fetch_size: 10` (`application.yaml:13`), which turned each list request into 11
+  round trips: the list endpoints run a fixed number of statements per page and the property is
+  raised to 100 as a safety net only; `docs/PERFORMANCE.md` and ADR 0003.
+- Unbounded `findAll()` with no pagination (`CustomerController.java:25`,
+  `OrderController.java:25`): paged and keyset list endpoints, bounded nested collections;
+  ADR 0003.
+- No validation and no error handling, so a constraint failure was a 500 with a stack trace:
+  Bean Validation on the request records and `GlobalExceptionHandler` mapping everything to
+  RFC 7807 problem details; ADR 0001 and "API contract" above.
+- Hard-coded `admin:admin` credentials (`application.yaml:4-5`) and SQL logging
+  (`format_sql`, `use_sql_comments`, `application.yaml:11-12`) in the base profile: the base
+  profile has no credential defaults and no SQL logging, the README path lives in the `local`
+  profile; "Production posture" above, `docs/DESIGN.md` (Configuration) and ADR 0008.
+- Seed data loaded in every environment (`db.changelog-2.yaml` without a context): the seed
+  changesets carry `context: seed` and `LIQUIBASE_CONTEXTS` defaults to `prod`; "Production
+  posture" above.
+- Spring Boot 3.4.2 (`build.gradle:3`), dependency-management 1.1.3 (`build.gradle:4`) and
+  Gradle 8.11.1 (`gradle-wrapper.properties`) behind their lines: now 3.5.16, 1.1.7 and 8.14.6,
+  with Dependabot keeping them current through the pipeline; "Delivery" above, ADR 0004 for the
+  two advisories the current line cannot fix.
+- An unused Liquibase Gradle plugin (`build.gradle:5`), `lombok-mapstruct-binding` as
+  `implementation` instead of `annotationProcessor` (`build.gradle:43`), a duplicate
+  `spring-boot-starter-data-jpa` test dependency (`build.gradle:49`), JaCoCo with an HTML report
+  only, no gate and an `afterEvaluate` hack (`build.gradle:62-74`): removed or moved, XML report
+  and an 80% line-coverage gate on `check` (PR #1); `docs/DESIGN.md` (Testing).
+- `OrderMapper.orderToOrderCustomerDTO(Customer)` misnamed for what it maps
+  (`OrderMapper.java:18`): renamed `customerToOrderCustomerDTO` (PR #3).
+- Wildcard imports (`CustomerController.java:11`, `OrderController.java:11`, `Customer.java:3`,
+  `Order.java:3` and both tests): explicit imports under Spotless's import order (PR #3).
+- Test hygiene: the misspelled `OrderContollerTests.java`, `@RequiredArgsConstructor` on a test
+  class (`OrderContollerTests.java:30`), repositories mocked inside a controller slice
+  (`OrderContollerTests.java:39-43`, `CustomerControllerTests.java:33-34`), `@ComponentScan` of
+  the mappers into the slice (`OrderContollerTests.java:29`, `CustomerControllerTests.java:24`),
+  a stray `;` (`CustomerControllerTests.java:63`) and a `findById` stub for a call the controller
+  never made (`OrderContollerTests.java:62`): the class is renamed, the slices mock the service
+  interface only, and the stray statement and the dead stub are gone (PRs #1 and #3);
+  `docs/DESIGN.md` (Testing).
+- Changesets without a rollback (`db.changelog-1.yaml`, `db.changelog-2.yaml`): every changeset
+  added since declares one; the two imported `sqlFile` changesets are kept as imported, because
+  both are already applied in any existing database and a `DROP TABLE` rollback for the schema
+  changeset would be more dangerous than its absence.
+- `OpenAPI.yaml`: `descriptioon` (`:52`), `Order.customer` declaring `description` instead of
+  `name` (`:153`), bare arrays with no 4xx response (`:29`, `:65`), no `required` anywhere, request
+  bodies not marked `required` and carrying an `id` (`:43-53`, `:79-89`, `:123-135`),
+  `x-stoplight` noise (`:134`, `:174`) and the license URL ending in `.htm` (`:13`): all corrected,
+  and the specification is enforced by `OpenApiContractIT`; "Testing strategy" above and
+  `docs/DESIGN.md` (Testing). The products section (`:90-135`) is covered under "Products" above.
+- `utils/generateData.js`: unescaped quotes in the generated SQL (`:8`, `:14`; Faker's English
+  surnames include `O'Keefe`, so a regenerated file could fail to load), explicit ids (`:8`, `:14`), an unseeded `Math.random()` for the
+  customer of each order (`:13`) and the `faker.name` module (`:8`): quotes are escaped, the
+  generator is seeded end to end and tested for it, the explicit ids are kept because changeset 3
+  aligns the sequences after the load, and `faker.name` is kept because the locked Faker 7.6.0
+  has no `faker.person` (the rename arrived in Faker 8, whose upgrade would change every
+  generated name); `utils/README.md`.
+- The reserved table name `order` (`Order.java:9`, `schema.sql:8`) was kept: renaming it is a
+  migration of the table, its sequence, its foreign key and the join table for no functional
+  gain, and the quoted identifier is confined to the entity mapping, the native queries, the
+  changesets and the SQL the integration tests run; reasoning here.

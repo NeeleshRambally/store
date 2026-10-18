@@ -1,10 +1,11 @@
 {
   "name": "data-generator",
   "version": "1.0.0",
-  "description": "Data generation for customers and orders",
+  "description": "Seeded generation of the sample customers and orders; products and their links are derived in SQL by the seed changeset",
   "main": "generateData.js",
   "scripts": {
-    "generate": "node generateData.js"
+    "generate": "node generateData.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@faker-js/faker": "^7.0.0"
