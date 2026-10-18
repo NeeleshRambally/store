@@ -10,4 +10,4 @@ import java.util.List;
 public record CreateOrderRequest(
         @NotBlank @Size(max = 255) String description,
         @NotNull Long customerId,
-        @NotEmpty List<@NotNull Long> productIds) {}
+        @NotEmpty @Size(max = 100) List<@NotNull Long> productIds) {}

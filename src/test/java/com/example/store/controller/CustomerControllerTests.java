@@ -116,13 +116,26 @@ class CustomerControllerTests {
     void getAllRejectsBlankNameSearch() throws Exception {
         mockMvc.perform(get("/customer").param("name", " "))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.errors[0].field").value("name"));
         verify(customerService, never()).search(any(), any());
     }
 
     @Test
+    void getAllRejectsEmptyNameSearch() throws Exception {
+        mockMvc.perform(get("/customer").param("name", ""))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"));
+        verify(customerService, never()).search(any(), any());
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
     void getAllRejectsMultiWordNameSearch() throws Exception {
-        mockMvc.perform(get("/customer").param("name", "Muriel Donnelly")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/customer").param("name", "Muriel Donnelly"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message").value("must match \"\\S+\""));
         verify(customerService, never()).search(any(), any());
     }
 
