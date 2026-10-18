@@ -31,7 +31,9 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /order`: a constructor-expression query for the page rows (`id`, `description`, customer `id` and `name` through the to-one join), the count, then one row query for the products of exactly those orders (`where o.id in (...)`) | 3 statements per request (page + count + products); the to-one join lets the database apply the limit, and no entity is instantiated (see "Hydration" below) |
 | `GET /customer`: the same shape, rows then one row query for the orders of exactly those customers | 3 statements per request; avoids Hibernate's in-memory pagination (`HHH90003004`) that a fetch-joined collection with `Pageable` would trigger |
 | `GET /products`: the same shape, rows then one row query for the order ids of exactly those products | 3 statements per request |
-| `GET /order/{id}`, `GET /products/{id}`: entity graph on `findById` | 1 statement; these paths still load entities and map them with MapStruct |
+| `GET /order/{id}`: entity graph on `findById` | 1 statement; this path still loads the entity and maps it with MapStruct |
+| `GET /products/{id}`: the product row plus the bounded order-id window below | 2 statements, no entity loaded |
+| Nested collections bounded: a customer carries its newest `NESTED_ORDERS_LIMIT` orders (default 20) and a product the ids of its newest `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query per page (`row_number() over (partition by customer_id order by id desc)` with `count(*) over (partition by customer_id)`, the same over `order_product`) returns the newest rows and the total of every parent on the page | Statement counts unchanged (3 per page, 2 per cursor page); the orders per customer and the ids per product no longer grow with the table, `orderCount` carries the total and `GET /order?customerId=` / `?productId=` the full list (ADR 0003, "Nested collections") |
 | `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements; the `ILIKE '%...%'` predicate uses the index instead of scanning |
 | `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006) |
 | Index on `order.customer_id` | Lookups of a customer's orders are index scans |
@@ -52,14 +54,15 @@ advanced past the seeded ids, so the first insert failed outright.
 |---------|-------------------|------------------|----------------|------------------------------|
 | `GET /order` | 11 | 3 | 950 KB | ~2 KB |
 | `GET /customer` | 11 | 3 | 503 KB | ~20 KB |
-| `GET /order/{id}`, `GET /products/{id}` (cold) | n/a | 1 | n/a | ~100 B |
+| `GET /order/{id}`, `GET /products/{id}` (cold) | n/a | 1, 2 | n/a | ~100 B |
 | `GET /order/{id}`, `GET /products/{id}` (same id within 60 s) | n/a | 0, no session | n/a | ~100 B, or 0 B with a matching `If-None-Match` |
 | `GET /customer?name=` | n/a | 2 or 3 | n/a | bounded by the page |
 | `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | bounded by the page |
 | `GET /order?customerId=`, `GET /order?productId=` | n/a | 3 (2 with `after`) | n/a | bounded by the page |
 
 With a remote database the request latency is now a small constant number of round trips
-regardless of data volume, and the amount of data transferred is bounded by the page size.
+regardless of data volume, and the amount of data transferred is bounded by the page size and,
+within a page, by the nested-orders limit.
 
 ## Hydration
 The list endpoints originally loaded entities (the page, their to-one associations and the
@@ -76,11 +79,29 @@ the statement counts are unchanged.
 | `GET /customer?size=50` | 4,999 (50 customers and their 4,949 orders) | 0 | 3 → 3 |
 | `GET /customer?name=a&size=5` | 502 | 0 | 3 → 3 |
 | `GET /products?size=20` | 3,422 (20 products and the 3,402 orders containing them) | 0 | 3 → 3 |
+| `GET /products/2` | 203 (the product and the orders containing it, through the entity graph) | 0 | 1 → 2 |
 
 This saves CPU and allocation on the service, not round trips. It does not save a dirty check:
-the read services were already `@Transactional(readOnly = true)`, which disables flushing. The
-by-id endpoints keep their single-statement entity-graph queries and MapStruct mapping; one
-entity with its children is cheap and the mapper is the only place that code lives.
+the read services were already `@Transactional(readOnly = true)`, which disables flushing.
+`GET /order/{id}` keeps its single-statement entity-graph query and MapStruct mapping; one order
+with its customer and its products is cheap. `GET /products/{id}` no longer loads the product
+with every order containing it (203 entities for product 2 on the seed): it reads the product
+row and the bounded order ids, 2 statements and no entity (`QueryCountIT`), and is cached by id
+and evicted on order creation as before.
+
+The nested collections are bounded by the same two child queries. A customer page used to embed
+every order of every customer on the page (1,941 orders for the default page of 20 on the seed,
+about 98 KB) and a product every order containing it (about 200 ids each), so the payload grew
+with the orders per customer and per product even though the statement count was fixed. The
+child query is now a native window query: `row_number() over (partition by customer_id order by
+id desc)` keeps the newest `NESTED_ORDERS_LIMIT` orders of each customer on the page and
+`count(*) over (partition by customer_id)` supplies `orderCount`, in one statement over
+`idx_order_customer_id`; the same shape over `order_product` serves the products. What is bounded
+now: rows per page (`size`, at most 100), orders per customer and order ids per product
+(`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
+The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
+statements per page. The payload figures above and in "Results" pre-date this bound and are
+re-measured in a later change.
 
 ## Deep pages
 `LIMIT/OFFSET` makes the database read and discard every row before the requested page, so the
@@ -108,8 +129,8 @@ Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionI
 |----------|--------|-------|-----|
 | `GET /order/1` repeated with the `ETag` of the first response in `If-None-Match` | 200 with the ~100 B body on every call | `304 Not Modified`, no body, the ETag echoed | `ShallowEtagHeaderFilter` on `/order`, `/order/*`, `/customer`, `/customer/*`, `/products`, `/products/*`; the ETag is weak so Tomcat still compresses, and `Cache-Control: no-cache` makes caches revalidate instead of serving stale bodies |
 | `GET /order?size=100` with `Accept-Encoding: gzip` | gzipped, under 4 KB | gzipped, under 4 KB, plus the ETag; a revalidation sends 0 bytes of body | Weak ETags are not excluded from compression |
-| `GET /order/1` twice, `GET /products/2` twice | 1 statement and 1 session per call | second call: 0 statements, 0 sessions (`getPrepareStatementCount()`, `getSessionOpenCount()`) | `@Cacheable` on `findById`; `@EnableCaching(order = HIGHEST_PRECEDENCE)` places the cache advice outside the transaction advice, so a hit never enters the transactional method |
-| `GET /products/{id}` after `POST /order` containing that product | n/a | the next read lists the new order (1 statement, then cached again) | `OrderCreatedEvent` → `ProductCacheEvictor`, `AFTER_COMMIT` |
+| `GET /order/1` twice, `GET /products/2` twice | 1 (order) or 2 (product) statements and 1 session per call | second call: 0 statements, 0 sessions (`getPrepareStatementCount()`, `getSessionOpenCount()`) | `@Cacheable` on `findById`; `@EnableCaching(order = HIGHEST_PRECEDENCE)` places the cache advice outside the transaction advice, so a hit never enters the transactional method |
+| `GET /products/{id}` after `POST /order` containing that product | n/a | the next read lists the new order (2 statements, then cached again) | `OrderCreatedEvent` → `ProductCacheEvictor`, `AFTER_COMMIT` |
 
 The ETag filter is shallow: the controller and the service still run on a conditional request,
 so a 304 saves response bytes and client parsing, not server work; the service cache is what

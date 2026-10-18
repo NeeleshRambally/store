@@ -32,7 +32,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(ProductController.class)
 class ProductControllerTests {
 
-    private static final ProductDTO PRODUCT = new ProductDTO(2L, "Rustic Chair", List.of(1L, 43L));
+    private static final ProductDTO PRODUCT = new ProductDTO(2L, "Rustic Chair", List.of(1L, 43L), 2);
 
     @Autowired
     private MockMvc mockMvc;
@@ -43,7 +43,7 @@ class ProductControllerTests {
     @Test
     void createReturnsCreatedProduct() throws Exception {
         when(productService.create(new CreateProductRequest("Rustic Chair")))
-                .thenReturn(new ProductDTO(101L, "Rustic Chair", List.of()));
+                .thenReturn(new ProductDTO(101L, "Rustic Chair", List.of(), 0));
 
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -51,7 +51,8 @@ class ProductControllerTests {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.id").value(101))
                 .andExpect(jsonPath("$.description").value("Rustic Chair"))
-                .andExpect(jsonPath("$.orders").isEmpty());
+                .andExpect(jsonPath("$.orders").isEmpty())
+                .andExpect(jsonPath("$.orderCount").value(0));
     }
 
     @Test
@@ -102,6 +103,7 @@ class ProductControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.content[0].id").value(2))
                 .andExpect(jsonPath("$.content[0].orders.length()").value(2))
+                .andExpect(jsonPath("$.content[0].orderCount").value(2))
                 .andExpect(jsonPath("$.totalElements").value(100));
     }
 

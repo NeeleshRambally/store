@@ -1,7 +1,9 @@
 # ADR 0006: Constructor projections for list pages and a sort whitelist
 
 ## Status
-Accepted
+Accepted; amended by ADR 0003, "Nested collections": `GET /products/{id}` now builds its response from
+the product row and the bounded order-id window, so MapStruct maps entities to DTOs for
+`GET /order/{id}` and the create paths only.
 
 ## Context
 The list endpoints paged entities: `GET /order` loaded the orders with their customers through

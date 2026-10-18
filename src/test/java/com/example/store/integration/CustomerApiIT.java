@@ -1,6 +1,7 @@
 package com.example.store.integration;
 
 import com.example.store.dto.CustomerDTO;
+import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -13,6 +14,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.net.URI;
 import java.util.ArrayList;
@@ -27,6 +29,9 @@ class CustomerApiIT extends AbstractIntegrationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
     void createsCustomerWithGeneratedId() {
         ResponseEntity<CustomerDTO> response =
@@ -36,6 +41,62 @@ class CustomerApiIT extends AbstractIntegrationTest {
         assertThat(response.getBody().id()).isGreaterThan(100L);
         assertThat(response.getBody().name()).isEqualTo("Ada Lovelace");
         assertThat(response.getBody().orders()).isEmpty();
+        assertThat(response.getBody().orderCount()).isZero();
+    }
+
+    @Test
+    void listsTheNewestTwentyOrdersAndTheTotalOfEachCustomer() {
+        Long expectedCount =
+                jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = 1", Long.class);
+        List<Long> expectedIds = jdbcTemplate
+                .queryForList("select id from \"order\" where customer_id = 1 order by id desc limit 20", Long.class)
+                .stream()
+                .sorted()
+                .toList();
+
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity("/customer?size=5", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).hasSize(5).allSatisfy(customer -> {
+            assertThat(customer.get("orders").size()).isLessThanOrEqualTo(20);
+            assertThat(customer.get("orderCount").asLong())
+                    .isGreaterThanOrEqualTo(customer.get("orders").size());
+        });
+        JsonNode first = response.getBody().get("content").get(0);
+        assertThat(first.get("id").asLong()).isEqualTo(1L);
+        assertThat(expectedCount).isGreaterThan(20L);
+        assertThat(first.get("orderCount").asLong()).isEqualTo(expectedCount);
+        assertThat(first.get("orders").findValues("id").stream()
+                        .map(JsonNode::asLong)
+                        .toList())
+                .hasSize(20)
+                .isEqualTo(expectedIds);
+    }
+
+    @Test
+    void countsTheOrdersOfACreatedCustomer() {
+        CustomerDTO created = restTemplate
+                .postForEntity("/customer", Map.of("name", "Counted"), CustomerDTO.class)
+                .getBody();
+        assertThat(created.orderCount()).isZero();
+        Long orderId = restTemplate
+                .postForEntity(
+                        "/order",
+                        Map.of("description", "First order", "customerId", created.id(), "productIds", List.of(1)),
+                        OrderDTO.class)
+                .getBody()
+                .id();
+
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/customer?after=" + (created.id() - 1) + "&size=1", JsonNode.class);
+
+        JsonNode customer = response.getBody().get("content").get(0);
+        assertThat(customer.get("id").asLong()).isEqualTo(created.id());
+        assertThat(customer.get("orderCount").asLong()).isEqualTo(1L);
+        assertThat(customer.get("orders").findValues("id").stream()
+                        .map(JsonNode::asLong)
+                        .toList())
+                .containsExactly(orderId);
     }
 
     @Test

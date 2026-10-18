@@ -13,6 +13,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -26,6 +27,9 @@ class ProductApiIT extends AbstractIntegrationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @Test
     void createsProductWithGeneratedId() {
         ResponseEntity<ProductDTO> response =
@@ -35,18 +39,28 @@ class ProductApiIT extends AbstractIntegrationTest {
         assertThat(response.getBody().id()).isGreaterThan(100L);
         assertThat(response.getBody().description()).isEqualTo("Brass Astrolabe");
         assertThat(response.getBody().orders()).isEmpty();
+        assertThat(response.getBody().orderCount()).isZero();
     }
 
     @Test
-    void getsProductWithTheIdsOfOrdersContainingIt() {
+    void getsProductWithTheNewestTwentyOrderIdsAndTheTotal() {
+        Long expectedCount =
+                jdbcTemplate.queryForObject("select count(*) from order_product where product_id = 2", Long.class);
+        List<Long> expectedIds = jdbcTemplate
+                .queryForList(
+                        "select order_id from order_product where product_id = 2 order by order_id desc limit 20",
+                        Long.class)
+                .stream()
+                .sorted()
+                .toList();
+
         ResponseEntity<ProductDTO> response = restTemplate.getForEntity("/products/2", ProductDTO.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().id()).isEqualTo(2L);
-        assertThat(response.getBody().orders())
-                .hasSizeGreaterThanOrEqualTo(200)
-                .contains(1L, 43L)
-                .isSorted();
+        assertThat(expectedCount).isGreaterThanOrEqualTo(199L);
+        assertThat(response.getBody().orderCount()).isEqualTo(expectedCount);
+        assertThat(response.getBody().orders()).hasSize(20).isEqualTo(expectedIds);
     }
 
     @Test
@@ -55,11 +69,11 @@ class ProductApiIT extends AbstractIntegrationTest {
                 .postForEntity("/products", Map.of("description", "Cached Lamp"), ProductDTO.class)
                 .getBody()
                 .id();
-        assertThat(restTemplate
-                        .getForEntity("/products/" + productId, ProductDTO.class)
-                        .getBody()
-                        .orders())
-                .isEmpty();
+        ProductDTO unordered = restTemplate
+                .getForEntity("/products/" + productId, ProductDTO.class)
+                .getBody();
+        assertThat(unordered.orders()).isEmpty();
+        assertThat(unordered.orderCount()).isZero();
 
         Long orderId = restTemplate
                 .postForEntity(
@@ -73,6 +87,7 @@ class ProductApiIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody().orders()).containsExactly(orderId);
+        assertThat(response.getBody().orderCount()).isEqualTo(1L);
     }
 
     @Test
@@ -93,8 +108,14 @@ class ProductApiIT extends AbstractIntegrationTest {
         assertThat(page.totalElements()).isGreaterThanOrEqualTo(100);
         assertThat(page.content()).hasSize(5);
         assertThat(page.content().get(0).id()).isEqualTo(1L);
-        assertThat(page.content())
-                .allSatisfy(product -> assertThat(product.orders()).isNotEmpty());
+        assertThat(page.content()).allSatisfy(product -> {
+            assertThat(product.orders())
+                    .isNotEmpty()
+                    .hasSizeLessThanOrEqualTo(20)
+                    .isSorted();
+            assertThat(product.orderCount())
+                    .isGreaterThanOrEqualTo(product.orders().size());
+        });
     }
 
     @Test
