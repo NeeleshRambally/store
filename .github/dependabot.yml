@@ -14,13 +14,16 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    ignore:
-      - dependency-name: "*"
-        update-types: ["version-update:semver-major"]
+    groups:
+      actions:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    groups:
+      images:
+        patterns: ["*"]
     ignore:
       - dependency-name: eclipse-temurin
         update-types: ["version-update:semver-major"]

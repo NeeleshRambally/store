@@ -199,13 +199,17 @@ delivered.
   is also in the MDC of every log line of that request, so a client-quoted id finds the logs.
   Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
-- GitHub Actions is the live pipeline; `.gitlab-ci.yml` is an equivalent for GitLab.
+- GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages in the same order
+  for GitLab but is provided for portability and has not been executed in this project.
 - The image is scanned on every pull request and a critical, fixable vulnerability blocks the
   merge; unfixable findings are reported but do not block, because there is nothing a code
   change can do about them. An SBOM is produced for every build so the deployed dependency set
-  is auditable.
+  is auditable. The image published from `main` is the one that was scanned and smoke-tested:
+  GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
-  Major upgrades are excluded from automation and planned explicitly.
+  Gradle majors and the Java base-image major are excluded from automation and planned
+  explicitly; GitHub Actions majors and the other image updates arrive automatically in grouped
+  pull requests because the pipeline validates them.
 - A scan finding that cannot be fixed on the supported line is handled as a documented,
   time-boxed exception (ADR 0004), never by lowering the gate.
 
@@ -217,6 +221,8 @@ that was just built is started with Compose against a fresh PostgreSQL and must 
 (`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds) and
 answer the API on 8080
 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page) with the actuator on 8081
-only. The gate is worded precisely: a failing smoke test fails the `docker` job (the `smoke` job
-on GitLab), the merge procedure requires both jobs green and a review, and the platform cannot
-enforce required checks on a private free-plan repository, so the procedure is the gate.
+only. The image that is published from the default branch is that scanned and smoke-tested
+image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
+`docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
+review, and the platform cannot enforce required checks on a private free-plan repository, so
+the procedure is the gate.
