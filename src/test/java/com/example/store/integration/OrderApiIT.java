@@ -2,6 +2,7 @@ package com.example.store.integration;
 
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
+import com.fasterxml.jackson.databind.JsonNode;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -121,5 +123,74 @@ class OrderApiIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().getDetail()).isEqualTo("Unknown sort property: customer.name");
+    }
+
+    @Test
+    void walksOrdersWithACursor() {
+        ResponseEntity<JsonNode> first = restTemplate.getForEntity("/order?after=0&size=5", JsonNode.class);
+
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(first.getBody())).containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(first.getBody().get("size").asInt()).isEqualTo(5);
+        assertThat(first.getBody().get("nextCursor").asLong()).isEqualTo(5L);
+        assertThat(first.getBody()
+                        .get("content")
+                        .get(0)
+                        .get("customer")
+                        .get("name")
+                        .asText())
+                .isEqualTo("Vicki Kutch");
+        assertThat(first.getBody().get("content").get(0).get("products")).isNotEmpty();
+        assertThat(first.getBody().has("totalElements")).isFalse();
+
+        ResponseEntity<JsonNode> second = restTemplate.getForEntity(
+                "/order?after=" + first.getBody().get("nextCursor").asLong() + "&size=5", JsonNode.class);
+
+        assertThat(ids(second.getBody())).containsExactly(6L, 7L, 8L, 9L, 10L);
+        assertThat(second.getBody().get("nextCursor").asLong()).isEqualTo(10L);
+    }
+
+    @Test
+    void cursorWalkEndsWithANullCursor() {
+        ResponseEntity<JsonNode> last = restTemplate.getForEntity("/order?size=1&sort=id,desc", JsonNode.class);
+        long maxId = last.getBody().get("content").get(0).get("id").asLong();
+
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?after=" + (maxId - 1) + "&size=5", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(response.getBody())).containsExactly(maxId);
+        assertThat(response.getBody().get("nextCursor").isNull()).isTrue();
+    }
+
+    @Test
+    void rejectsCursorCombinedWithPage() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/order?after=0&page=1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("after cannot be combined with page or sort");
+    }
+
+    @Test
+    void rejectsCursorCombinedWithSort() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/order?after=0&sort=description", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("after cannot be combined with page or sort");
+    }
+
+    @Test
+    void rejectsNegativeCursor() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order?after=-1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    private static List<Long> ids(JsonNode page) {
+        List<Long> ids = new ArrayList<>();
+        page.get("content").forEach(node -> ids.add(node.get("id").asLong()));
+        return ids;
     }
 }
