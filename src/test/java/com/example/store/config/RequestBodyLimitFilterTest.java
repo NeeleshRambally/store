@@ -2,10 +2,10 @@ package com.example.store.config;
 
 import com.example.store.exception.RequestBodyTooLargeException;
 
+import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletInputStream;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.mock.web.DelegatingServletInputStream;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -13,11 +13,11 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 class RequestBodyLimitFilterTest {
 
@@ -59,6 +59,19 @@ class RequestBodyLimitFilterTest {
     }
 
     @Test
+    void aReaderWithinTheBoundReadsTheBodyAsUtf8WhenNoEncodingIsDeclared() throws Exception {
+        MockHttpServletRequest request = chunked("caf\u00e9");
+        AtomicReference<String> read = new AtomicReference<>();
+
+        filter.doFilter(
+                request,
+                new MockHttpServletResponse(),
+                (req, res) -> read.set(req.getReader().readLine()));
+
+        assertThat(read.get()).isEqualTo("caf\u00e9");
+    }
+
+    @Test
     void theReaderCountsThroughTheSameStream() throws Exception {
         MockHttpServletRequest request = chunked("d".repeat((int) LIMIT + 1));
         request.setCharacterEncoding("UTF-8");
@@ -70,25 +83,58 @@ class RequestBodyLimitFilterTest {
 
     @Test
     void theStreamDelegatesTheServletMethods() throws Exception {
-        AtomicBoolean closed = new AtomicBoolean();
-        InputStream source = new ByteArrayInputStream("e".getBytes(StandardCharsets.UTF_8)) {
-            @Override
-            public void close() throws IOException {
-                closed.set(true);
-                super.close();
-            }
-        };
-        ServletInputStream stream =
-                new RequestBodyLimitFilter.BoundedInputStream(new DelegatingServletInputStream(source), LIMIT);
+        RecordingInputStream delegate = new RecordingInputStream("e");
+        ServletInputStream stream = new RequestBodyLimitFilter.BoundedInputStream(delegate, LIMIT);
+        ReadListener listener = mock(ReadListener.class);
 
+        stream.setReadListener(listener);
+        assertThat(delegate.listener).isSameAs(listener);
         assertThat(stream.isReady()).isTrue();
         assertThat(stream.isFinished()).isFalse();
         assertThat(stream.read()).isEqualTo('e');
         assertThat(stream.read()).isEqualTo(-1);
         assertThat(stream.isFinished()).isTrue();
-        assertThatThrownBy(() -> stream.setReadListener(null)).isInstanceOf(UnsupportedOperationException.class);
         stream.close();
-        assertThat(closed).isTrue();
+        assertThat(delegate.closed).isTrue();
+    }
+
+    private static final class RecordingInputStream extends ServletInputStream {
+
+        private final InputStream source;
+        private ReadListener listener;
+        private boolean closed;
+        private boolean finished;
+
+        private RecordingInputStream(String content) {
+            source = new ByteArrayInputStream(content.getBytes(StandardCharsets.UTF_8));
+        }
+
+        @Override
+        public int read() throws IOException {
+            int value = source.read();
+            finished = value == -1;
+            return value;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
+        }
+
+        @Override
+        public boolean isFinished() {
+            return finished;
+        }
+
+        @Override
+        public boolean isReady() {
+            return true;
+        }
+
+        @Override
+        public void setReadListener(ReadListener readListener) {
+            listener = readListener;
+        }
     }
 
     private static MockHttpServletRequest chunked(String body) {
