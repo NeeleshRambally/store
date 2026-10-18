@@ -3,6 +3,7 @@ stages:
   - package
   - smoke
   - scan
+  - publish
 
 variables:
   GRADLE_USER_HOME: "$CI_PROJECT_DIR/.gradle"
@@ -22,7 +23,7 @@ build:
       - .gradle/caches
       - .gradle/wrapper
   script:
-    - ./gradlew spotlessCheck build
+    - ./gradlew spotlessCheck build test --rerun
   artifacts:
     when: always
     reports:
@@ -38,13 +39,6 @@ package:
   script:
     - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
     - docker save "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -o image.tar
-    - |
-      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
-        docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
-        docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
-        docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
-        docker push "$CI_REGISTRY_IMAGE:latest"
-      fi
   artifacts:
     paths:
       - image.tar
@@ -70,7 +64,7 @@ smoke:
 scan:
   stage: scan
   image:
-    name: aquasec/trivy:0.58.1
+    name: aquasec/trivy:0.76.0
     entrypoint: [""]
   needs: [package]
   script:
@@ -79,3 +73,18 @@ scan:
   artifacts:
     paths:
       - sbom.cdx.json
+
+publish:
+  stage: publish
+  image: docker:27
+  services:
+    - docker:27-dind
+  needs: [package, smoke, scan]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    - docker load -i image.tar
+    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:latest"
