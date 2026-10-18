@@ -153,10 +153,11 @@ class CustomerServiceImplTest {
     @Test
     void findAllBuildsCustomersFromRowsAndGroupsOrdersByCustomer() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "name"));
-        when(customerRepository.findRows(pageable))
+        Pageable tieBroken = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "name", "id"));
+        when(customerRepository.findRows(tieBroken))
                 .thenReturn(new PageImpl<>(
                         List.of(new CustomerRow(1L, "Ada Lovelace"), new CustomerRow(2L, "Charles Babbage")),
-                        pageable,
+                        tieBroken,
                         100));
         when(customerRepository.findOrderRows(List.of(1L, 2L), 20))
                 .thenReturn(List.of(

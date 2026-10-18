@@ -148,6 +148,29 @@ class ProductApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void cursorWalkReturnsTheWholeCatalogue() {
+        restTemplate.postForEntity("/products", Map.of("description", "Beyond the first page"), ProductDTO.class);
+        List<Long> snapshot = jdbcTemplate.queryForList("select id from product", Long.class);
+        assertThat(snapshot).hasSizeGreaterThan(100);
+
+        List<Long> collected = new ArrayList<>();
+        long after = 0;
+        while (true) {
+            ResponseEntity<JsonNode> response =
+                    restTemplate.getForEntity("/products?after=" + after + "&size=100", JsonNode.class);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            collected.addAll(ids(response.getBody()));
+            JsonNode next = response.getBody().get("nextCursor");
+            if (next.isNull()) {
+                break;
+            }
+            after = next.asLong();
+        }
+
+        assertThat(collected).doesNotHaveDuplicates().containsAll(snapshot);
+    }
+
+    @Test
     void cursorWalkEndsWithANullCursor() {
         ResponseEntity<JsonNode> last = restTemplate.getForEntity("/products?size=1&sort=id,desc", JsonNode.class);
         long maxId = last.getBody().get("content").get(0).get("id").asLong();
