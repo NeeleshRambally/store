@@ -110,6 +110,12 @@ delivered.
 - The context also shares one cache. A test never assumes a cold or a warm cache for an id it
   did not populate itself: `QueryCountIT` clears every cache before each test so its statement
   counts are the cold case, and the cache-related tests create the product or order they read.
+- `OpenAPI.yaml` is the contract and is enforced, not just published: `OpenApiContractIT`
+  validates captured request/response pairs of every endpoint against it (response bodies with
+  undocumented fields rejected, request parameters checked). Where the specification and the
+  implementation disagreed the specification was corrected: `size` above 100 is capped, as
+  ADR 0003 states, so the parameter schema no longer declares a `maximum` that a client built
+  from the specification would enforce before the request is sent.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
@@ -131,8 +137,8 @@ delivered.
 
 ## Things the pipeline should verify before promotion (README note)
 Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,
-acceptance scenarios, line coverage, a successful image build, an image vulnerability scan, an
-SBOM and a smoke test of the started container. The smoke test runs on every build: the image
+acceptance scenarios, the OpenAPI contract check, line coverage, a successful image build, an
+image vulnerability scan, an SBOM and a smoke test of the started container. The smoke test runs on every build: the image
 that was just built is started with Compose against a fresh PostgreSQL and must become ready
 (`/actuator/health/readiness` reports `UP` within 120 seconds) and answer the API on 8080
 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page) with the actuator on 8081
