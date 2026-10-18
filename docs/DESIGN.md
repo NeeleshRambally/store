@@ -7,6 +7,9 @@ decision.
 ## Prerequisites
 * JDK 17 (the Gradle toolchain downloads one if it is missing)
 * Docker (used by Docker Compose for local runs and by Testcontainers for the tests)
+* A PostgreSQL installed on bare metal (the README's alternative) needs the `pg_trgm` contrib
+  module, which changeset 4 creates as an extension; the official image and most
+  distributions bundle it
 * Node.js 22 and npm, only to run or test the data generator in `utils`
 
 ## Running locally
