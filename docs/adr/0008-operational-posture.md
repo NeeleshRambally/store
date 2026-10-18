@@ -88,7 +88,7 @@ nothing in a response or a log line identified the request a client was asking a
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
   rule and the grace periods; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`
   and `RequestIdIT` pin them, `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
-  the 503 of a lost database, `RequestBodyLimitFilterTests`, `RequestBodyLimitFilterTest` and
+  the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code
   and the runtime role's grants on the started stack.

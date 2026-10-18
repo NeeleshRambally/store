@@ -148,7 +148,7 @@ delivered.
   up to Tomcat's 2 MB swallow limit (`server.tomcat.max-swallow-size`): Tomcat appends
   `Connection: close` and discards the unread remainder; beyond 2 MB it closes the connection
   without reading the rest and the client may see a reset instead of the problem detail.
-  `RequestBodyLimitFilterTests`, `RequestBodyLimitIT` (declared and chunked), the contract
+  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitIT` (declared and chunked), the contract
   case, the Cucumber scenario and the container smoke test pin it; there is no 411, because a
   chunked body is legal HTTP/1.1 and is what the test client sends.
 - The invariant is enforced for orders created through the API from this release. The seed

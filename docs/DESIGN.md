@@ -129,6 +129,14 @@ runs, in one task and in one JVM:
   undeclared status or a request the specification would reject fails the build, so the
   specification cannot drift from the implementation.
 
+The test classes follow one naming convention per tier: `*Test` runs without a Spring test
+context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
+`RequestBodyLimitPropertiesTest`), `*Tests` is a `@WebMvcTest` slice (all six), and `*IT` runs
+on the shared Testcontainers context (`CucumberIT` is the acceptance suite on the same
+context). Where a unit test and a slice cover the same class the slice carries `Slice` in its
+name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the tier is never a
+single letter apart.
+
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Two
 exclusions apply to the report and the gate alike: `**/mapper/**` (the MapStruct-generated
 implementations) and `StoreApplication` (the launcher); the 100% line figure quoted in the

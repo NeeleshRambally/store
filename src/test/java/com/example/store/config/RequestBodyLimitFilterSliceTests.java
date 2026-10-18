@@ -20,9 +20,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(RequestBodyLimitFilterTests.ProbeController.class)
-@Import(RequestBodyLimitFilterTests.ProbeController.class)
-class RequestBodyLimitFilterTests {
+@WebMvcTest(RequestBodyLimitFilterSliceTests.ProbeController.class)
+@Import(RequestBodyLimitFilterSliceTests.ProbeController.class)
+class RequestBodyLimitFilterSliceTests {
 
     private static final int LIMIT = 65536;
 
