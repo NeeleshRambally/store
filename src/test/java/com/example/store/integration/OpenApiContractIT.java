@@ -234,6 +234,15 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void customerCursorPageMatchesTheContract() {
+        Interaction interaction = get("/customer", Map.of("after", "0", "size", "3"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("nextCursor").asLong()).isEqualTo(3L);
+        assertConforms(interaction);
+    }
+
+    @Test
     void conditionalCustomerPageMatchesTheContract() {
         String etag = get("/customer", Map.of("size", "2")).headers().getETag();
         HttpHeaders headers = new HttpHeaders();
