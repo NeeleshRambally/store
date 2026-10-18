@@ -1,7 +1,9 @@
 # Assumptions and judgement calls
 
 The task descriptions were deliberately vague. These are the decisions taken and the reasoning,
-so they can be defended or revisited.
+so they can be defended or revisited. How the service is run, tested and delivered is described
+in `docs/DESIGN.md`; the README at the repository root is the assessment brief and is kept as
+delivered.
 
 ## Production posture
 - The project is treated as a production service: every change ships with tests at the unit,
@@ -62,8 +64,9 @@ so they can be defended or revisited.
 
 ## Performance (README task 3)
 - The database is remote with high latency, so the metric that matters is round trips per
-  request, not rows. Each list endpoint now performs a fixed number of statements (2 for orders,
-  3 for customers) regardless of page size, and an integration test pins those numbers.
+  request, not rows. Each list endpoint now performs a fixed number of statements (3 for orders,
+  3 for customers and 3 for products) regardless of page size, and an integration test pins
+  those numbers.
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
 - Open-in-view is disabled so no query can run outside a service transaction.
 - `GenerationType.IDENTITY` prevents JDBC insert batching; moving to a sequence generator with
