@@ -97,8 +97,10 @@ runs, in one task and in one JVM:
   undeclared status or a request the specification would reject fails the build, so the
   specification cannot drift from the implementation.
 
-`build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Reports land
-in `build/reports`.
+`build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Two
+exclusions apply to the report and the gate alike: `**/mapper/**` (the MapStruct-generated
+implementations) and `StoreApplication` (the launcher); the 100% line figure quoted in the
+history is measured under them. Reports land in `build/reports`.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:

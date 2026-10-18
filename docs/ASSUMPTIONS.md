@@ -8,7 +8,8 @@ delivered.
 ## Production posture
 - The project is treated as a production service: every change ships with tests at the unit,
   integration (real PostgreSQL via Testcontainers) and acceptance (Cucumber) level, and CI fails
-  on any failing test, formatting violation or coverage below 80% of lines.
+  on any failing test, formatting violation or coverage below 80% of lines, measured outside the
+  generated MapStruct implementations and the launcher class (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
