@@ -61,7 +61,7 @@ dependencies {
     testImplementation "io.cucumber:cucumber-spring:${cucumberVersion}"
     testImplementation "io.cucumber:cucumber-junit-platform-engine:${cucumberVersion}"
     testImplementation 'org.junit.platform:junit-platform-suite'
-    testImplementation 'com.atlassian.oai:swagger-request-validator-core:2.44.9'
+    testImplementation 'com.atlassian.oai:swagger-request-validator-core:2.46.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
