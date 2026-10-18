@@ -277,9 +277,13 @@ delivered.
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages in the same order
   for GitLab but is provided for portability and has not been executed in this project.
-- The image is scanned on every pull request and a critical, fixable vulnerability blocks the
-  merge; unfixable findings are reported but do not block, because there is nothing a code
-  change can do about them. An SBOM is produced for every build so the deployed dependency set
+- The image is scanned on every pull request and a critical or high fixable vulnerability
+  blocks the merge; unfixable findings are reported but do not block, because there is nothing
+  a code change can do about them. Spring Boot 3.5.16 is the last BOM of a line that left
+  open-source support on 2026-06-30, so a fixable finding in a Boot-managed library is closed
+  by a per-library version override in `build.gradle` until the upgrade to Spring Boot 4.1.x,
+  due in the next dependency window and before the 2027-01-31 expiry of the accepted
+  exceptions (ADR 0004). An SBOM is produced for every build so the deployed dependency set
   is auditable. The image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
