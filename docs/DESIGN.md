@@ -90,7 +90,9 @@ The contract is documented in `OpenAPI.yaml`.
 | `POST` | `/products` | Create a product: `{"description": "..."}` |
 
 List responses are a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`.
-The default page size is 20, the maximum 100, and the default sort is by `id`.
+The default page size is 20, the maximum 100, and the default sort is by `id`. `sort` takes
+`property,(asc|desc)` and accepts only `id` and `description` on `/order` and `/products` and
+`id` and `name` on `/customer`; any other property is a 400 problem detail (ADR 0006).
 Errors are RFC 7807 problem details; validation failures include an `errors` array with the
 offending field names. Requests never carry an id; unknown properties are rejected with 400.
 
