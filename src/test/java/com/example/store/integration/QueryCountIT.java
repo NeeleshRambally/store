@@ -11,8 +11,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.cache.CacheManager;
+import org.springframework.context.ApplicationContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.jpa.support.OpenEntityManagerInViewInterceptor;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,9 @@ class QueryCountIT extends AbstractIntegrationTest {
 
     @Autowired
     private CacheManager cacheManager;
+
+    @Autowired
+    private ApplicationContext applicationContext;
 
     private Statistics statistics;
 
@@ -103,6 +108,21 @@ class QueryCountIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(statistics.getPrepareStatementCount()).isEqualTo(3);
+    }
+
+    @Test
+    void shortFirstPageSkipsTheCountQuery() {
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity("/customer?name=onne&size=5", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content").size()).isBetween(1, 4);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
+    void noSessionIsHeldOpenForTheView() {
+        assertThat(applicationContext.getBeansOfType(OpenEntityManagerInViewInterceptor.class))
+                .isEmpty();
     }
 
     @Test
