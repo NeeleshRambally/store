@@ -264,7 +264,10 @@ delivered.
   every response (the synthetic 409 and 500 cases failed with `Header 'X-Request-Id' is
   expected ... but not found` until they carried it, proof that the validator checks declared
   headers) and `Location` on every 201 (the three `POST` captures failed the same way until the
-  controllers sent it).
+  controllers sent it). The 503 of a lost database is declared on every operation with
+  `Retry-After` required (the synthetic case failed with `Response status 503 not defined for
+  path '/order'` until it was, and a second case pins that a 503 without `Retry-After` is
+  rejected).
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

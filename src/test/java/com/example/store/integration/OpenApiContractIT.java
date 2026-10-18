@@ -220,6 +220,39 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void serviceUnavailableMatchesTheContract() {
+        Response unavailable = SimpleResponse.Builder.status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
+                .withHeader("Retry-After", "5")
+                .withBody(toJson(Map.of(
+                        "type", "about:blank",
+                        "title", "Service Unavailable",
+                        "status", 503,
+                        "detail", "The service cannot obtain a database connection",
+                        "instance", "/order")))
+                .build();
+
+        assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.GET, unavailable));
+        assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.POST, unavailable));
+    }
+
+    @Test
+    void serviceUnavailableWithoutRetryAfterIsRejectedByTheContract() {
+        Response unavailable = SimpleResponse.Builder.status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
+                .withBody(toJson(Map.of("type", "about:blank", "title", "Service Unavailable", "status", 503)))
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/products/2", Request.Method.GET, unavailable);
+
+        assertThat(report.getMessages())
+                .extracting(ValidationReport.Message::getMessage)
+                .anySatisfy(message -> assertThat(message).contains("Retry-After"));
+    }
+
+    @Test
     void orderForUnknownCustomerMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "Contract order", "customerId", 999999, "productIds", List.of(1)));

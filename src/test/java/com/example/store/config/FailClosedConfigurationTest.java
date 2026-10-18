@@ -81,6 +81,20 @@ class FailClosedConfigurationTest {
                 .doesNotThrowAnyException();
     }
 
+    @Test
+    void tomcatRequestThreadsDefaultToTwoHundred() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("server.tomcat.threads.max")).isEqualTo("200");
+    }
+
+    @Test
+    void tomcatRequestThreadsFollowTheVariable() {
+        StandardEnvironment environment = environmentWith(Map.of("TOMCAT_THREADS_MAX", "50"));
+
+        assertThat(environment.getProperty("server.tomcat.threads.max")).isEqualTo("50");
+    }
+
     private static StandardEnvironment environmentWith(Map<String, Object> properties) {
         StandardEnvironment environment = new StandardEnvironment();
         ConfigDataEnvironmentPostProcessor.applyTo(environment);
