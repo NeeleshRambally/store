@@ -444,7 +444,8 @@ components:
         Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
         contract: the only accepted properties are id and description. Any other property,
         including nested paths such as customer.name, is rejected with 400 (see the
-        unknownSortProperty example of the BadRequest response).
+        unknownSortProperty example of the BadRequest response). Ties are broken by id in the
+        same direction as the last sort property, so page boundaries are deterministic.
       schema:
         type: string
         example: description,desc
@@ -455,7 +456,8 @@ components:
         Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
         contract: the only accepted properties are id and name. Any other property, including
         nested paths such as orders.description, is rejected with 400 (see the
-        unknownSortProperty example of the BadRequest response).
+        unknownSortProperty example of the BadRequest response). Ties are broken by id in the
+        same direction as the last sort property, so page boundaries are deterministic.
       schema:
         type: string
         example: name,asc
@@ -466,6 +468,8 @@ components:
         Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
         contract: the only accepted properties are id and description. Any other property is
         rejected with 400 (see the unknownSortProperty example of the BadRequest response).
+        Ties are broken by id in the same direction as the last sort property, so page
+        boundaries are deterministic.
       schema:
         type: string
         example: description,asc

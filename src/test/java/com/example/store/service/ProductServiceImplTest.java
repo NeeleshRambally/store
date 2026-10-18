@@ -106,9 +106,10 @@ class ProductServiceImplTest {
     @Test
     void findAllBuildsProductsFromRowsAndGroupsOrderIdsByProduct() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "description"));
-        when(productRepository.findRows(pageable))
+        Pageable tieBroken = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "description", "id"));
+        when(productRepository.findRows(tieBroken))
                 .thenReturn(new PageImpl<>(
-                        List.of(new ProductRow(2L, "Rustic Chair"), new ProductRow(8L, "Oak Table")), pageable, 100));
+                        List.of(new ProductRow(2L, "Rustic Chair"), new ProductRow(8L, "Oak Table")), tieBroken, 100));
         when(productRepository.findOrderRows(List.of(2L, 8L), 20))
                 .thenReturn(List.of(new ProductOrderRow(2L, 1L, 2), new ProductOrderRow(2L, 43L, 2)));
 

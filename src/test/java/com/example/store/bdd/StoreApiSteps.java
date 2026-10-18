@@ -193,6 +193,11 @@ public class StoreApiSteps {
         get("/order?customerId=" + customerId + "&productId=" + productId);
     }
 
+    @When("I request orders sorted by {string} with page {int} and size {int}")
+    public void requestOrdersSortedByPage(String sort, int page, int size) throws Exception {
+        get("/order?sort=" + sort + "&page=" + page + "&size=" + size);
+    }
+
     @When("I request orders with page {int} and size {int}")
     public void requestOrdersPage(int page, int size) throws Exception {
         get("/order?page=" + page + "&size=" + size);
@@ -418,6 +423,18 @@ public class StoreApiSteps {
             assertThat(customer.get("orderCount").asLong())
                     .isGreaterThanOrEqualTo(customer.get("orders").size());
         }
+    }
+
+    @Then("the page lists the orders in description descending order with ties broken by id descending")
+    public void pageListsOrdersByDescriptionDescThenIdDesc() {
+        List<Long> expected = jdbcTemplate.queryForList(
+                "select id from \"order\" order by description desc, id desc limit ?",
+                Long.class,
+                body.get("content").size());
+        List<Long> ids = new java.util.ArrayList<>();
+        body.get("content").forEach(order -> ids.add(order.get("id").asLong()));
+
+        assertThat(ids).hasSize(50).containsExactlyElementsOf(expected);
     }
 
     @Then("the first order on the page belongs to customer {string}")

@@ -174,12 +174,13 @@ class OrderServiceImplTest {
     @Test
     void findAllBuildsOrdersFromRowsAndGroupsProductsByOrder() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "description"));
-        when(orderRepository.findRows(pageable))
+        Pageable tieBroken = PageRequest.of(0, 20, Sort.by(Sort.Direction.DESC, "description", "id"));
+        when(orderRepository.findRows(tieBroken))
                 .thenReturn(new PageImpl<>(
                         List.of(
                                 new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"),
                                 new OrderRow(6L, "Difference Engine", 1L, "Ada Lovelace")),
-                        pageable,
+                        tieBroken,
                         10000));
         when(orderRepository.findProductRows(List.of(5L, 6L)))
                 .thenReturn(List.of(
@@ -302,7 +303,7 @@ class OrderServiceImplTest {
     @Test
     void findAllFiltersByProduct() {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("description"));
-        when(orderRepository.findRowsByProduct(2L, pageable))
+        when(orderRepository.findRowsByProduct(2L, PageRequest.of(0, 20, Sort.by("description", "id"))))
                 .thenReturn(new PageImpl<>(List.of(new OrderRow(5L, "Analytical Engine", 1L, "Ada Lovelace"))));
         when(orderRepository.findProductRows(List.of(5L))).thenReturn(List.of());
 
