@@ -1,6 +1,8 @@
 package com.example.store.controller;
 
 import com.example.store.dto.CreateOrderRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.OrderProductDTO;
@@ -147,6 +149,58 @@ class OrderControllerTests {
     @Test
     void getByIdRejectsNonNumericId() throws Exception {
         mockMvc.perform(get("/order/abc")).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void getAllWithAfterReturnsACursorPage() throws Exception {
+        when(orderService.findAfter(new CursorRequest(5L, 20)))
+                .thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, 1L));
+
+        mockMvc.perform(get("/order").param("after", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1))
+                .andExpect(jsonPath("$.content[0].products[0].description").value("Rustic Chair"))
+                .andExpect(jsonPath("$.size").value(20))
+                .andExpect(jsonPath("$.nextCursor").value(1))
+                .andExpect(jsonPath("$.totalElements").doesNotExist());
+        verify(orderService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllWithAfterSerialisesAnExhaustedCursorAsNull() throws Exception {
+        when(orderService.findAfter(new CursorRequest(10000L, 5)))
+                .thenReturn(new CursorPageResponse<>(List.of(), 5, null));
+
+        mockMvc.perform(get("/order").param("after", "10000").param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").isEmpty())
+                .andExpect(jsonPath("$.nextCursor").value((Object) null));
+    }
+
+    @Test
+    void getAllRejectsAfterCombinedWithPage() throws Exception {
+        mockMvc.perform(get("/order").param("after", "0").param("page", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
+        verify(orderService, never()).findAfter(any());
+        verify(orderService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsAfterCombinedWithSort() throws Exception {
+        mockMvc.perform(get("/order").param("after", "0").param("sort", "id,desc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
+        verify(orderService, never()).findAfter(any());
+    }
+
+    @Test
+    void getAllRejectsNegativeAfter() throws Exception {
+        mockMvc.perform(get("/order").param("after", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.status").value(400));
+        verify(orderService, never()).findAfter(any());
     }
 
     @Test

@@ -24,17 +24,23 @@ paths:
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/orderSort'
+        - $ref: '#/components/parameters/after'
       responses:
         '200':
-          description: OK
+          description: OK; an offset page, or a cursor page when after is present
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/OrderPage'
+                oneOf:
+                  - $ref: '#/components/schemas/OrderPage'
+                  - $ref: '#/components/schemas/OrderCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
       operationId: getOrders
-      description: Get a page of orders, each with its customer
+      description: >-
+        Get a page of orders, each with its customer. Without after the page is addressed by
+        page and size; with after the page is the orders whose id is greater than after, in
+        ascending id order (keyset pagination, cheaper for deep pages).
     post:
       summary: Create Order
       tags:
@@ -100,17 +106,23 @@ paths:
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/customerSort'
+        - $ref: '#/components/parameters/after'
       responses:
         '200':
-          description: OK
+          description: OK; an offset page, or a cursor page when after is present
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/CustomerPage'
+                oneOf:
+                  - $ref: '#/components/schemas/CustomerPage'
+                  - $ref: '#/components/schemas/CustomerCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
       operationId: getCustomers
-      description: Get a page of customers, each with its orders, optionally filtered by a word substring of the name
+      description: >-
+        Get a page of customers, each with its orders, optionally filtered by a word substring of
+        the name. Without after the page is addressed by page and size; with after the page is the
+        (matching) customers whose id is greater than after, in ascending id order.
     post:
       summary: Create Customer
       tags:
@@ -141,17 +153,23 @@ paths:
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/productSort'
+        - $ref: '#/components/parameters/after'
       responses:
         '200':
-          description: OK
+          description: OK; an offset page, or a cursor page when after is present
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ProductPage'
+                oneOf:
+                  - $ref: '#/components/schemas/ProductPage'
+                  - $ref: '#/components/schemas/ProductCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
       operationId: getProducts
-      description: Get a page of products, each with the ids of the orders that contain it
+      description: >-
+        Get a page of products, each with the ids of the orders that contain it. Without after the
+        page is addressed by page and size; with after the page is the products whose id is greater
+        than after, in ascending id order.
     post:
       summary: Create Product
       tags:
@@ -215,6 +233,22 @@ components:
         minimum: 1
         maximum: 100
         default: 20
+    after:
+      name: after
+      in: query
+      required: false
+      description: >-
+        Cursor: return the elements whose id is greater than this value, in ascending id order,
+        and respond with a CursorPage instead of a Page. Use 0 to start a walk and the previous
+        response's nextCursor to continue it; a null nextCursor means the walk is complete. The
+        page size is still size (default 20, capped at 100). after cannot be combined with page
+        (other than 0) or with a sort whose first property is not id ascending: such a request is
+        rejected with 400 (see the cursorWithPage example of the BadRequest response).
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        example: 0
     orderSort:
       name: sort
       in: query
@@ -249,7 +283,9 @@ components:
         example: description,asc
   responses:
     BadRequest:
-      description: The request is malformed, fails validation or sorts by a property outside the documented list
+      description: >-
+        The request is malformed, fails validation, sorts by a property outside the documented
+        list or combines after with page or sort
       content:
         application/problem+json:
           schema:
@@ -262,6 +298,14 @@ components:
                 title: Bad Request
                 status: 400
                 detail: 'Unknown sort property: customer.name'
+                instance: /order
+            cursorWithPage:
+              summary: GET /order?after=0&page=1
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: after cannot be combined with page or sort
                 instance: /order
     NotFound:
       description: The referenced resource does not exist
@@ -351,6 +395,16 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Product'
+    ProductCursorPage:
+      title: ProductCursorPage
+      allOf:
+        - $ref: '#/components/schemas/CursorPage'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/Product'
     CreateCustomerRequest:
       title: CreateCustomerRequest
       type: object
@@ -416,6 +470,16 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Order'
+    OrderCursorPage:
+      title: OrderCursorPage
+      allOf:
+        - $ref: '#/components/schemas/CursorPage'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/Order'
     CustomerPage:
       title: CustomerPage
       allOf:
@@ -426,10 +490,30 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/Customer'
+    CustomerCursorPage:
+      title: CustomerCursorPage
+      allOf:
+        - $ref: '#/components/schemas/CursorPage'
+        - type: object
+          properties:
+            content:
+              type: array
+              items:
+                $ref: '#/components/schemas/Customer'
     Page:
       title: Page
       type: object
+      description: Offset page envelope, returned when after is absent
+      required:
+        - content
+        - page
+        - size
+        - totalElements
+        - totalPages
       properties:
+        content:
+          type: array
+          items: {}
         page:
           type: integer
           description: Zero-based index of this page
@@ -440,6 +524,28 @@ components:
           format: int64
         totalPages:
           type: integer
+    CursorPage:
+      title: CursorPage
+      type: object
+      description: Cursor page envelope, returned when after is present; it carries no totals
+      required:
+        - content
+        - size
+        - nextCursor
+      properties:
+        content:
+          type: array
+          items: {}
+        size:
+          type: integer
+          description: The requested page size; the content may be shorter on the last page
+        nextCursor:
+          type: integer
+          format: int64
+          nullable: true
+          description: >-
+            The id of the last element when more elements exist, to pass as after on the next
+            request; null when the walk is complete
 tags:
   - name: store
     description: store operations

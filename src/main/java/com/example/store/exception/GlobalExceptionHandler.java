@@ -26,8 +26,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
-    @ExceptionHandler(InvalidSortPropertyException.class)
-    ProblemDetail handleInvalidSort(InvalidSortPropertyException ex) {
+    @ExceptionHandler({InvalidSortPropertyException.class, InvalidCursorRequestException.class})
+    ProblemDetail handleBadListRequest(RuntimeException ex) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 

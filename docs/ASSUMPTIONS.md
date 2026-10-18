@@ -26,6 +26,11 @@ delivered.
   `description` for orders and products, `id` and `name` for customers). Anything else, including
   nested paths such as `customer.name`, is a 400 problem detail with the detail
   `Unknown sort property: <property>`. See ADR 0006.
+- The list endpoints also accept `after` for keyset pagination (elements with an id greater than
+  `after`, ascending, with a `nextCursor` instead of totals). The cursor is deliberately a plain
+  id rather than an opaque token: it is only valid with the default `id` ascending order, which
+  is why `after` combined with `page` or another `sort` is a 400 problem detail
+  (`after cannot be combined with page or sort`). See ADR 0003.
 - `POST /order` takes `customerId` rather than a nested customer object; an unknown customer is
   a 404 and a missing one a 400.
 - Errors are RFC 7807 problem details. Validation failures list the offending fields; nothing
@@ -70,7 +75,9 @@ delivered.
 - The database is remote with high latency, so the metric that matters is round trips per
   request, not rows. Each list endpoint now performs a fixed number of statements (3 for orders,
   3 for customers and 3 for products) regardless of page size, and an integration test pins
-  those numbers.
+  those numbers. In cursor mode (`after`) the count query is skipped and the page query seeks
+  to `id > after` instead of discarding `OFFSET` rows, so a cursor page is 2 statements whatever
+  its depth (also pinned).
 - The list endpoints select their columns into records with JPQL constructor expressions and
   build the DTOs from those rows, so a page loads no entities (`getEntityLoadCount()` is 0,
   also pinned by the integration test). The by-id endpoints and the create paths keep the

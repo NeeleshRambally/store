@@ -1,6 +1,8 @@
 package com.example.store.controller;
 
 import com.example.store.dto.CreateCustomerRequest;
+import com.example.store.dto.CursorPageResponse;
+import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.service.CustomerService;
 
@@ -122,6 +124,42 @@ class CustomerControllerTests {
     void getAllRejectsMultiWordNameSearch() throws Exception {
         mockMvc.perform(get("/customer").param("name", "Muriel Donnelly")).andExpect(status().isBadRequest());
         verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllWithAfterReturnsACursorPage() throws Exception {
+        when(customerService.findAfter(new CursorRequest(0L, 5)))
+                .thenReturn(new CursorPageResponse<>(List.of(new CustomerDTO(1L, "John Doe", List.of())), 5, 1L));
+
+        mockMvc.perform(get("/customer").param("after", "0").param("size", "5"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].name").value("John Doe"))
+                .andExpect(jsonPath("$.size").value(5))
+                .andExpect(jsonPath("$.nextCursor").value(1))
+                .andExpect(jsonPath("$.page").doesNotExist());
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllWithNameAndAfterSearchesAfterTheCursor() throws Exception {
+        when(customerService.searchAfter("onne", new CursorRequest(3L, 20)))
+                .thenReturn(
+                        new CursorPageResponse<>(List.of(new CustomerDTO(7L, "Muriel Donnelly", List.of())), 20, null));
+
+        mockMvc.perform(get("/customer").param("name", "onne").param("after", "3"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(7))
+                .andExpect(jsonPath("$.nextCursor").value((Object) null));
+        verify(customerService, never()).search(any(), any());
+        verify(customerService, never()).findAfter(any());
+    }
+
+    @Test
+    void getAllRejectsAfterCombinedWithPage() throws Exception {
+        mockMvc.perform(get("/customer").param("after", "0").param("page", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
+        verify(customerService, never()).findAfter(any());
     }
 
     @Test

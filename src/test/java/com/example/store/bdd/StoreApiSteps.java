@@ -103,6 +103,21 @@ public class StoreApiSteps {
                 .toUriString());
     }
 
+    @When("I request orders after {int} with size {int}")
+    public void requestOrdersAfter(int after, int size) throws Exception {
+        get("/order?after=" + after + "&size=" + size);
+    }
+
+    @When("I request orders after {int} on page {int}")
+    public void requestOrdersAfterOnPage(int after, int page) throws Exception {
+        get("/order?after=" + after + "&page=" + page);
+    }
+
+    @When("I request products after {int} with size {int}")
+    public void requestProductsAfter(int after, int size) throws Exception {
+        get("/products?after=" + after + "&size=" + size);
+    }
+
     @When("I request orders with page {int} and size {int}")
     public void requestOrdersPage(int page, int size) throws Exception {
         get("/order?page=" + page + "&size=" + size);
@@ -232,6 +247,11 @@ public class StoreApiSteps {
         assertThat(body.get("page").asInt()).isEqualTo(page);
         assertThat(body.get("size").asInt()).isEqualTo(size);
         assertThat(body.get("totalElements").asLong()).isGreaterThanOrEqualTo(totalElements);
+    }
+
+    @Then("the next cursor is {int}")
+    public void nextCursorIs(int cursor) {
+        assertThat(body.get("nextCursor").asLong()).isEqualTo(cursor);
     }
 
     @Then("the page reports size {int}")
