@@ -88,6 +88,17 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsRepeatedProductIds() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Twice\",\"customerId\":1,\"productIds\":[2,2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"))
+                .andExpect(jsonPath("$.errors[0].message").value("must only contain unique elements"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createRejectsMoreThanOneHundredProducts() throws Exception {
         String productIds =
                 LongStream.rangeClosed(1, 101).mapToObj(Long::toString).collect(Collectors.joining(",", "[", "]"));
