@@ -44,8 +44,9 @@ development path); in Compose the `migrate` job does it ahead of the service. Sa
 customers, 10,000 orders, 100 products) is loaded when the `seed` Liquibase context is active,
 which it is under the `local` profile, in the tests and in the `migrate` job of `compose.yaml`;
 the base configuration applies the context-free changesets only (`LIQUIBASE_CONTEXTS` defaults
-to `prod`), so an environment that sets nothing
-gets the schema and no sample rows. More data can be generated with the script described in
+to `prod`), so an environment that sets nothing gets the schema and no sample rows. A blank
+value is rejected at start-up, because an empty context set would apply every changeset, seed
+included (see Configuration). More data can be generated with the script described in
 `utils/README.md`.
 
 ## Configuration
@@ -54,7 +55,7 @@ gets the schema and no sample rows. More data can be generated with the script d
 | `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL |
 | `DB_USERNAME` | none (`admin` under the `local` profile) | Database user; without it the first connection fails and the process exits |
 | `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password; without it the first connection fails and the process exits |
-| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data |
+| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
@@ -70,7 +71,14 @@ connection (`password authentication failed for user "${DB_USERNAME}"` when a se
 behaviour: no environment can start on the sample credentials by omission.
 `FailClosedStartupIT` observes it against a real database: a second, non-web application
 started without the two variables fails with `password authentication failed for user
-"${DB_USERNAME}"` as the root cause. The graceful drain (see Operations) is documented but not
+"${DB_USERNAME}"` as the root cause. A blank `LIQUIBASE_CONTEXTS` (or
+`SPRING_LIQUIBASE_CONTEXTS`) is caught earlier, before any connection, by
+`LiquibaseContextsGuard`, an `EnvironmentPostProcessor` registered in
+`META-INF/spring.factories`: an empty context list makes Liquibase run every changeset, seed
+included, so the guard stops start-up with `spring.liquibase.contexts is blank` unless
+`spring.liquibase.enabled` is `false` (the Compose `store` service); the failure block is
+printed as plain text rather than JSON because logging is not yet initialised at that point
+(the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see Operations) is documented but not
 observed by a test, because the API has no slow request to hold open while a shutdown is
 signalled; ADR 0008 says the same.
 
@@ -317,7 +325,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
 * A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
   process exits during start-up and the orchestrator reports a crash, not a running service
-  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data (see Configuration)
+  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data and blank is refused
+  at start-up (see Configuration)
 * Migrations are a job, not a start-up side effect: the Compose stack runs the same image once
   as `migrate` with the schema owner's credentials before `store` starts, and `store` connects
   as `store_app` (connect, `SELECT`, `INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`)

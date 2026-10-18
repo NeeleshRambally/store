@@ -26,8 +26,10 @@ delivered.
   take their credentials from Testcontainers and `compose.yaml` sets every variable explicitly.
 - Sample data is loaded only when the `seed` Liquibase context is active: under the `local`
   profile, in the tests and in the `migrate` job of `compose.yaml`. The seed changesets are
-  the only ones with a context, so `prod` (or any value other than `seed`) applies the schema
-  and nothing else.
+  the only ones with a context, so `prod` (or any non-blank value other than `seed`) applies
+  the schema and nothing else; a blank value is rejected at start-up
+  (`LiquibaseContextsGuard`, `FailClosedConfigurationTest`, `FailClosedStartupIT`) because an
+  empty context set would apply every changeset, seed included.
 
 ## API contract
 - Clients can never supply an id. Request bodies are explicit records; unknown properties are

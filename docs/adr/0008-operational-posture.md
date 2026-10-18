@@ -96,3 +96,11 @@ nothing in a response or a log line identified the request a client was asking a
 - Readiness and the database are coupled: a planned database maintenance window takes the
   service out of rotation for its duration, which is the intended behaviour and must be
   communicated as such.
+- The context default `${LIQUIBASE_CONTEXTS:prod}` covers an unset variable only; an explicitly
+  blank one binds to an empty context list, and Liquibase runs every changeset when no runtime
+  context is given, so the seed would land in a production schema. `LiquibaseContextsGuard`
+  (an `EnvironmentPostProcessor` registered in `META-INF/spring.factories`) therefore refuses a
+  blank or absent `spring.liquibase.contexts` before any bean or connection exists, unless
+  `spring.liquibase.enabled` is `false` as in the Compose `store` service; the failure is a
+  plain-text block because logging is not yet initialised. `FailClosedConfigurationTest` and
+  `FailClosedStartupIT` pin it.
