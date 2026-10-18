@@ -1,9 +1,10 @@
 #!/bin/sh
-# Smoke test for a started store container: waits for readiness, then exercises the API port and the management port.
+# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job and runtime role.
 set -eu
 
 app=$1
 mgmt=$2
+mode=${3:-}
 body=$(mktemp)
 oversized=$(mktemp)
 trap 'rm -f "$body" "$oversized"' EXIT
@@ -31,6 +32,19 @@ expect() {
 
 contains() {
   grep -q -- "$2" "$body" || fail "$1: body does not contain $2"
+}
+
+as_store_app() {
+  docker compose exec -T postgres psql -U store_app -d store -v ON_ERROR_STOP=1 -tAc "$1" > "$body" 2>&1
+}
+
+expect_denied() {
+  name=$1
+  want=$2
+  shift 2
+  if as_store_app "$1"; then fail "$name: statement succeeded"; fi
+  contains "$name" "$want"
+  echo "ok   $name -> denied"
 }
 
 echo "Waiting for $mgmt/actuator/health/readiness"
@@ -61,5 +75,20 @@ contains "GET /order?after=0&size=2" '"nextCursor"'
 expect "GET /actuator/health on the application port" 404 "$app/actuator/health"
 
 expect "GET /actuator/health/liveness on the management port" 200 "$mgmt/actuator/health/liveness"
+
+if [ "$mode" = compose ]; then
+  migrate=$(docker compose ps -aq migrate 2>/dev/null || true)
+  [ -n "$migrate" ] || fail "migrate: no container for the migrate service"
+  code=$(docker inspect -f '{{.State.ExitCode}}' "$migrate")
+  [ "$code" = 0 ] || fail "migrate: exit code $code"
+  echo "ok   migrate -> exit 0"
+
+  as_store_app 'select count(*) from customer' || fail "store_app select: psql failed"
+  grep -qE '^[0-9]+$' "$body" || fail "store_app select: no count in the output"
+  echo "ok   store_app select customer -> $(cat "$body")"
+
+  expect_denied "store_app create table" 'permission denied for schema public' 'create table smoke_probe(id int)'
+  expect_denied "store_app update customer" 'permission denied for table customer' 'update customer set name = name where id = 1'
+fi
 
 echo "Smoke test passed"

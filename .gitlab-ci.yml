@@ -61,9 +61,9 @@ smoke:
     - apk add --no-cache curl
     - docker load -i image.tar
     - docker compose up -d --no-build
-    - sh scripts/smoke-test.sh http://docker:8080 http://docker:8081
+    - sh scripts/smoke-test.sh http://docker:8080 http://docker:8081 compose
   after_script:
-    - if [ "$CI_JOB_STATUS" = "failed" ]; then docker compose logs store; fi
+    - if [ "$CI_JOB_STATUS" = "failed" ]; then docker compose logs migrate store; fi
     - docker compose down -v
 
 scan:

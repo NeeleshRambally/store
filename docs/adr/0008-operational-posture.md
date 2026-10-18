@@ -5,25 +5,45 @@ Accepted
 
 ## Context
 The README asks for the project to be treated as a production application. Four operational
-choices had been made implicitly and were not recorded: Liquibase runs inside the application
-process at start-up with the runtime database role, and changeset 4 (`CREATE EXTENSION IF NOT
-EXISTS pg_trgm`) needs a privileged role; the readiness probe reported only Spring's
+choices had been made implicitly and were not recorded: Liquibase ran inside the application
+process at start-up with the runtime database role, which therefore owned the schema, and
+changeset 4 (`CREATE EXTENSION IF NOT EXISTS pg_trgm`) needs a privileged role; the readiness
+probe reported only Spring's
 `ReadinessState`; the graceful-shutdown drain (20 s) was longer than the Compose stop grace
 (10 s by default), so `docker compose down` killed the container half-way through a drain; and
 nothing in a response or a log line identified the request a client was asking about.
 
 ## Decision
-- **In-process migrations, for now.** Liquibase keeps running at start-up with the runtime
-  credentials. Every changeset except the `pg_trgm` extension needs only the privileges of the
-  schema owner, and the extension is a one-off that a DBA installs with a superuser or a role
-  that has `CREATE` on the database; afterwards the changeset is a no-op. The path to least
-  privilege is set out but not taken: `spring.liquibase.enabled=false` in the runtime
-  configuration, a migration job (the same image run with `--spring.liquibase.enabled=true` and
-  the DDL role, or the Liquibase CLI against the same changelog) executed before the rollout,
-  and a runtime role limited to `SELECT`, `INSERT` and `USAGE` on the sequences. It is not
-  taken yet because the single-process layout is what the README describes and what the
-  Compose stack and the smoke test exercise; the change is configuration and a pipeline step,
-  not code.
+- **Migrations run as a job.** The Compose stack is the production-shaped layout: a one-shot
+  `migrate` service runs the same image as the service with
+  `SPRING_MAIN_WEB_APPLICATION_TYPE=none`, the schema owner's credentials (`admin`) and
+  `LIQUIBASE_CONTEXTS=seed`, applies every changeset, logs `Started StoreApplication` and
+  exits 0 in about six seconds (no web server, so nothing keeps the process alive); `store`
+  starts only after `migrate` has completed successfully (`depends_on` with
+  `service_completed_successfully`), connects as `store_app` and sets
+  `SPRING_LIQUIBASE_ENABLED=false`, under which Boot creates no Liquibase bean at all. The
+  role split is created by `scripts/postgres-init/01-roles.sql`, which the postgres image runs
+  once on an empty data directory: `store_app` can connect, use the `public` schema, `SELECT`
+  and `INSERT` on every table and `USAGE`/`SELECT` on every sequence that `admin` creates
+  afterwards (default privileges, so Liquibase's tables get the same `ar` grant; the runtime
+  never touches them). It cannot `CREATE TABLE` (`permission denied for schema public`),
+  `CREATE INDEX` (`must be owner`), `UPDATE` or `DELETE` (`permission denied for table`),
+  which is exactly the API's write surface: three `POST`s and no update or delete. That the
+  runtime works under the restricted role is proven at start-up by `ddl-auto: validate` (the
+  schema is read as `store_app`), by the readiness group's `db` component and by every smoke
+  check: in `compose` mode `scripts/smoke-test.sh` asserts the `migrate` container's exit code
+  is 0, that `store_app` can `select count(*) from customer`, that `create table` is denied for
+  the schema and `update customer` is denied for the table, after the usual HTTP checks
+  (`POST /customer` and the 413 run as `store_app`). Default privileges apply only to objects
+  created after the statement, so a volume from a stack started before the job existed has no
+  `store_app` role and the service fails closed at its first connection; `docker compose down
+  -v` once, then `up`, recreates it. A Kubernetes rollout runs the same image as a `Job` (or an
+  init container) ahead of the deployment with the owner's credentials, and the deployment
+  carries the runtime role's. Both Compose passwords remain the README-path development values
+  set inline; the `env_file` split is documented in ASSUMPTIONS and left open. The README's
+  `./gradlew bootRun` keeps in-process Liquibase as `admin` under the `local` profile: that is
+  the development path, and the extension changeset still needs a privileged role on its first
+  run, which a DBA installs once in production.
 - **Readiness includes the database.** `management.endpoint.health.group.readiness.include` is
   `readinessState,db` and the group shows component names
   (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`), so
@@ -63,9 +83,12 @@ nothing in a response or a log line identified the request a client was asking a
   rule and the grace periods; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`
   and `RequestIdIT` pin them, `RequestBodyLimitFilterTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
-  `scripts/smoke-test.sh` checks the `db` component and the 413 on the started container.
-- The runtime role still owns the schema until the migration job is split out; that split is
-  the next step when a deployment target with separate roles exists.
+  `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code
+  and the runtime role's grants on the started stack.
+- The runtime role no longer owns the schema in the Compose stack and the pipelines; the
+  `migrate` job owns the rollout order, so a failed migration stops the stack before the
+  service starts. The role split is Compose-specific wiring: any other environment needs the
+  same role, the same two credential pairs and the job ahead of the deployment.
 - A client that sends its own id gets it back on every status, including 304, 413 and 500, and
   can quote it to operations; log lines of one request share `requestId` in the ECS JSON
   output. A data-integrity conflict is logged at WARN by SQL state and constraint name only,
