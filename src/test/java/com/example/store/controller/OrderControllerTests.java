@@ -23,6 +23,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -83,6 +85,19 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsMoreThanOneHundredProducts() throws Exception {
+        String productIds =
+                LongStream.rangeClosed(1, 101).mapToObj(Long::toString).collect(Collectors.joining(",", "[", "]"));
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":" + productIds + "}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createReturnsNotFoundForUnknownCustomer() throws Exception {
         when(orderService.create(new CreateOrderRequest("Test Order", 99L, List.of(2L))))
                 .thenThrow(new ResourceNotFoundException("Customer", 99L));
@@ -134,7 +149,8 @@ class OrderControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(1))
                 .andExpect(jsonPath("$.description").value("Test Order"))
-                .andExpect(jsonPath("$.customer.name").value("John Doe"));
+                .andExpect(jsonPath("$.customer.name").value("John Doe"))
+                .andExpect(jsonPath("$.products[0].id").value(2));
     }
 
     @Test
@@ -199,7 +215,9 @@ class OrderControllerTests {
     void getAllRejectsNegativeAfter() throws Exception {
         mockMvc.perform(get("/order").param("after", "-1"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.errors[0].field").value("after"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 0"));
         verify(orderService, never()).findAfter(any());
     }
 

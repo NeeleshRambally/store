@@ -17,6 +17,11 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "productIds"
 
+  Scenario: An order with more than 100 products is rejected
+    When I create an order "Bulk" for customer 1 with 101 products
+    Then the response status is 400
+    And the response problem lists a validation error for "productIds"
+
   Scenario: An order with an unknown product is rejected
     When I create an order "Analytical Engine" for customer 1 with products 2 and 999999
     Then the response status is 404
@@ -66,6 +71,11 @@ Feature: Order management
     When I request orders after 5 with size 5
     Then the page has 5 orders starting at id 6
     And the next cursor is 10
+
+  Scenario: A negative cursor is rejected
+    When I request orders after -1 with size 5
+    Then the response status is 400
+    And the response problem lists a validation error for "after"
 
   Scenario: A cursor cannot be combined with a page number
     When I request orders after 0 on page 1

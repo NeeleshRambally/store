@@ -53,6 +53,7 @@ Feature: Customer management
   Scenario: A name search spanning more than one word is rejected
     When I search customers by name "Muriel Donnelly"
     Then the response status is 400
+    And the response problem lists a validation error for "name"
 
   Scenario: Name search with no match returns an empty page
     When I search customers by name "zzzzzzzz"
@@ -63,3 +64,9 @@ Feature: Customer management
   Scenario: A blank name search is rejected
     When I search customers by name " "
     Then the response status is 400
+    And the response problem lists a validation error for "name"
+
+  Scenario: An empty name query is rejected
+    When I search customers by name ""
+    Then the response status is 400
+    And the response problem lists a validation error for "name"

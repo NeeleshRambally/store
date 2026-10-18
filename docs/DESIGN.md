@@ -57,11 +57,19 @@ runs, in one task and in one JVM:
 * controller slice tests (`@WebMvcTest`),
 * integration tests against a real PostgreSQL started by Testcontainers,
 * Cucumber acceptance scenarios in `src/test/resources/features`,
-* an OpenAPI contract check (`OpenApiContractIT`): real requests and responses of every
-  endpoint, including the 400, 404 and 304 cases, are validated against the checked-in
-  `OpenAPI.yaml` with `swagger-request-validator`; an undocumented response field, a missing
-  required field or a request the specification would reject fails the build, so the
-  specification cannot drift from the implementation.
+* an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are
+  validated against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real
+  requests cover the 200 offset and cursor pages of the three list endpoints and the two by-id
+  reads; the 201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`);
+  the 400 of a non-numeric id on both by-id paths, of an unknown sort property on `/order` and
+  `/products`, of a cursor combined with a page and of a negative `after` on `/order`, and of a
+  multi-word `name` on `/customer`; the 404 of an unknown order, of an unknown product and of
+  an order for an unknown customer; and the 304 of a conditional `GET /order/{id}`,
+  `GET /products/{id}` and `GET /customer` page. The 409 and 500 bodies are validated
+  synthetically against `POST /order` and `GET /order`, because no real request reaches them
+  (there are no unique constraints and no injected failure). An undocumented response field, a
+  missing required field, an undeclared status or a request the specification would reject
+  fails the build, so the specification cannot drift from the implementation.
 
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Reports land
 in `build/reports`.
@@ -132,8 +140,11 @@ when the walk is complete. `after=0` starts a walk, `size` keeps its default and
 still filters customers. `after` cannot be combined with `page` (other than 0) or with a `sort`
 whose first property is not `id` ascending; that is a 400 problem detail with the detail
 `after cannot be combined with page or sort` (ADR 0003, "Keyset pagination").
-Errors are RFC 7807 problem details; validation failures include an `errors` array with the
-offending field names. Requests never carry an id; unknown properties are rejected with 400.
+Errors are RFC 7807 problem details; validation failures, whether of a request body or of a
+query parameter such as `name` or `after`, include an `errors` array with the offending field
+names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
+never carry an id; unknown properties are rejected with 400. An order carries between 1 and 100
+products.
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
 unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the

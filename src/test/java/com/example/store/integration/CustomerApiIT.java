@@ -4,6 +4,7 @@ import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.PageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -13,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -90,11 +92,26 @@ class CustomerApiIT extends AbstractIntegrationTest {
 
     @Test
     void searchTreatsWildcardsLiterally() {
-        ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
-                "/customer?name=%25", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+        restTemplate.postForEntity("/customer", Map.of("name", "Hundred%Percent"), CustomerDTO.class);
+        URI uri = URI.create(restTemplate.getRootUri() + "/customer?name=%25&size=100");
+
+        ResponseEntity<PageResponse<CustomerDTO>> response =
+                restTemplate.exchange(uri, HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody().content()).isEmpty();
+        assertThat(response.getBody().content()).isNotEmpty().allSatisfy(customer -> assertThat(customer.name())
+                .contains("%"));
+    }
+
+    @Test
+    void rejectsAnEmptyNameQuery() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer?name=", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("name");
     }
 
     @Test
