@@ -104,15 +104,16 @@ jobs:
           path: sbom.spdx.json
 
       - name: Start the stack
+        id: stack
         run: docker compose up -d --no-build
 
       - name: Smoke test
         id: smoke
-        run: sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081
+        run: sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
 
       - name: Container logs
-        if: failure() && steps.smoke.outcome == 'failure'
-        run: docker compose logs store
+        if: failure() && (steps.stack.outcome == 'failure' || steps.smoke.outcome == 'failure')
+        run: docker compose logs migrate store
 
       - name: Tear down
         if: always()
