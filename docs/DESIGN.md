@@ -137,8 +137,8 @@ with Compose inside `docker:27-dind` and runs the same script against `http://do
 uses on GitHub) on the tarball with the same severity, `--ignore-unfixed` and `.trivyignore`
 settings, and `publish`, on the default branch only, loads the same tarball and pushes it as
 `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` after `package`, `smoke` and `scan` have passed.
-Two details differ from GitHub: the SBOM is CycloneDX produced by Trivy rather than SPDX produced
-by Syft, and the scan prints a table rather than storing a report.
+One detail differs from GitHub: the SBOM is CycloneDX produced by Trivy rather than SPDX produced
+by Syft; both scans print the findings table to the job log and neither stores a report.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or
