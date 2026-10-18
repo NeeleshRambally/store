@@ -41,7 +41,9 @@ advanced past the seeded ids, so the first insert failed outright.
 | HikariCP pool size and timeouts made explicit and configurable | Predictable behaviour under load; fail fast when the database is unreachable |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
-| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, and the zero entity loads of every list page | A reintroduced N+1, or a list page that starts loading entities again, fails the build, not production |
+| Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
+| Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
+| `QueryCountIT` pins the statement count of every read endpoint and of `POST /order`, the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read | A reintroduced N+1, a list page that starts loading entities again or a by-id read that stops being cached fails the build, not production |
 
 ## Results
 
@@ -49,7 +51,8 @@ advanced past the seeded ids, so the first insert failed outright.
 |---------|-------------------|------------------|----------------|------------------------------|
 | `GET /order` | 11 | 3 | 950 KB | ~2 KB |
 | `GET /customer` | 11 | 3 | 503 KB | ~20 KB |
-| `GET /order/{id}` | n/a | 1 | n/a | ~100 B |
+| `GET /order/{id}`, `GET /products/{id}` (cold) | n/a | 1 | n/a | ~100 B |
+| `GET /order/{id}`, `GET /products/{id}` (same id within 60 s) | n/a | 0, no session | n/a | ~100 B, or 0 B with a matching `If-None-Match` |
 | `GET /customer?name=` | n/a | 2 or 3 | n/a | bounded by the page |
 | `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | bounded by the page |
 
@@ -95,6 +98,25 @@ cursor is the last id of the page (`nextCursor`), so a client walks the whole ta
 `ceil(n / size)` requests of constant cost, and `QueryCountIT` pins the 2 statements for all
 four cursor queries.
 
+## Caching
+Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionIT`,
+`QueryCountIT`, `ProductApiIT`); the design and its staleness bounds are in ADR 0007.
+
+| Scenario | Before | After | Why |
+|----------|--------|-------|-----|
+| `GET /order/1` repeated with the `ETag` of the first response in `If-None-Match` | 200 with the ~100 B body on every call | `304 Not Modified`, no body, the ETag echoed | `ShallowEtagHeaderFilter` on `/order`, `/order/*`, `/customer`, `/customer/*`, `/products`, `/products/*`; the ETag is weak so Tomcat still compresses, and `Cache-Control: no-cache` makes caches revalidate instead of serving stale bodies |
+| `GET /order?size=100` with `Accept-Encoding: gzip` | gzipped, under 4 KB | gzipped, under 4 KB, plus the ETag; a revalidation sends 0 bytes of body | Weak ETags are not excluded from compression |
+| `GET /order/1` twice, `GET /products/2` twice | 1 statement and 1 session per call | second call: 0 statements, 0 sessions (`getPrepareStatementCount()`, `getSessionOpenCount()`) | `@Cacheable` on `findById`; `@EnableCaching(order = HIGHEST_PRECEDENCE)` places the cache advice outside the transaction advice, so a hit never enters the transactional method |
+| `GET /products/{id}` after `POST /order` containing that product | n/a | the next read lists the new order (1 statement, then cached again) | `OrderCreatedEvent` → `ProductCacheEvictor`, `AFTER_COMMIT` |
+
+The ETag filter is shallow: the controller and the service still run on a conditional request,
+so a 304 saves response bytes and client parsing, not server work; the service cache is what
+saves the round trip. The cache keeps DTOs, which are immutable, keyed by id, bounded to 10,000
+entries and 60 s (`CACHE_TTL`); `CACHE_TYPE=none` disables it. The hit rate is visible as
+`cache_gets_total{cache="orders"|"products",result="hit"|"miss"}` in `/actuator/prometheus`;
+the TTL should only be raised on that evidence, because a product read on another replica, or
+after a write that bypasses the service, can be stale for up to the TTL.
+
 ## Write path
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch, and
 with `reWriteBatchedInserts=true` it sends a batch as one multi-row `INSERT`. Measured with
@@ -111,7 +133,10 @@ test that proves the sequence switch, because `IDENTITY` would issue three separ
 inserts regardless of the batch size.
 
 ## Considered and not done (yet)
-- **Second-level or HTTP caching.** Orders and customers are mutable and the read patterns are
-  paged scans; caching would add invalidation complexity without a demonstrated hit rate.
+- **Caching the list pages.** The by-id reads are cached (above); the pages are not. A page
+  key would have to include page, size, sort, cursor and name filter, and every `POST /order`,
+  `POST /customer` or `POST /products` changes the totals of at least one list, so the entries
+  would be invalidated as fast as they are filled. The lists are already a fixed 2 or 3 statements
+  and the HTTP revalidation covers the client that polls the same page.
 - **Separate management port.** Operational hardening rather than performance; planned with the
   authentication phase.
