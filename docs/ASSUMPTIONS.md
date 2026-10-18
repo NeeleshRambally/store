@@ -69,8 +69,12 @@ delivered.
   those numbers.
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
 - Open-in-view is disabled so no query can run outside a service transaction.
-- `GenerationType.IDENTITY` prevents JDBC insert batching; moving to a sequence generator with
-  an allocation size is a later optimisation because it changes the id-assignment strategy.
+- Ids are allocated from the database sequences in blocks of 50 (`pooled-lo` optimiser, see
+  ADR 0005), so inserts are deferred to flush and batched (`jdbc.batch_size: 50`, multi-row
+  rewrite in the driver). `POST /order` with three products went from 6 to 4 prepared
+  statements plus one `nextval` per 50 orders; several entities of one type flushed together
+  become one batched insert per table. Ids are therefore no longer gapless: a restart can skip up
+  to 49 ids.
 
 ## Testing strategy
 - TDD for every production change: each test was observed failing before the code that makes
