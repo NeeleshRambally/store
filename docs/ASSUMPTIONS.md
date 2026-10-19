@@ -361,11 +361,21 @@ delivered.
   exceptions (ADR 0004). The upgrade to Spring Boot 4.1.x is tracked as
   [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
-  set is auditable. The data generator's one dependency carries an accepted npm advisory,
-  GHSA-qxc2-j82w-r537 on `@faker-js/faker` 7.6.0, through a code path the script never calls;
-  `utils/README.md` ("Known advisory") records it with the reasoning and the review date. The
-  image published from `main` is the one that was scanned and smoke-tested:
-  GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
+  set is auditable, for a bounded window: a run keeps its `sbom` artifact for 90 days
+  (`retention-days: 90`; the repository's artifact retention is 90 days, and should that
+  setting drop below 90 the action uses the setting and logs a warning), and GitLab keeps
+  `sbom.cdx.json` as long (`expire_in: 90 days`). For an older image the SBOM is made again
+  from the pushed digest: `docker login ghcr.io` with a token that carries `read:packages`,
+  then `docker buildx imagetools inspect ghcr.io/neeleshambally/store:sha-<short sha>` prints
+  the digest and `syft ghcr.io/neeleshambally/store@sha256:<digest> -o spdx-json` describes
+  that image. The SBOM is not bound to the digest as a signed attestation, because GitHub
+  offers artifact attestations on the Free, Pro and Team plans for public repositories only,
+  and this repository is a private one on the Free plan. The data generator's one dependency
+  carries an accepted npm advisory, GHSA-qxc2-j82w-r537 on `@faker-js/faker` 7.6.0, through a
+  code path the script never calls; `utils/README.md` ("Known advisory") records it with the
+  reasoning and the review date. The image published from `main` is the one that was scanned
+  and smoke-tested: GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the
+  saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
   explicitly; GitHub Actions majors (as SHA moves with a rewritten version comment) and the
