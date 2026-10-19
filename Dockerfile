@@ -3,7 +3,7 @@ FROM eclipse-temurin:17-jdk-jammy@sha256:73ed442231ec66cfe48cae0b263ce619a75ab96
 WORKDIR /workspace
 COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle ./gradle
-RUN ./gradlew --no-daemon dependencies > /dev/null 2>&1 || true
+RUN ./gradlew --no-daemon resolveDependencies > /dev/null
 COPY src ./src
 RUN ./gradlew --no-daemon bootJar -x test \
     && java -Djarmode=tools -jar build/libs/store-*[!plain].jar extract --layers --launcher --destination extracted
