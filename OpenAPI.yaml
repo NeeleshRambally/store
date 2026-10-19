@@ -777,9 +777,11 @@ components:
         The database cannot serve the request; retry after the Retry-After delay. The code
         service_unavailable means that no database connection could be obtained (the pool's
         connection-timeout of 5 s elapsed, or the database is unreachable) or that the
-        connection was lost during the request; database_timeout means that a statement was
-        cancelled or the transaction ran past its deadline. On a POST the write may or may not
-        have been applied (the POSTs are not idempotent)
+        connection was lost during the request, including a database that sent nothing for the
+        socket timeout (15 s by default); database_timeout means that a statement was cancelled,
+        normally at the statement timeout (10 s by default) or at the deadline of the
+        transaction timeout (15 s by default), or that the transaction had passed that deadline.
+        On a POST the write may or may not have been applied (the POSTs are not idempotent)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'

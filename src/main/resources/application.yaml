@@ -13,6 +13,10 @@ spring:
       validation-timeout: 2000
       data-source-properties:
         reWriteBatchedInserts: true
+        options: "-c statement_timeout=${DB_STATEMENT_TIMEOUT:10s}"
+        socketTimeout: ${DB_SOCKET_TIMEOUT:15}
+        cancelSignalTimeout: 3
+        tcpKeepAlive: true
   jpa:
     open-in-view: false
     hibernate:
@@ -24,6 +28,8 @@ spring:
         jdbc.batch_size: 50
         order_inserts: true
         order_updates: true
+  transaction:
+    default-timeout: ${TX_TIMEOUT:15s}
   data:
     web:
       pageable:
