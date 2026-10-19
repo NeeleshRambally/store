@@ -123,8 +123,9 @@ delivered.
   request that never reaches the `DispatcherServlet`, and a 404 on the management connector, get
   Boot's default error body instead. Validation failures list the offending fields, for a
   request body and for a query parameter alike (`name`, `after`, `page`, `size`), and so does a
-  body that does not bind: an unknown property or a value of the wrong JSON type is named by its
-  path (`productIds[0]`), while malformed JSON, content after the JSON object included, is
+  body that does not bind: an unknown property, a value of the wrong JSON type or an integer
+  outside the 64-bit range is named by its path (`productIds[0]`), while a body Jackson cannot
+  parse (malformed JSON, content after the object, a number of more than 1,000 digits) is
   `Failed to read request` without `errors`; nothing else about the failure is exposed. A
   whitespace-only `name` or `description` is a validation failure, and the specification says
   so (its `pattern` requires a character that is not whitespace) so that a client built from it

@@ -66,6 +66,15 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "customerId"
 
+  Scenario: A customer id beyond the 64-bit range is rejected and named
+    When I create an order with payload:
+      """
+      {"description": "Overflowing customer id", "customerId": 9223372036854775808, "productIds": [2]}
+      """
+    Then the response status is 400
+    And the response problem detail is "Invalid request content."
+    And the response problem lists a validation error for "customerId"
+
   Scenario: Content after the order body is rejected
     When I create an order with payload:
       """

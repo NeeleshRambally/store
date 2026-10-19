@@ -248,6 +248,42 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsACustomerIdBeyondTheSixtyFourBitRange() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Big\",\"customerId\":9223372036854775808,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a 64-bit integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAProductIdBeyondTheSixtyFourBitRange() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Big\",\"customerId\":5,\"productIds\":[2,99999999999999999999]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("productIds[1]"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a 64-bit integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsANumberBeyondTheParserLimitWithoutNamingAField() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Long\",\"customerId\":" + "9".repeat(1001)
+                                + ",\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createRejectsABodyThatIsNotAnObjectWithoutNamingAField() throws Exception {
         mockMvc.perform(post("/order").contentType(MediaType.APPLICATION_JSON).content("[]"))
                 .andExpect(status().isBadRequest())
