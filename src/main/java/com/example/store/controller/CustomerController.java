@@ -36,7 +36,11 @@ public class CustomerController {
 
     @GetMapping
     public ListResponse<CustomerDTO> getAllCustomers(
-            @RequestParam(required = false) @Pattern(regexp = "\\S+") String name,
+            @RequestParam(required = false)
+                    @Pattern(
+                            regexp = "[^\\s\\p{Cntrl}]+",
+                            message = "must be a single word without whitespace or control characters")
+                    String name,
             @RequestParam(required = false) @Min(0) Long after,
             @RequestParam(required = false) @Min(0) Integer page,
             @RequestParam(required = false) @Min(1) Integer size,
