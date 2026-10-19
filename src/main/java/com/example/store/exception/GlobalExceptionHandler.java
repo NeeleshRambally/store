@@ -49,6 +49,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
     }
 
+    @ExceptionHandler(RepeatedParameterException.class)
+    ProblemDetail handleRepeatedParameter(RepeatedParameterException ex) {
+        return fieldProblem(HttpStatus.BAD_REQUEST, ex.getMessage(), ex.getParameter(), "must not be repeated");
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
         Throwable cause = ex.getMostSpecificCause();

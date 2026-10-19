@@ -60,6 +60,16 @@ delivered.
   which exist only to be validated. A `size` above 100 is still capped rather than rejected
   (ADR 0003), and a non-numeric value or one outside the 32-bit range (`format: int32` in the
   specification) is a type-mismatch 400 without `errors`.
+- Every query parameter except `sort` is single-valued. A repeated one is a 400
+  (`'customerId' must not be repeated`, with the parameter in `errors`), checked by an
+  interceptor before the parameters are bound, so the repetition is reported even when a value
+  is also invalid. Spring would otherwise keep the first value of a repeated number
+  (`?customerId=2&customerId=1` filtered by 2) and join a repeated string with commas
+  (`?name=onne&name=onne` searched for `onne,onne` and found nothing, where `?name=onne` finds
+  Muriel Donnelly). The interceptor checks the parameters the endpoint binds, so an unknown
+  parameter is still ignored, repeated or not. `sort` stays repeatable, since each occurrence
+  adds a sort property, and `name` is bound as one string rather than a list, so `?name=a,b`
+  searches for `a,b` as one word.
 - `sort` accepts only the properties listed in `OpenAPI.yaml` for each endpoint (`id` and
   `description` for orders and products, `id` and `name` for customers). Anything else, including
   nested paths such as `customer.name`, is a 400 problem detail with the detail

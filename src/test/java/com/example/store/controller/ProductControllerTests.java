@@ -164,6 +164,18 @@ class ProductControllerTests {
     }
 
     @Test
+    void getAllRejectsARepeatedPage() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("page", "1", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'page' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
     void getAllWithAfterReturnsACursorPage() throws Exception {
         when(productService.findAfter(new CursorRequest(1L, 20)))
                 .thenReturn(new CursorPageResponse<>(List.of(PRODUCT), 20, 2L));

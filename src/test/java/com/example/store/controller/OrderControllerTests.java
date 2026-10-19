@@ -444,6 +444,63 @@ class OrderControllerTests {
     }
 
     @Test
+    void getAllRejectsARepeatedCustomerId() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("customerId", "1", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'customerId' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsARepeatedProductId() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("productId", "2", "2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'productId' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("productId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsARepeatedCursor() throws Exception {
+        when(orderService.findAfter(any(), any())).thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, null));
+
+        mockMvc.perform(get("/order").param("after", "0", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'after' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("after"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(orderService, never()).findAfter(any(), any());
+    }
+
+    @Test
+    void getAllReportsARepeatedPageBeforeItsRange() throws Exception {
+        mockMvc.perform(get("/order").param("page", "-1", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'page' must not be repeated"))
+                .andExpect(jsonPath("$.errors.length()").value(1));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllAcceptsARepeatedSort() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by(Sort.Order.desc("description"), Sort.Order.desc("id")));
+        when(orderService.findAll(NO_FILTER, pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 1));
+
+        mockMvc.perform(get("/order").param("sort", "description,desc", "id,desc"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].id").value(1));
+
+        verify(orderService).findAll(NO_FILTER, pageable);
+    }
+
+    @Test
     void getAllPassesTheCustomerFilterToTheService() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(orderService.findAll(new OrderFilter(1L, null), pageable))
