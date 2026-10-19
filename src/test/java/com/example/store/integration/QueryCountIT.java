@@ -307,6 +307,17 @@ class QueryCountIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void emptyOrderPageBeyondTheEndUsesTwoStatements() {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?customerId=1&page=50&size=20", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(response.getBody().get("totalElements").asLong()).isPositive();
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    @Test
     void createOrderWithThreeProductsUsesFourStatementsPlusTheBlockAllocation() {
         ResponseEntity<String> response = restTemplate.postForEntity(
                 "/order",
