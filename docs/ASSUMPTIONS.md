@@ -533,7 +533,10 @@ delivered.
   findings, an `EI_EXPOSE_REP` and `EI_EXPOSE_REP2` pair on each of the eight records that held
   the caller's list or set; each now keeps an unmodifiable copy, so a cached DTO that every hit
   shares cannot change, and `CreateOrderRequest` copies without `List.copyOf`, which rejects
-  nulls, so that validation still names a missing `productIds` or a null id in it. Two settings
+  nulls, so that validation still names a missing `productIds` or a null id in it. The entities
+  pass because none has a setter: SpotBugs counts a class with setter-like methods as mutable,
+  so a setter on `Customer` would make it report the `Order` constructor, which keeps the
+  customer it is given, as `EI_EXPOSE_REP2`; an entity reference cannot be copied. Two settings
   are deliberate. The test classes are not analysed (`spotbugsTest` is disabled): when the gate
   was added all 35 findings there were `NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE` on a value
   Spring declares nullable (25 on `ResponseEntity.getBody()`, 8 on `HttpHeaders.getETag()`, one
@@ -611,8 +614,9 @@ revision), what was done, and where the reasoning lives.
   (`Customer.java:19`): request records have no id, unknown properties are rejected with 400,
   the cascade is removed and only the order service writes orders; ADR 0001.
 - `@Data` on both bidirectional entities (`Customer.java:11`, `Order.java:8`), which generates
-  `equals`, `hashCode` and `toString` over the lazy collection: replaced by `@Getter`/`@Setter`,
-  id-based equality, a constant hash code and an id-only `toString`; ADR 0001.
+  `equals`, `hashCode` and `toString` over the lazy collection: replaced by `@Getter`, a
+  constructor that takes the required fields, a protected no-argument constructor for JPA and
+  no setters, id-based equality, a constant hash code and an id-only `toString`; ADR 0001.
 - Entity columns nullable while the schema is `NOT NULL` (`Customer.java:17`, `Order.java:15-18`
   against `schema.sql:4,10-11`): `@Column(nullable = false)`, `optional = false` and
   `@JoinColumn(nullable = false)`, so the mapping states what the schema enforces and
