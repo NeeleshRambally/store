@@ -153,9 +153,10 @@ runs, in one task and in one JVM:
   fractional `customerId`, a numeric product `description`, a NUL in each request string, and an
   order body that repeats a property or has content after it);
   the 400 of a non-numeric id on the three by-id paths, of an unknown sort property on `/order`
-  and `/products`, of a cursor combined with a page, of a negative `after`, of a negative
-  `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of `customerId`
-  combined with `productId` on `/order`, and of a multi-word `name` and of a `name` containing a
+  and `/products`, of a cursor combined with a page, of a negative `after`, of a negative or
+  hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of
+  `customerId` combined with `productId` on `/order`, and of a multi-word `name` and of a
+  `name` containing a
   NUL on `/customer` (while a no-break space, and a word containing U+0085 and U+2028, are
   accepted by both); the 404 of an unknown order, product and customer and of an order for an
   unknown customer; the 413 of an oversized body and the 415 of a `POST /order` sent as
@@ -414,9 +415,16 @@ Request input is strict rather than coerced (ADR 0002):
 - `page` below 0 and `size` below 1 are 400s naming the parameter
   (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
   resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default
-  20). A non-numeric value or one outside the 32-bit range is the type-mismatch 400
-  (`Failed to convert 'page' with value: 'abc'`) without `errors`. A `size` above 100 is still
-  capped at 100.
+  20). A value that is not a decimal integer (`abc`, `0x2`, `#3`, `1 0`, or one with a leading
+  space, which is what the unencoded plus of `page=+2` decodes to) or one outside the 32-bit
+  range is the type-mismatch 400 (`Failed to convert 'page' with value: 'abc'`) without
+  `errors`; an empty or blank value counts as absent. A `size` above 100 is still capped at
+  100. `PagingParameterBinding` parses both parameters as the resolver does
+  (`Integer.valueOf`): Spring's number conversion strips whitespace and reads `0x` and `#` as
+  hexadecimal, while the resolver parses the raw text and falls back to page 0 or size 20 when
+  it cannot, so `page=0x2` used to pass validation as 2 and be served as page 0. It registers an
+  editor on the binder, not a converter, because the binder retries a failed conversion with its
+  default number editor, which parses the same lenient way.
 - Every query parameter an endpoint binds as a single value (`name`, `customerId`,
   `productId`, `after`, `page`, `size`) is a 400 when repeated, with the detail
   `'name' must not be repeated` and an `errors` entry for it, where Spring used to keep the first
