@@ -169,16 +169,18 @@ runs, in one task and in one JVM:
   and `GET /customer` page. A 405 for a method a path does not list cannot be declared per
   operation, because the method is absent from the contract; `info.description` states it and
   the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies are validated
-  synthetically against `POST /order` and `GET /order`, because no real request
-  reaches them (there are no unique constraints and no injected failure). The specification
-  declares `X-Request-Id` as a required header on every response, `Location` on every 201 and
-  `Retry-After` on every 503, and the validator enforces declared headers, so a response that
-  drops one fails the check (the synthetic 409 and 500 cases had to carry the id before they
-  passed again, and a synthetic 503 without `Retry-After` is rejected, which a case pins). An
-  undocumented response field, a missing required field at any depth, a problem detail without a
-  `code` or with one the specification does not list (two synthetic cases pin both), a missing
-  declared header, an undeclared status or a request the specification would reject fails the
-  build, so the specification cannot drift from the implementation.
+  synthetically against `POST /order` and `GET /order`, because no real request reaches them
+  (there are no unique constraints and no injected failure). The specification declares
+  `X-Request-Id` as a required header on every response, `Location` on every 201, `Retry-After`
+  on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a `GET`, and the validator
+  enforces declared headers, so a response that drops one fails the check (the synthetic 409 and
+  500 cases had to carry the id before they passed again, and a synthetic 503 without
+  `Retry-After` and a synthetic 200 and 304 without `ETag` and `Cache-Control` are rejected,
+  which cases pin). An undocumented response field, a missing required field at any depth, a
+  problem detail without a `code` or with one the specification does not list (two synthetic
+  cases pin both), a missing declared header, an undeclared status or a request the
+  specification would reject fails the build, so the specification cannot drift from the
+  implementation.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,

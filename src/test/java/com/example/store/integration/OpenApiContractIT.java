@@ -83,6 +83,39 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void successfulGetWithoutItsCacheHeadersIsRejectedByTheContract() {
+        Interaction interaction = get("/order/1", Map.of());
+        Response stripped = SimpleResponse.Builder.ok()
+                .withContentType(MediaType.APPLICATION_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
+                .withBody(interaction.entity().getBody())
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/order/1", Request.Method.GET, stripped);
+
+        assertThat(report.getMessages())
+                .extracting(ValidationReport.Message::getMessage)
+                .containsExactlyInAnyOrder(
+                        "Header 'ETag' is expected on path '/order/{id}' but not found in response.",
+                        "Header 'Cache-Control' is expected on path '/order/{id}' but not found in response.");
+    }
+
+    @Test
+    void notModifiedWithoutItsCacheHeadersIsRejectedByTheContract() {
+        Response stripped = SimpleResponse.Builder.status(HttpStatus.NOT_MODIFIED.value())
+                .withHeader("X-Request-Id", "synthetic")
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/customer", Request.Method.GET, stripped);
+
+        assertThat(report.getMessages())
+                .extracting(ValidationReport.Message::getMessage)
+                .containsExactlyInAnyOrder(
+                        "Header 'ETag' is expected on path '/customer' but not found in response.",
+                        "Header 'Cache-Control' is expected on path '/customer' but not found in response.");
+    }
+
+    @Test
     void orderCursorPageMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("after", "0", "size", "2"));
 
