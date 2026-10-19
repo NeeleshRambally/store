@@ -474,7 +474,7 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `gcr.io/distroless/java17-debian13:nonroot`, pinned by digest: Eclipse Temurin 17.0.20.1,
   installed as the Debian package `temurin-17-jre`, among 25 Debian 13 packages, with no shell,
   package manager, `curl` or `wget`. The JVM flags are arguments of the `ENTRYPOINT`
-  (`/usr/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+  (`/usr/bin/java -XX:+UseSerialGC -XX:MaxRAMPercentage=30 -XX:+ExitOnOutOfMemoryError
   org.springframework.boot.loader.launch.JarLauncher`), and the image sets no
   `JAVA_TOOL_OPTIONS`: the JVM announces that variable, even an empty one, with a plain-text
   `Picked up JAVA_TOOL_OPTIONS: ...` line on stderr ahead of the JSON, and the smoke test's
@@ -488,21 +488,37 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `java17-debian13` may stop receiving updates while the service is still on Java 17; since the
   scan inventories the JRE, a stale base then fails the image scan, and the way out is a move to
   a newer Java line (a `java21` image and the matching toolchain)
-* The Compose `store` and `migrate` services are hardened: `read_only: true` with
-  `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` live there),
-  `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]` and
-  `deploy.resources.limits.memory: 512m`, which Compose v2 honours without Swarm and which
-  gives the image's `-XX:MaxRAMPercentage=75` a bound to be a percentage of (`MaxHeapSize`
-  resolves to 384 MiB inside the container). The limit is a measured choice: after the smoke
-  run the service holds about 256 MiB of RSS (255.9 and 256.2 MiB in two readings) under the
-  default `TOMCAT_THREADS_MAX` of 200, so 512 MiB leaves the heap room to fill plus metaspace
-  and thread stacks; a larger `TOMCAT_THREADS_MAX` or `DB_POOL_SIZE` needs the limit raised
-  with it, since each busy thread adds its stack and buffers on top of the heap. `postgres`
-  stays unhardened because
-  `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its own
-  user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
-  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0.
-  ADR 0008 records the settings; `docker inspect` on the started stack shows them
+* The Compose `store` and `migrate` services are hardened: `read_only: true` with `tmpfs: [/tmp]`
+  (Tomcat's base directory and the JVM's `hsperfdata` live there), `cap_drop: [ALL]`,
+  `security_opt: ["no-new-privileges:true"]`, `deploy.resources.limits.memory: 512m`, which
+  Compose v2 honours without Swarm, and `memswap_limit: 512m`, without which Docker allows as
+  much swap again as the limit, so an overrun swaps silently instead of failing. The heap is a
+  share of that limit: `-XX:MaxRAMPercentage=30` resolves `MaxHeapSize` to 154 MiB, and the rest
+  holds metaspace, the code cache, thread stacks and native buffers. The share is measured. A
+  load generator kept 200 keep-alive clients busy for 300 s on the list, by-id, cursor and search
+  reads and both `POST` endpoints, half of them asking for gzip, with the heap fully resident
+  from the start (`-XX:InitialRAMPercentage` equal to the maximum and `-XX:+AlwaysPreTouch`, the
+  state a long-running process approaches); peaks were read from the cgroup's `memory.peak` and
+  `memory.events`, `docker stats` and the process's `VmHWM`, and native memory tracking through
+  the HotSpot attach socket from a sidecar container sharing the PID namespace, since the JRE
+  image has no `jcmd`. At 30% the container peaked at 477.4 MiB with 241 threads, flat after 120
+  s, and at about 440 MiB with 50 clients (2,686 requests per second, p99 64.7 ms). At 75% (384
+  MiB of heap) the same load needed 636.8 MiB by native memory tracking, hit the limit and
+  swapped 104.7 MiB, and with swap off the container was killed (exit 137); 40% also reached the
+  limit, and 35% came within 1.1 MiB of it (510.9 MiB) in five minutes. SerialGC is set
+  explicitly: G1's own native structures took 59 to 63 MiB at a 35% heap and that run overran the
+  limit at 200 clients, and the JVM's ergonomics switch to G1 as soon as a deployment grants 1792
+  MiB or more with two or more CPUs. SerialGC's cost at 200 clients was 2,050 young collections
+  (13.5 s) and 3 full ones (283 ms) in 300 s. The runs used images with the Dockerfile's layers
+  and flags and its JVM, Temurin 17.0.20.1, on Docker Desktop on arm64 with transparent huge
+  pages set to `always` and 2040 KiB thread stacks (the arm64 default); a Linux host with the
+  common `madvise` setting, such as the amd64 CI runner, is expected to use less. A larger
+  `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or cache needs the limit raised and the share re-measured,
+  since each busy thread adds its stack and buffers outside the heap. `postgres` stays unhardened
+  because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its
+  own user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
+  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0. ADR 0008
+  records the settings; `docker inspect` on the started stack shows them
 
 ## Further reading
 * `docs/ASSUMPTIONS.md`: the judgement calls behind each task and how they can be defended.
