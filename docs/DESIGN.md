@@ -406,6 +406,13 @@ Request input is strict rather than coerced (ADR 0002):
   20). A non-numeric value or one outside the 32-bit range is the type-mismatch 400
   (`Failed to convert 'page' with value: 'abc'`) without `errors`. A `size` above 100 is still
   capped at 100.
+- Every query parameter an endpoint binds as a single value (`name`, `customerId`,
+  `productId`, `after`, `page`, `size`) is a 400 when repeated, with the detail
+  `'name' must not be repeated` and an `errors` entry for it, where Spring used to keep the first
+  value of a repeated number and join a repeated string with commas. The check runs after
+  handler mapping and before the arguments are bound, so a repetition is reported even when a
+  value is also invalid. `sort` may be repeated to sort by several properties, and a comma
+  inside a single `name` stays part of the word.
 
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is

@@ -254,6 +254,40 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getAllRejectsARepeatedName() throws Exception {
+        when(customerService.search(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("name", "onne", "onne"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'name' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllRejectsARepeatedSize() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("size", "5", "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'size' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("size"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllSearchesACommaAsPartOfTheWord() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(customerService.search("a,b", pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        mockMvc.perform(get("/customer").param("name", "a,b")).andExpect(status().isOk());
+
+        verify(customerService).search("a,b", pageable);
+    }
+
+    @Test
     void getAllWithAfterReturnsACursorPage() throws Exception {
         when(customerService.findAfter(new CursorRequest(0L, 5)))
                 .thenReturn(new CursorPageResponse<>(List.of(new CustomerDTO(1L, "John Doe", List.of(), 0)), 5, 1L));
