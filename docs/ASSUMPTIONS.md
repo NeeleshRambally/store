@@ -66,8 +66,13 @@ delivered.
   non-numeric `page` fell back to the defaults) and offers no hook to reject them, so the three
   list endpoints also declare `page` and `size` as validated `Integer` request parameters,
   which exist only to be validated. A `size` above 100 is still capped rather than rejected
-  (ADR 0003), and a non-numeric value or one outside the 32-bit range (`format: int32` in the
-  specification) is a type-mismatch 400 without `errors`.
+  (ADR 0003), and a value that is not a decimal integer or one outside the 32-bit range
+  (`format: int32` in the specification) is a type-mismatch 400 without `errors`. The two
+  parameters are parsed exactly as the resolver parses them, with `Integer.valueOf` and an empty
+  or blank value counting as absent, because Spring's own number conversion strips whitespace
+  and reads `0x` and `#` as hexadecimal: `page=0x2`, `page=#3` or an unencoded `page=+2` (a
+  space before the 2 once decoded) passed validation as 2 or 3 while the resolver, unable to
+  parse them, served page 0, and `size=0x10` passed as 16 and was served as 20.
 - Every query parameter except `sort` is single-valued. A repeated one is a 400
   (`'customerId' must not be repeated`, with the parameter in `errors`), checked by an
   interceptor before the parameters are bound, so the repetition is reported even when a value

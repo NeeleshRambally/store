@@ -164,6 +164,16 @@ class ProductControllerTests {
     }
 
     @Test
+    void getAllRejectsAHexadecimalPage() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("page", "0x2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: '0x2'"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
     void getAllRejectsARepeatedPage() throws Exception {
         when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
 
