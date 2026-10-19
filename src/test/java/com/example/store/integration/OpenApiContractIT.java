@@ -5,6 +5,7 @@ import com.atlassian.oai.validator.model.Request;
 import com.atlassian.oai.validator.model.Response;
 import com.atlassian.oai.validator.model.SimpleRequest;
 import com.atlassian.oai.validator.model.SimpleResponse;
+import com.atlassian.oai.validator.report.LevelResolverFactory;
 import com.atlassian.oai.validator.report.SimpleValidationReportFormat;
 import com.atlassian.oai.validator.report.ValidationReport;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -45,6 +46,11 @@ class OpenApiContractIT extends AbstractIntegrationTest {
                     SPEC.toUri().toString())
             .withResolveCombinators(true)
             .build();
+    private static final OpenApiInteractionValidator SCHEMAS_AS_DECLARED =
+            OpenApiInteractionValidator.createForSpecificationUrl(SPEC.toUri().toString())
+                    .withResolveCombinators(true)
+                    .withLevelResolver(LevelResolverFactory.withAdditionalPropertiesIgnored())
+                    .build();
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @Autowired
@@ -477,6 +483,28 @@ class OpenApiContractIT extends AbstractIntegrationTest {
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json().get("detail").asText()).isEqualTo("Failed to read request");
         assertResponseConforms(interaction);
+    }
+
+    @ParameterizedTest(name = "POST {0}")
+    @MethodSource("bodiesCarryingAnId")
+    void aClientSuppliedIdIsRejectedByTheRequestSchemaItself(String path, Map<String, Object> body) {
+        Interaction interaction = post(path, body);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("code").asText()).isEqualTo("unknown_property");
+        assertThat(SCHEMAS_AS_DECLARED.validateRequest(interaction.request()).getMessages())
+                .extracting(ValidationReport.Message::getKey)
+                .containsExactly("validation.request.body.schema.additionalProperties");
+        assertResponseConforms(interaction);
+    }
+
+    static Stream<Arguments> bodiesCarryingAnId() {
+        return Stream.of(
+                arguments(
+                        "/order",
+                        Map.of("id", 5, "description", "Contract id order", "customerId", 5, "productIds", List.of(1))),
+                arguments("/customer", Map.of("id", 5, "name", "Contract Id Customer")),
+                arguments("/products", Map.of("id", 5, "description", "Contract id product")));
     }
 
     @Test

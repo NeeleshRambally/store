@@ -154,8 +154,8 @@ runs, in one task and in one JVM:
   the 200 offset and cursor pages of the three list endpoints and the three by-id reads, and the
   customer-filtered page and the product-filtered cursor page of `/order`; the 201 and the
   rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated product id, a
-  fractional `customerId`, a numeric product `description`, a NUL in each request string, and an
-  order body that repeats a property or has content after it);
+  fractional `customerId`, a numeric product `description`, a NUL in each request string, a
+  client-supplied `id`, and an order body that repeats a property or has content after it);
   the 400 of a non-numeric id on the three by-id paths, of an unknown sort property on `/order`
   and `/products`, of a cursor combined with a page, of a negative `after`, of a negative or
   hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of
@@ -176,7 +176,11 @@ runs, in one task and in one JVM:
   enforces declared headers, so a response that drops one fails the check (the synthetic 409 and
   500 cases had to carry the id before they passed again, and a synthetic 503 without
   `Retry-After` and a synthetic 200 and 304 without `ETag` and `Cache-Control` are rejected,
-  which cases pin). An undocumented response field, a missing required field at any depth, a
+  which cases pin). The three request schemas declare `additionalProperties: false`
+  themselves: the validator injects that rule into every schema that does not declare it, so it
+  would reject a body carrying an `id` either way, while a client built from the specification
+  would not; a second validator that injects nothing checks that each `POST` schema rejects such
+  a body on its own. An undocumented response field, a missing required field at any depth, a
   problem detail without a `code` or with one the specification does not list (two synthetic
   cases pin both), a missing declared header, an undeclared status or a request the
   specification would reject fails the build, so the specification cannot drift from the
