@@ -485,9 +485,14 @@ probes and metrics are reachable from inside the cluster but never from the publ
   container; debug locally with the `:debug-nonroot` variant of the same image, which adds a
   busybox shell and is never shipped. Distroless retires a Java image when it stops updating
   that Java version on a Debian release (`java17-debian12` is no longer updated), so
-  `java17-debian13` may stop receiving updates while the service is still on Java 17; since the
-  scan inventories the JRE, a stale base then fails the image scan, and the way out is a move to
-  a newer Java line (a `java21` image and the matching toolchain)
+  `java17-debian13` may stop receiving updates while the service is still on Java 17. A stale
+  JRE alone passes the image scan: the scan lists `temurin-17-jre`, but none of its advisory
+  data covers Adoptium's package (ADR 0004), so JRE fixes arrive only with a new digest of the
+  base, the refresh Dependabot proposes (see Continuous integration). A stale base fails the
+  scan only once another of its Debian packages has a fixable high or critical advisory, as
+  `java17-debian12` already does through `libexpat1`, `libpcre2-8-0` and `liblcms2-2` (and
+  through its JRE, Debian's own `openjdk-17` build, which Debian's advisories cover), and the
+  way out is a move to a newer Java line (a `java21` image and the matching toolchain)
 * The Compose `store` and `migrate` services are hardened: `read_only: true` with `tmpfs: [/tmp]`
   (Tomcat's base directory and the JVM's `hsperfdata` live there), `cap_drop: [ALL]`,
   `security_opt: ["no-new-privileges:true"]`, `deploy.resources.limits.memory: 512m`, which
