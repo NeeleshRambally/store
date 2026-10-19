@@ -54,9 +54,10 @@ delivered.
   whitespace after the object and a repeated property are both a 400
   (`Failed to read request`). Jackson stops reading after the first JSON value by default, so an
   order body followed by a stray `x` used to create the order, and it keeps the last value of a
-  repeated property, so `{"customerId":5,"customerId":6}` created an order for customer 6. A
-  gateway in front of the service (ADR 0002) whose parser keeps the first value would have read
-  customer 5 from that body, so whatever it checked was not what the service acted on.
+  repeated property, so `{"customerId":5,"customerId":6}` created an order for customer 6 (a
+  repetition after every field had appeared once was a 500 instead). A gateway in front of the
+  service (ADR 0002) whose parser keeps the first value would have read customer 5 from that
+  body, so whatever it checked was not what the service acted on.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
