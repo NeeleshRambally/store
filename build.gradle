@@ -80,6 +80,10 @@ bootRun {
     systemProperty 'spring.profiles.default', 'local'
 }
 
+tasks.named('bootJar') {
+    exclude 'application-local.yaml'
+}
+
 def coverageExclusions = ['**/mapper/**', '**/StoreApplication.class']
 
 tasks.named('test') {
@@ -114,6 +118,20 @@ tasks.named('jacocoTestCoverageVerification') {
     }
 }
 
+tasks.register('verifyBootJarContents') {
+    def archive = tasks.named('bootJar').flatMap { it.archiveFile }
+    inputs.file(archive)
+    doLast {
+        def leaked = new java.util.zip.ZipFile(archive.get().asFile).withCloseable { zip ->
+            zip.entries().collect { it.name }.findAll { it.endsWith('application-local.yaml') }
+        }
+        if (leaked) {
+            throw new GradleException("bootJar must not contain the local profile: ${leaked}")
+        }
+    }
+}
+
 tasks.named('check') {
     dependsOn tasks.jacocoTestCoverageVerification
+    dependsOn tasks.named('verifyBootJarContents')
 }

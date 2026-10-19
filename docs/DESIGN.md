@@ -22,8 +22,13 @@ The README's instructions still work: start PostgreSQL 16.2 on port 5433 with `a
 a `store` database, then `./gradlew bootRun`. `bootRun` sets `spring.profiles.default=local`, and
 the `local` profile (`application-local.yaml`) is the README path: the 5433 URL, `admin:admin`
 and the `seed` Liquibase context as defaults, plus formatted SQL in the logs. An explicit
-`SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces the default profile; the
-container image and CI set every variable explicitly and never use `local`.
+`SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces the default profile. The file
+stays in `src/main/resources`, so `bootRun`, `FailClosedConfigurationTest` and an IDE run that
+activates `local` find it, but the bootJar, and with it the container image, leaves it out:
+`SPRING_PROFILES_ACTIVE=local` on the jar or the image adds no defaults, and the process fails
+closed at its first connection like any environment without credentials (see Configuration).
+`verifyBootJarContents`, part of `check`, fails the build if the bootJar ever contains the
+file. CI sets every variable explicitly.
 
 The alternative is Docker Compose, the production-shaped layout: it starts PostgreSQL 16.2 on
 port 5434 (so that the README's own 5433 instance can stay up alongside the stack), runs the
@@ -153,9 +158,10 @@ context). Where a unit test and a slice cover the same class the slice carries `
 name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the tier is never a
 single letter apart.
 
-`build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Two
-exclusions apply to the report and the gate alike: `**/mapper/**` (the whole `mapper` package:
-the MapStruct-generated implementations and the hand-written default method
+`build` also checks formatting (`spotlessCheck`), checks that the bootJar does not contain the
+local profile (`verifyBootJarContents`, see Running locally) and fails below 80% line
+coverage. Two exclusions apply to the report and the gate alike: `**/mapper/**` (the whole
+`mapper` package: the MapStruct-generated implementations and the hand-written default method
 `ProductMapper.orderIds`, which `ProductMapperTest` covers but the gate does not count) and
 `StoreApplication` (the launcher); the 100% line figure quoted in the history is measured under
 them. Reports land in `build/reports`.
