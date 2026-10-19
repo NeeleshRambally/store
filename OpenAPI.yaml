@@ -859,6 +859,7 @@ components:
     CreateOrderRequest:
       title: CreateOrderRequest
       type: object
+      additionalProperties: false
       required:
         - description
         - customerId
@@ -889,6 +890,7 @@ components:
     CreateProductRequest:
       title: CreateProductRequest
       type: object
+      additionalProperties: false
       required:
         - description
       properties:
@@ -950,6 +952,7 @@ components:
     CreateCustomerRequest:
       title: CreateCustomerRequest
       type: object
+      additionalProperties: false
       required:
         - name
       properties:
