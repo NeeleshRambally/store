@@ -119,10 +119,15 @@ nothing in a response or a log line identified the request a client was asking a
   `@TransactionalEventListener(phase = AFTER_COMMIT)` method, never from the service: the
   sequence ids defer the insert to the commit, which can still fail after `create()` has
   returned, and a line for a row that was never stored would mislead whoever reads it.
+- **Latency buckets, not percentiles.** `http_server_requests_seconds` publishes cumulative
+  buckets at 11 bounds from 5 ms to 10 s plus `+Inf`, from which the monitoring system derives
+  any quantile per route and across replicas; percentiles computed in the service cannot be
+  combined across replicas, and Micrometer's generic `percentiles-histogram` would publish 69
+  buckets per series, about six times the scrape of these 12.
 
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
-  rule, the access and creation lines and the grace periods; `ActuatorIT`,
+  rule, the access and creation lines, the latency buckets and the grace periods; `ActuatorIT`,
   `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`, `AccessLogIT` and
   `CreationLogIT` pin them,
   `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`

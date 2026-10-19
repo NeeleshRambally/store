@@ -8,6 +8,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ActuatorIT extends AbstractIntegrationTest {
@@ -77,6 +79,29 @@ class ActuatorIT extends AbstractIntegrationTest {
                 .contains("jvm_memory_used_bytes")
                 .contains("http_server_requests_seconds")
                 .contains("cache_gets_total");
+    }
+
+    @Test
+    void requestLatencyIsPublishedInTheServiceLevelBuckets() {
+        assertThat(restTemplate
+                        .getForEntity(application("/order/1"), String.class)
+                        .getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+
+        String scrape = restTemplate
+                .getForEntity(management("/actuator/prometheus"), String.class)
+                .getBody();
+
+        List<String> buckets = scrape.lines()
+                .filter(line -> line.startsWith("http_server_requests_seconds_bucket{"))
+                .filter(line -> line.contains("method=\"GET\""))
+                .filter(line -> line.contains("status=\"200\""))
+                .filter(line -> line.contains("uri=\"/order/{id}\""))
+                .toList();
+        assertThat(buckets)
+                .extracting(line -> line.replaceAll(".*le=\"([^\"]+)\".*", "$1"))
+                .containsExactly(
+                        "0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1.0", "2.5", "5.0", "10.0", "+Inf");
     }
 
     @Test

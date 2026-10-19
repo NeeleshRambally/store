@@ -565,7 +565,17 @@ probes and metrics are reachable from inside the cluster but never from the publ
   that a rebuild of unchanged sources is cacheable
 * `GET :8081/actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}`
   shows the hit rate of the `orders` and `products` caches, and `http_server_requests_seconds`
-  covers the API port only (management traffic is not recorded)
+  covers the API port only (management traffic is not recorded). Its series carry cumulative
+  latency buckets at 5, 10, 25, 50, 100, 250 and 500 ms and 1, 2.5, 5 and 10 s
+  (`management.metrics.distribution.slo.http.server.requests`), so
+  `histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))`
+  gives the p99 of each route across replicas, and the share of requests within a bound is
+  read from its bucket directly. That costs 12 `_bucket` lines per series (one per bound and
+  `+Inf`; a series is one combination of method, `uri`, status, outcome and exception), about
+  1.9 KB of scrape per series: 27,233 B for the 14 series left by the smoke test and a
+  1,000-request mix on the Compose stack. `percentiles-histogram` would publish Micrometer's
+  generic bucket set instead, 69 lines per series for this timer (about 11.6 KB each).
+  `ActuatorIT` pins the bucket set
 * Every response carries an `X-Request-Id`. An inbound value is echoed when it matches
   `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The header is
   declared as required on every response in `OpenAPI.yaml` and the contract check enforces it.

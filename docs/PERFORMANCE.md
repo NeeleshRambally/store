@@ -94,6 +94,14 @@ most 100), `NESTED_ORDERS_LIMIT` (orders per customer and order ids per product,
 default 20) and the 100 products an order can carry; nothing in a response grows with the
 tables.
 
+In production the latency of each route can be read from `/actuator/prometheus`:
+`http_server_requests_seconds_bucket` has bounds from 5 ms to 10 s (`docs/DESIGN.md`,
+Operations), so the p95 or p99 of `GET /order` or `GET /customer` is a `histogram_quantile`
+over those buckets rather than an average. At 30 ms per round trip a full page now waits about
+120 ms on the network, 3 statements and the commit (one round trip more when HikariCP
+validates a connection that was idle for more than 500 ms), inside the 250 ms bound, where the
+original 11 statements waited at least 330 ms.
+
 ## Hydration
 The list endpoints originally loaded entities (the page, their to-one associations and the
 fetch-joined children) and mapped them to DTOs. Every loaded entity costs a persistence-context
