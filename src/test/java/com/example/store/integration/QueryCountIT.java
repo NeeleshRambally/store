@@ -18,6 +18,7 @@ import org.springframework.orm.jpa.support.OpenEntityManagerInViewInterceptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -325,6 +326,24 @@ class QueryCountIT extends AbstractIntegrationTest {
                 String.class);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(4L, 5L);
+    }
+
+    @Test
+    void createOrderWithOneHundredProductsUsesFourStatementsPlusTheBlockAllocation() {
+        ResponseEntity<JsonNode> response = restTemplate.postForEntity(
+                "/order",
+                Map.of(
+                        "description",
+                        "One hundred products",
+                        "customerId",
+                        2,
+                        "productIds",
+                        LongStream.rangeClosed(1, 100).boxed().toList()),
+                JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("products")).hasSize(100);
         assertThat(statistics.getPrepareStatementCount()).isBetween(4L, 5L);
     }
 }

@@ -53,7 +53,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
-| `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page (1 on the first offset page and in cursor mode, 2 beyond the end) and of `POST /order` (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
+| `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page (1 on the first offset page and in cursor mode, 2 beyond the end) and of `POST /order` with three and with 100 products (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
 
 ## Results
 
@@ -326,6 +326,15 @@ The API inserts one order per request today, so the second row matters for futur
 (an import endpoint, a migration job) rather than for the current endpoints; it is also the
 test that proves the sequence switch, because `IDENTITY` would issue three separate order
 inserts regardless of the batch size.
+
+An order with the maximum of 100 products costs the same as one with three. Its 100 join rows
+exceed `jdbc.batch_size: 50`, so Hibernate executes the one prepared join-row insert as two
+JDBC batches of 50 (its batch log, `org.hibernate.orm.jdbc.batch` at `TRACE`, shows
+`Executing JDBC batch (50 / 50)` twice for `Order.products`), and the request stays at 4
+prepared statements, 5 when it allocates the block
+(`QueryCountIT.createOrderWithOneHundredProductsUsesFourStatementsPlusTheBlockAllocation`). The
+pin does not see how many batches there are: it still passes with `jdbc.batch_size: 100`, one
+batch, and fails at 103 with `jdbc.batch_size: 1`, which prepares every join row on its own.
 
 ## Deliberately not done
 - **Caching the list pages.** The by-id reads are cached (above); the pages are not. A page
