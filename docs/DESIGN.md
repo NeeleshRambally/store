@@ -156,8 +156,9 @@ runs, in one task and in one JVM:
   201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated
   product id, a fractional `customerId` and a numeric product `description`); the 400 of a
   non-numeric id on the three by-id paths, of an unknown sort property on `/order` and
-  `/products`, of a cursor combined with a page, of a negative `after`, of a `customerId` of 0
-  and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` on
+  `/products`, of a cursor combined with a page, of a negative `after`, of a negative `page`, of
+  a `size` beyond the 32-bit range, of a `customerId` of 0 and of `customerId` combined with
+  `productId` on `/order`, and of a multi-word `name` on
   `/customer` (while a no-break space in `name` is accepted by both); the 404 of an unknown
   order, product and customer and of an order for an unknown customer; the 413 of an oversized
   body and the 415 of a `POST /order` sent as `text/plain`; and the 304 of a conditional
@@ -433,10 +434,10 @@ Every error handled by Spring MVC on the API connector is an RFC 7807 problem de
 request that never reaches the `DispatcherServlet` (one Tomcat rejects at the connector, such
 as an oversized header) and a 404 on the management connector get Boot's default error body
 (`{"timestamp","status","error","path"}`) instead. Validation failures, whether of a request
-body or of a query parameter such as `name`, `after`, `customerId` or `productId`, include an
-`errors` array with the offending field names and the constraint messages. A non-numeric path
-id is a 400 problem detail. Requests never carry an id; an unknown property is a 400 that names
-it (see the input rules below). A request body over
+body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
+`size`, include an `errors` array with the offending field names and the constraint messages. A
+non-numeric path id is a 400 problem detail. Requests never carry an id; an unknown property is
+a 400 that names it (see the input rules below). A request body over
 `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds
 65536 bytes`), judged by the declared `Content-Length` before any byte is read or by the bytes
 counted while a chunked body is read; Tomcat appends `Connection: close` to the 413 and
@@ -461,6 +462,12 @@ Request input is strict rather than coerced (ADR 0002):
   `spring.jackson.mapper.allow-coercion-of-scalars` are off, and `JacksonConfig` fails the
   number-to-text and boolean-to-text coercions those two leave on. Jackson stops at the first
   field it cannot bind, so `errors` lists one type failure even when several fields are wrong.
+- `page` below 0 and `size` below 1 are 400s naming the parameter
+  (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
+  resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default
+  20). A non-numeric value or one outside the 32-bit range is the type-mismatch 400
+  (`Failed to convert 'page' with value: 'abc'`) without `errors`. A `size` above 100 is still
+  capped at 100.
 
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is

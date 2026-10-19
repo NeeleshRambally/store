@@ -266,6 +266,17 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsANegativePage() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order?page=-1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("page");
+    }
+
+    @Test
     void filtersOrdersByCustomer() {
         Long expected = jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = 1", Long.class);
 

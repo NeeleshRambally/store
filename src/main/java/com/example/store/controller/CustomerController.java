@@ -38,11 +38,13 @@ public class CustomerController {
     public ListResponse<CustomerDTO> getAllCustomers(
             @RequestParam(required = false) @Pattern(regexp = "\\S+") String name,
             @RequestParam(required = false) @Min(0) Long after,
+            @RequestParam(required = false) @Min(0) Integer page,
+            @RequestParam(required = false) @Min(1) Integer size,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         if (after == null) {
-            Page<CustomerDTO> page =
+            Page<CustomerDTO> found =
                     name == null ? customerService.findAll(pageable) : customerService.search(name, pageable);
-            return PageResponse.from(page);
+            return PageResponse.from(found);
         }
         CursorRequest request = CursorRequest.of(after, pageable);
         return name == null ? customerService.findAfter(request) : customerService.searchAfter(name, request);

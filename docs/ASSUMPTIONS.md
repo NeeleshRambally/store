@@ -53,6 +53,13 @@ delivered.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
+- `page` below 0 and `size` below 1 are 400s naming the parameter. Spring Data's pageable
+  resolver normalises such values silently (`page=-1` became page 0, while `size=0` and a
+  non-numeric `page` fell back to the defaults) and offers no hook to reject them, so the three
+  list endpoints also declare `page` and `size` as validated `Integer` request parameters,
+  which exist only to be validated. A `size` above 100 is still capped rather than rejected
+  (ADR 0003), and a non-numeric value or one outside the 32-bit range (`format: int32` in the
+  specification) is a type-mismatch 400 without `errors`.
 - `sort` accepts only the properties listed in `OpenAPI.yaml` for each endpoint (`id` and
   `description` for orders and products, `id` and `name` for customers). Anything else, including
   nested paths such as `customer.name`, is a 400 problem detail with the detail
@@ -100,11 +107,11 @@ delivered.
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
 - Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
-  request that never reaches the `DispatcherServlet`, and a 404 on the management connector,
-  get Boot's default error body instead. Validation failures list the offending fields, for a
-  request body and for a query parameter alike (`name`, `after`), and so does a body that does
-  not bind: an unknown property or a value of the wrong JSON type is named by its path
-  (`productIds[0]`), while malformed JSON stays `Failed to read request` without `errors`;
+  request that never reaches the `DispatcherServlet`, and a 404 on the management connector, get
+  Boot's default error body instead. Validation failures list the offending fields, for a
+  request body and for a query parameter alike (`name`, `after`, `page`, `size`), and so does a
+  body that does not bind: an unknown property or a value of the wrong JSON type is named by its
+  path (`productIds[0]`), while malformed JSON stays `Failed to read request` without `errors`;
   nothing else about the failure is exposed. A whitespace-only `name` or `description` is a
   validation failure, and the specification says so (`pattern: '\S'`) so that a client built
   from it rejects the same value.
