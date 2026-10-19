@@ -57,6 +57,12 @@ Feature: Customer management
     Then the response status is 400
     And the response problem lists a validation error for "name"
 
+  Scenario: A repeated name parameter is rejected
+    When I request customers with the query "name=onne&name=onne"
+    Then the response status is 400
+    And the response problem detail is "'name' must not be repeated"
+    And the response problem lists a validation error for "name"
+
   Scenario: A name search containing a NUL character is rejected
     When I request customers with the query "name=a%00b"
     Then the response status is 400

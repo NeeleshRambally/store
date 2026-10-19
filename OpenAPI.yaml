@@ -479,11 +479,13 @@ components:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
-        contract: the only accepted properties are id and description. Any other property,
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
+        the contract: the only accepted properties are id and description. Any other property,
         including nested paths such as customer.name, is rejected with 400 (see the
         unknownSortProperty example of the BadRequest response). Ties are broken by id in the
-        same direction as the last sort property, so page boundaries are deterministic.
+        same direction as the last sort property, so page boundaries are deterministic. Repeat
+        the parameter to sort by more than one property; it is the only query parameter that may
+        be repeated.
       schema:
         type: string
         example: description,desc
@@ -491,11 +493,13 @@ components:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
-        contract: the only accepted properties are id and name. Any other property, including
-        nested paths such as orders.description, is rejected with 400 (see the
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
+        the contract: the only accepted properties are id and name. Any other property,
+        including nested paths such as orders.description, is rejected with 400 (see the
         unknownSortProperty example of the BadRequest response). Ties are broken by id in the
-        same direction as the last sort property, so page boundaries are deterministic.
+        same direction as the last sort property, so page boundaries are deterministic. Repeat
+        the parameter to sort by more than one property; it is the only query parameter that may
+        be repeated.
       schema:
         type: string
         example: name,asc
@@ -503,11 +507,12 @@ components:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is the
-        contract: the only accepted properties are id and description. Any other property is
-        rejected with 400 (see the unknownSortProperty example of the BadRequest response).
-        Ties are broken by id in the same direction as the last sort property, so page
-        boundaries are deterministic.
+        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
+        the contract: the only accepted properties are id and description. Any other property is
+        rejected with 400 (see the unknownSortProperty example of the BadRequest response). Ties
+        are broken by id in the same direction as the last sort property, so page boundaries are
+        deterministic. Repeat the parameter to sort by more than one property; it is the only
+        query parameter that may be repeated.
       schema:
         type: string
         example: description,asc
@@ -564,8 +569,9 @@ components:
           $ref: '#/components/headers/RequestId'
     BadRequest:
       description: >-
-        The request is malformed, fails validation, sorts by a property outside the documented
-        list, combines after with page or sort, or combines customerId with productId
+        The request is malformed, fails validation, repeats a query parameter other than sort,
+        sorts by a property outside the documented list, combines after with page or sort, or
+        combines customerId with productId
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'

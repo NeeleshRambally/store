@@ -44,6 +44,19 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void aRepeatedParameterIsNamedAsTheHandlerDeclaresIt() throws Exception {
+        mockMvc.perform(get("/named").param("customer-id", "1", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("'customer-id' must not be repeated"))
+                .andExpect(jsonPath("$.errors[0].field").value("customer-id"));
+    }
+
+    @Test
+    void aRepeatedParameterOnAPathWithoutAHandlerMethodIsStillANotFound() throws Exception {
+        mockMvc.perform(get("/nowhere").param("name", "a", "b")).andExpect(status().isNotFound());
+    }
+
+    @Test
     void malformedJsonIsStillABadRequest() throws Exception {
         mockMvc.perform(post("/named").contentType(MediaType.APPLICATION_JSON).content("{\"broken\":"))
                 .andExpect(status().isBadRequest())

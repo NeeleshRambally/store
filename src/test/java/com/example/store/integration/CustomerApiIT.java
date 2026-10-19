@@ -264,6 +264,19 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsARepeatedName() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/customer?name=onne&name=onne", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("'name' must not be repeated");
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("name");
+    }
+
+    @Test
     void capsPageSizeAtOneHundred() {
         ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
                 "/customer?size=1000", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
