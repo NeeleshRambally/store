@@ -81,7 +81,10 @@ nothing in a response or a log line identified the request a client was asking a
   the GC cost). SerialGC is explicit because G1, whose own native structures take 59 to 63
   MiB, overran the limit at a 35% heap under the same load, and the JVM picks G1 by itself
   once a deployment grants 1792 MiB or more and two CPUs. The limit must be raised, and the
-  share re-measured, when `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or the cache grows.
+  share re-measured, when `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or the cache grows. Both
+  services rotate their `json-file` log at 3 files of 10 MB (`max-size: "10m"`,
+  `max-file: "3"`), because Docker's default keeps the whole output of a container in one
+  growing file and the access log adds a line per request.
   `postgres` is left unhardened because `initdb` runs as root and needs `CHOWN` and `SETUID`
   to hand the data directory to its own user; a production database is a managed service or
   its own hardening exercise, not this stack's. The tmpfs is not decoration: with it removed
@@ -142,9 +145,10 @@ nothing in a response or a log line identified the request a client was asking a
   capabilities, no privilege escalation and a memory limit without swap, sized to the
   footprint measured under load for the shipped thread, pool and cache settings. The smoke
   test's `compose` mode asserts it with `docker inspect` on both services (`ReadonlyRootfs`,
-  `Tmpfs` with `/tmp`, `CapDrop` with `ALL`, `SecurityOpt` with `no-new-privileges:true`, and
-  `Memory` and `MemorySwap` both 536870912, so no swap), so a pipeline run fails when a
-  setting is removed, and a new limit needs the asserted value changed with it. The stack
+  `Tmpfs` with `/tmp`, `CapDrop` with `ALL`, `SecurityOpt` with `no-new-privileges:true`,
+  `Memory` and `MemorySwap` both 536870912, so no swap, and `LogConfig` with `json-file`,
+  `max-file` 3 and `max-size` 10m), so a pipeline run fails when a setting is removed, and a
+  new limit needs the asserted value changed with it. The stack
   publishes its ports on 127.0.0.1 unless `STORE_BIND_ADDRESS` names another address, and the
   same mode checks every published port's `HostIp` against that value (the GitLab smoke job
   sets `0.0.0.0` to reach the ports of its dind daemon).
