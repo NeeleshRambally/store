@@ -6,8 +6,13 @@ info:
     A simple store. Every error handled by the service's Spring MVC layer on the API port is an
     RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
     below. A method that is not listed on a path (for example DELETE /order/1, which the
-    pipeline's smoke test sends) answers a 405 problem detail; OpenAPI cannot declare a response
-    for a method the contract does not define, so that case is stated here instead.
+    pipeline's smoke test sends) answers a 405 problem detail with the code method_not_allowed;
+    OpenAPI cannot declare a response for a method the contract does not define, so that case is
+    stated here instead. Every problem detail carries a code, the stable identity of the problem
+    (the values are listed in the ProblemDetail schema; type stays about:blank): branch on the
+    code, never on the detail text, which may change. A client must accept a code it does not
+    know and handle it by the status, because adding a code is a minor version of this contract;
+    removing or renaming one is a major version.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
@@ -589,6 +594,7 @@ components:
                 status: 400
                 detail: 'Unknown sort property: customer.name'
                 instance: /order
+                code: invalid_sort
             cursorWithPage:
               summary: GET /order?after=0&page=1
               value:
@@ -597,6 +603,7 @@ components:
                 status: 400
                 detail: after cannot be combined with page or sort
                 instance: /order
+                code: invalid_cursor
             combinedFilters:
               summary: GET /order?customerId=1&productId=2
               value:
@@ -605,6 +612,7 @@ components:
                 status: 400
                 detail: customerId and productId cannot be combined
                 instance: /order
+                code: conflicting_filters
     NotFound:
       description: >-
         The referenced resource does not exist: the id in the path, or the customer or a
@@ -625,6 +633,7 @@ components:
                 status: 404
                 detail: Order with id 999999 was not found
                 instance: /order/999999
+                code: not_found
             unknownProduct:
               summary: GET /products/999999
               value:
@@ -633,6 +642,7 @@ components:
                 status: 404
                 detail: Product with id 999999 was not found
                 instance: /products/999999
+                code: not_found
             unknownCustomer:
               summary: GET /customer/999999
               value:
@@ -641,6 +651,7 @@ components:
                 status: 404
                 detail: Customer with id 999999 was not found
                 instance: /customer/999999
+                code: not_found
     Conflict:
       description: >-
         The write conflicts with existing data (a database constraint rejected it); the body
@@ -658,6 +669,7 @@ components:
             status: 409
             detail: The request conflicts with existing data
             instance: /order
+            code: conflict
     PayloadTooLarge:
       description: >-
         The request body exceeds the configured bound (65536 bytes by default, REQUEST_MAX_BODY_BYTES),
@@ -676,6 +688,7 @@ components:
             status: 413
             detail: Request body exceeds 65536 bytes
             instance: /order
+            code: payload_too_large
     UnsupportedMediaType:
       description: >-
         The request body is not application/json (the Content-Type is missing or names another
@@ -693,6 +706,7 @@ components:
             status: 415
             detail: Content-Type 'text/plain;charset=UTF-8' is not supported.
             instance: /order
+            code: unsupported_media_type
     ServerError:
       description: >-
         An unexpected failure; the body is a problem detail without internal details (no
@@ -709,6 +723,7 @@ components:
             title: Internal Server Error
             status: 500
             instance: /order
+            code: internal_error
     ServiceUnavailable:
       description: >-
         The service cannot obtain a database connection: the pool's connection-timeout (5 s)
@@ -729,15 +744,19 @@ components:
             status: 503
             detail: The service cannot obtain a database connection
             instance: /order
+            code: service_unavailable
   schemas:
     ProblemDetail:
       title: ProblemDetail
       type: object
       description: RFC 7807 problem details
+      required:
+        - code
       properties:
         type:
           type: string
           format: uri
+          description: Always about:blank; the problem is identified by code
         title:
           type: string
         status:
@@ -746,12 +765,47 @@ components:
           type: string
         instance:
           type: string
+        code:
+          type: string
+          description: >-
+            Stable identity of the problem. validation_failed: a body field or a query parameter
+            breaks a constraint, or a body value has the wrong JSON type or lies beyond the
+            64-bit range (errors names each). invalid_parameter: a path or query parameter that
+            cannot be converted (GET /order/abc, page=abc), or a query parameter other than sort
+            that is repeated (errors names it). unknown_property: the body carries a property the
+            request does not define (errors names it). malformed_body: the body is not one JSON
+            object that can be read (malformed JSON, another JSON value, a repeated property,
+            content after the object). invalid_sort: a sort property outside the documented
+            list. invalid_cursor: after combined with page or sort (see the after parameter).
+            conflicting_filters: customerId combined with productId. not_found: the resource, or
+            a customer or product named in the body, does not exist. conflict: the write
+            conflicts with existing data. payload_too_large, unsupported_media_type,
+            not_acceptable and method_not_allowed: the conditions their statuses name.
+            service_unavailable: no database connection could be obtained. internal_error: an
+            unexpected failure. A client must accept a code that is not listed here (see the
+            description of the API).
+          enum:
+            - validation_failed
+            - invalid_parameter
+            - unknown_property
+            - malformed_body
+            - invalid_sort
+            - invalid_cursor
+            - conflicting_filters
+            - not_found
+            - conflict
+            - payload_too_large
+            - unsupported_media_type
+            - not_acceptable
+            - method_not_allowed
+            - service_unavailable
+            - internal_error
         errors:
           type: array
           description: >-
-            Present on validation failures and on a body that does not bind (an unknown
-            property, a value of the wrong JSON type or an integer outside the 64-bit range),
-            naming each field by its path
+            Present with the codes validation_failed and unknown_property, and with the
+            invalid_parameter of a repeated query parameter, naming each field by its path
+            (productIds[0]) or the query parameter by its name
           items:
             type: object
             properties:
