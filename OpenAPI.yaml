@@ -776,12 +776,15 @@ components:
       description: >-
         The database cannot serve the request; retry after the Retry-After delay. The code
         service_unavailable means that no database connection could be obtained (the pool's
-        connection-timeout of 5 s elapsed, or the database is unreachable) or that the
-        connection was lost during the request, including a database that sent nothing for the
-        socket timeout (15 s by default); database_timeout means that a statement was cancelled,
-        normally at the statement timeout (10 s by default) or at the deadline of the
-        transaction timeout (15 s by default), or that the transaction had passed that deadline.
-        On a POST the write may or may not have been applied (the POSTs are not idempotent)
+        connection-timeout of 5 s elapsed, or the database is unreachable), that the connection
+        was lost during the request, including a database that sent nothing for the socket
+        timeout (15 s by default), or that the transaction timeout (15 s by default) had expired
+        before a read by id or a POST's insert; a POST whose session the database terminates
+        while its insert is committed, as a database restart does, is answered with a 500
+        instead. database_timeout means that a statement was cancelled, normally at the
+        statement timeout (10 s by default) or at the deadline of the transaction timeout, or
+        that a query came after that deadline. On a POST the write may or may not have been
+        applied (the POSTs are not idempotent)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -846,10 +849,13 @@ components:
             a customer or product named in the body, does not exist. conflict: the write
             conflicts with existing data. payload_too_large, unsupported_media_type,
             not_acceptable and method_not_allowed: the conditions their statuses name.
-            service_unavailable: no database connection could be obtained, or the connection was
-            lost during the request. database_timeout: a database statement was cancelled or the
-            transaction ran past its deadline. internal_error: an unexpected failure. A client
-            must accept a code that is not listed here (see the description of the API).
+            service_unavailable: no database connection could be obtained, the connection was
+            lost during the request (a POST whose session the database terminates while its
+            insert is committed is an internal_error instead), or the transaction's deadline had
+            passed before a read by id or a POST's insert. database_timeout: a database
+            statement was cancelled, or a query came after the transaction's deadline.
+            internal_error: an unexpected failure. A client must accept a code that is not
+            listed here (see the description of the API).
           enum:
             - validation_failed
             - invalid_parameter

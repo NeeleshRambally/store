@@ -133,6 +133,16 @@ little, since HikariCP already checks a connection idle in the pool every 2 minu
 (`keepaliveTime`) and replaces every connection after 30 minutes (`maxLifetime`), so the socket
 timeout, not keepalive, is the bound on a stall.
 
+A `POST /order` whose insert waited for the same lock at its commit was bounded the same way: it
+answered a 503 `database_timeout` after 10.03 to 10.19 s, and with `postgres` paused a 503
+`service_unavailable` after 17.03 to 17.07 s, in three runs each. The stall ended a second
+sooner than the `GET`'s because Hibernate floors the time left that it gives its own statements
+to whole seconds: with the statement and socket timeouts raised, the transaction timeout
+cancelled the insert after 14.03 and 14.16 s, a second before the `GET`'s 15.05 s, so the cancel
+still in flight when the socket timeout fired had started that much earlier. Restarting
+`postgres` while the insert waited ended the request after 0.42 to 0.49 s with a 500 instead,
+the loss at commit that Operations describes.
+
 The statement timeout travels in the connection's startup `options` rather than in
 `connection-init-sql` or an `ALTER ROLE ... SET`: it is then the session's reset value rather
 than a `SET` that `RESET ALL` undoes, it applies to whichever role the service connects as, and
@@ -235,8 +245,9 @@ runs, in one task and in one JVM:
   does not list cannot be declared per operation, because the method is absent from the
   contract; `info.description` states it and the smoke test sends `DELETE /order/1` to check it.
   The 409, 500 and 503 bodies are also validated synthetically against `POST /order` and
-  `GET /order`, because no real request reaches the 409 or the 500 (there are no unique
-  constraints and no injected failure) and the real 503s are captured on a `GET` only. The
+  `GET /order`, because no request the contract check sends reaches the 409 or the 500 (there
+  are no unique constraints, and `DatabaseFailureIT` produces the one real 500, a `POST` whose
+  session is terminated at its commit) and the real 503s are captured on a `GET` only. The
   specification declares `X-Request-Id` as a required header on every response, `Location` on
   every 201, `Retry-After` on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a
   `GET`, and the validator enforces declared headers, so a response that drops one fails the
@@ -555,8 +566,8 @@ the wording of `detail`:
 | `payload_too_large` | 413 | A body over `REQUEST_MAX_BODY_BYTES` |
 | `unsupported_media_type` | 415 | A body that is not `application/json` |
 | `internal_error` | 500 | An unexpected failure (no `detail`) |
-| `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT` (with `Retry-After`) |
-| `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a transaction past that deadline (with `Retry-After`) |
+| `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT`, except a session that the database terminates while a `POST`'s insert is flushed at commit, which is `internal_error`; also a by-id read or a `POST`'s insert attempted after the `TX_TIMEOUT` deadline (with `Retry-After`; see Operations) |
+| `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a query issued after that deadline (with `Retry-After`) |
 
 `GlobalExceptionHandler` sets the code in each of its own handlers. The problem details that
 Spring MVC's `ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler,
@@ -736,43 +747,61 @@ probes and metrics are reachable from inside the cluster but never from the publ
   directly with a 256-character text, which the request validation would have refused, so
   that only the column rejects it)
 * A database that cannot be reached, loses the connection or does not answer in time is a 503
-  with `Retry-After: 5`, not a 500, and the problem's `code` tells the cases apart. A request
-  that cannot obtain a connection within the pool's 5 s `connection-timeout` (the pool
-  exhausted, or the database down) reaches the handler as `CannotCreateTransactionException` and
-  is answered `service_unavailable` (`The service cannot obtain a database connection`). A
-  statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets (see
-  Configuration) reaches it as `QueryTimeoutException`, and a transaction whose deadline passed
-  before a query as `TransactionTimedOutException`; both are answered `database_timeout`
-  (`The database did not answer in time`). A connection lost inside the transaction (the backend
-  terminated, the server restarted, a stall cut by `DB_SOCKET_TIMEOUT`) arrives differently:
-  HikariCP marks the connection broken, the rollback then fails on it, and Spring throws the
-  rollback's exception in place of the original, a `JpaSystemException` caused by Hibernate's
-  `TransactionException` (`Unable to rollback against JDBC Connection`), which is answered
-  `service_unavailable` as well. Before that, Spring's `TransactionInterceptor` logs the
-  original exception at ERROR as `Application exception overridden by rollback exception`, with
-  the statement's SQL (bind values appear as `?`) and the driver message; the line stays,
-  because silencing that logger would also hide a failed rollback that replaces a genuine
-  application error. The handler tests the cause's type, never its message, so a transaction
-  deadline that passed before one of Hibernate's own statements (a by-id read, the flush of a
-  `POST`), which surfaces as the same type (`transaction timeout expired`), is answered
-  `service_unavailable` too, and every other `JpaSystemException` stays a 500. The advice
-  imports two Hibernate types for this reason: Spring's exceptions expose neither the name of a
-  violated constraint (`ConstraintViolationException`, which the 409's log line needs) nor
-  whether a `JpaSystemException` came from a failed rollback (`TransactionException`). The
-  handler logs each 503 at WARN by the class name of its most specific cause only (the driver
-  message can carry hosts or SQL; the full cause is at DEBUG), while Hibernate's
-  `SqlExceptionHelper` still logs the SQL state of a failed statement at WARN and the driver
-  message at ERROR (`ERROR: canceling statement due to statement timeout`). The ingress
-  therefore sees a 503 with `Retry-After` for each timed-out acquisition, and readiness reports
-  `db` DOWN while no connection can be obtained, but only after the same 5 s
-  `connection-timeout`, so probe timeouts must exceed it; a replica is then also taken out of
-  rotation. All of them recover without a restart once the database answers. A 503 on a `POST`
-  does not guarantee the write was not applied: the `POST`s are not idempotent
-  (`docs/ASSUMPTIONS.md`, "API contract"). `DatabaseFailureIT` produces two of them on a real
-  request: it holds a lock on `order` from a second connection, waits until the backend of a
+  with `Retry-After: 5`, not a 500, except for one loss at a `POST`'s commit (below), and the
+  problem's `code` tells the cases apart. A request that cannot obtain a connection within the
+  pool's 5 s `connection-timeout` (the pool exhausted, or the database down) reaches the handler
+  as `CannotCreateTransactionException` and is answered `service_unavailable`
+  (`The service cannot obtain a database connection`). A statement cancelled at
+  `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets (see Configuration) reaches it as
+  `QueryTimeoutException`, and a transaction whose deadline passed before a query as
+  `TransactionTimedOutException`; both are answered `database_timeout`
+  (`The database did not answer in time`). A connection lost during one of the reads the service
+  method runs (every statement of a `GET`, and a `POST`'s reads of the customer and the
+  products), whether its backend is terminated, the server restarts or `DB_SOCKET_TIMEOUT` cuts
+  a stall, arrives differently: HikariCP marks the connection broken, the rollback then fails on
+  it, and Spring throws the rollback's exception in place of the original, a
+  `JpaSystemException` caused by Hibernate's `TransactionException`
+  (`Unable to rollback against JDBC Connection`), which is answered `service_unavailable` as
+  well. Before that, Spring's `TransactionInterceptor` logs the original exception at ERROR as
+  `Application exception overridden by rollback exception`, with the statement's SQL (bind
+  values appear as `?`) and the driver message; the line stays, because silencing that logger
+  would also hide a failed rollback that replaces a genuine application error. A `POST`'s
+  inserts run later: with sequence ids Hibernate flushes them at commit, after the service
+  method has returned, so a failure there is the commit's own exception, which no failed
+  rollback replaces, and how it is answered depends on the SQL state. A statement cancelled
+  during that flush is the `database_timeout` above, and a stall cut there by
+  `DB_SOCKET_TIMEOUT` (`08006`) is Hibernate's `JDBCConnectionException`, which Spring
+  translates to `DataAccessResourceFailureException`, answered `service_unavailable`. A session
+  that the database terminates during the flush (`57P01`, which `pg_terminate_backend` sends, as
+  does the fast shutdown of a server restart) is a `GenericJDBCException`
+  (`could not execute batch`), so the commit throws a `JpaSystemException` that no failed
+  rollback caused, and the request is a 500 `internal_error`, logged by the handler at ERROR as
+  `Unhandled exception` with the full exception. The handler tests the cause's type, never its
+  message, so a transaction deadline that passed before one of Hibernate's own statements (a
+  by-id read, the flush of a `POST`), which surfaces as a `TransactionException` too
+  (`transaction timeout expired`), is answered `service_unavailable` as well, and every other
+  `JpaSystemException` stays a 500. The advice imports two Hibernate types for this reason:
+  Spring's exceptions expose neither the name of a violated constraint
+  (`ConstraintViolationException`, which the 409's log line needs) nor whether a
+  `JpaSystemException` came from a failed rollback (`TransactionException`). The handler logs
+  each 503 at WARN by the class name of its most specific cause only (the driver message can
+  carry hosts or SQL; the full cause is at DEBUG), while Hibernate's `SqlExceptionHelper` still
+  logs the SQL state of a failed statement at WARN and the driver message at ERROR
+  (`ERROR: canceling statement due to statement timeout`); for a `POST`'s batched insert that
+  message, like the exception in the 500's ERROR line, quotes the statement with its values,
+  which PgJDBC writes into the message of a failed batch entry. The ingress therefore sees a 503
+  with `Retry-After` for each timed-out acquisition, and readiness reports `db` DOWN while no
+  connection can be obtained, but only after the same 5 s `connection-timeout`, so probe
+  timeouts must exceed it; a replica is then also taken out of rotation. All of them recover
+  without a restart once the database answers. Neither a 503 nor that 500 on a `POST` tells the
+  client whether the write was applied: the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`,
+  "API contract"). `DatabaseFailureIT` produces three of these answers on a real request: it
+  holds a lock on `order` from a second connection, waits until the backend of a
   `GET /order?size=5` waits for it, and cancels it (`database_timeout`, with nothing logged by
-  the transaction interceptor) or terminates it (`service_unavailable`, with the ERROR line).
-  `GlobalExceptionHandlerTests` pins each type's status, code and header,
+  the transaction interceptor) or terminates it (`service_unavailable`, with the ERROR line),
+  and it terminates the backend of a `POST /order` whose insert waits for that lock at commit (a
+  500 with the handler's ERROR line, nothing logged by the transaction interceptor and no order
+  written). `GlobalExceptionHandlerTests` pins each type's status, code and header,
   `GlobalExceptionHandlerLogTest` the WARN lines of an unobtainable connection and of a timeout,
   and `OpenApiContractIT` the declaration on every operation and the two real responses against
   the `ServiceUnavailable` examples
