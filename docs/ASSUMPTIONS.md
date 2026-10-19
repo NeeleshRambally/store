@@ -299,8 +299,10 @@ delivered.
   squash-merged once CI is green. Branch rulesets are not available on a private repository of
   the free GitHub plan, so the gate is enforced by process rather than by the platform.
 - The container image runs as a non-root user on a distroless Java 17 runtime with no shell,
-  package manager or `curl`, with layered jar extraction for efficient caching; its JRE is a
-  Debian package that the image scan inventories (ADR 0004, `docs/DESIGN.md` Operations).
+  package manager or `curl`, with layered jar extraction for efficient caching; its JRE is the
+  Debian package `temurin-17-jre`, which the scan and the SBOM list but no advisory data the
+  scan uses covers, so JRE fixes arrive only with a new digest of the base image, which
+  Dependabot proposes (ADR 0004, `docs/DESIGN.md` Operations).
   Liveness and readiness probes are exposed for Kubernetes on the management port (8081), which
   the ingress does not publish; readiness includes the database indicator (ADR 0008). No Docker
   `HEALTHCHECK` is declared: Kubernetes ignores one and runs its own probes against
