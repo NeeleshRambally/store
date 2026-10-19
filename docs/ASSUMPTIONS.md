@@ -180,6 +180,40 @@ delivered.
   plural because the task names it so. The inconsistency is acknowledged rather than silently
   changed.
 
+## Contract version and client migration
+- `OpenAPI.yaml` versions the contract itself in `info.version`, independently of the version
+  of the service build (`1.0.0-SNAPSHOT` in `build.gradle`): a change that can break an
+  existing client raises the major version, an addition such as a new problem `code` the minor
+  version. The specification said `1.0` from the delivered version on while the API changed
+  under it; it is now `2.0.0`, and a client written against 1.0, or against the service while
+  its specification still said 1.0, has to change in these ways:
+  - The three list endpoints answer with a page envelope (`content`, `page`, `size`,
+    `totalElements`, `totalPages`), or with a cursor envelope (`content`, `size`, `nextCursor`)
+    when `after` is sent, instead of a bare array; a page holds 20 elements by default and at
+    most 100. `GET /products` is such a list of products with an `int64` id rather than a
+    single object.
+  - The `orders` of a customer and of a product are the newest `NESTED_ORDERS_LIMIT` (20 by
+    default) next to `orderCount`, the total, rather than every order;
+    `GET /order?customerId=` and `GET /order?productId=` list them all. `Order.customer`
+    carries `name` where 1.0 declared a `description`.
+  - A request body never carries an `id`: it is an unknown property, and an unknown property is
+    a 400 that names it. `POST /order` takes `description`, `customerId` and a required
+    `productIds` of 1 to 100 distinct ids, where 1.0 declared `id` and `descriptioon` and the
+    code bound a nested `customer` object.
+  - JSON types are bound exactly: a string or a fraction for an id (`"5"`, `5.7`, `5.0`) and a
+    number or a boolean where a string is expected are 400s naming the field instead of being
+    coerced, and so is a control character in a request string.
+  - `page` below 0 and `size` below 1 are 400s naming the parameter instead of being normalised
+    to page 0 and size 20 (a `size` above 100 is still capped); a query parameter other than
+    `sort` that is repeated is a 400 instead of being read as its first value (a repeated
+    `name` as the values joined by commas); and a C0 control character or DEL in `name` is a
+    400, where a NUL was a 409 and the other controls were searched for.
+  - Every error that Spring MVC handles on the API port is an RFC 7807 problem detail with a
+    `code` to branch on, where 1.0 declared no error response; a client must accept a code it
+    does not know.
+  - An `Accept` header that admits neither `application/json` nor `application/problem+json` is
+    a 406, decided before the request is processed.
+
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
   single statement (entity graph on `findById`), cached for `CACHE_TTL` since an order never
@@ -256,7 +290,8 @@ delivered.
   changeset runs only under the `seed` context, so in a production database an order that
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such
   orders need a one-off data migration (a backfill changeset or an operator script) before the
-  invariant can be asserted on historical data.
+  invariant can be asserted on historical data. The `Order.products` description in
+  `OpenAPI.yaml` says so, which is why the schema declares no `minItems`.
 - `GET /products` and `GET /products/{id}` return the product with `orderCount` and the
   ascending ids of the newest `NESTED_ORDERS_LIMIT` orders that contain it (20 by default); the
   complete list is `GET /order?productId=`. The list is paged like every other list endpoint and

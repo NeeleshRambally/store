@@ -402,7 +402,9 @@ the substring search, and each whitelisted sort column together with `id`
 (`idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id`).
 
 ## API
-The contract is documented in `OpenAPI.yaml`.
+The contract is documented in `OpenAPI.yaml`, version 2.0.0; the version is the contract's own,
+not the build's, and `docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what
+a client written against the delivered 1.0 has to change.
 
 | Method | Path | Description |
 |--------|------|-------------|
