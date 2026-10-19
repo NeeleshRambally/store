@@ -15,10 +15,11 @@ web test and provide no actual protection.
 - The controls that are shipped now and do not depend on identity: strict request DTOs with
   validation (JSON types are bound exactly, so a string or a fraction is never coerced into an
   id, nor a number or a boolean into text, and request text carries no control characters),
-  rejection of unknown JSON properties, validated query parameters that are rejected when
-  repeated, problem-detail responses that never leak exception messages or stack traces,
-  actuator exposure limited to `health`, `info` and `prometheus` with health details hidden,
-  and a container image that runs as a non-root user.
+  rejection of unknown JSON properties and of a property repeated in a body (the gateway and
+  the service could otherwise read different values from it), validated query parameters that
+  are rejected when repeated, problem-detail responses that never leak exception messages or
+  stack traces, actuator exposure limited to `health`, `info` and `prometheus` with health
+  details hidden, and a container image that runs as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`).
 - Request bodies are bounded by the service itself, not only by the gateway: a body over
