@@ -14,6 +14,7 @@ import com.example.store.repository.view.CustomerRow;
 
 import lombok.RequiredArgsConstructor;
 
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,11 +36,15 @@ public class CustomerServiceImpl implements CustomerService {
     private final CustomerRepository customerRepository;
     private final CustomerMapper customerMapper;
     private final NestedOrdersProperties nestedOrders;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
     public CustomerDTO create(CreateCustomerRequest request) {
-        return customerMapper.customerToCustomerDTO(customerRepository.save(customerMapper.toEntity(request)));
+        CustomerDTO created =
+                customerMapper.customerToCustomerDTO(customerRepository.save(customerMapper.toEntity(request)));
+        eventPublisher.publishEvent(new CustomerCreatedEvent(created.id()));
+        return created;
     }
 
     @Override

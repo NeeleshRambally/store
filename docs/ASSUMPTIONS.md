@@ -473,6 +473,9 @@ delivered.
   duration; never the query string or the body), so a quoted id always finds at least that
   line. An ingress usually logs requests too; the line stays on by default because the service
   cannot tell whether one does, and `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` removes it.
+  A created order, customer or product is logged once, by id, after its transaction commits,
+  so the write a request made is in the log beside its access line and never one that was
+  rolled back.
   Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages for GitLab (with
