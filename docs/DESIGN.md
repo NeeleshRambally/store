@@ -310,8 +310,8 @@ independently of `validateDistributionUrl`: the image build stage downloads on e
 runners and developers verify on their first download and reuse the cache afterwards, and adding
 the key invalidated no existing cache.
 
-`.gitlab-ci.yml` is provided for portability and has not been executed in this project; there is
-no GitLab project for this repository. It follows the same stages: `build` runs
+`.gitlab-ci.yml` is provided for portability; there is no GitLab project for this repository.
+It follows the same stages: `build` runs
 `./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule while
 `generator-test`, in the same stage on `node:22-alpine`, runs `npm ci && npm test` in `utils`
 (the GitLab `build` image has no Node), `package` builds the
@@ -324,8 +324,16 @@ installs by default on GitHub) on the tarball with the same severity, `--ignore-
 retags it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both after `package`,
 `smoke` and `scan` have passed; as on GitHub, the registry name is touched only by the publish
 step, so a merge-request pipeline of a project without a container registry still builds, smokes
-and scans.
-Eight details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
+and scans. Each job carries the limit of the GitHub job it stands for as a `timeout`: 20 minutes
+for `build` and `generator-test`, 30 for `package`, `smoke`, `scan` and `publish`. Every job is
+`interruptible` (set under `default:`) except `publish`, and the default-branch entry of
+`workflow: rules` sets `auto_cancel: on_new_commit: none`, so a new commit cancels a running
+merge-request pipeline and never a default-branch one, as GitHub's `cancel-in-progress` does for
+pull requests only. `publish` holds the `registry-publish` resource group, so two pipelines never
+push at the same time, and `package` labels the image with `org.opencontainers.image.revision`
+(`$CI_COMMIT_SHA`), `org.opencontainers.image.source` (`$CI_PROJECT_URL`) and
+`org.opencontainers.image.created` (`$CI_PIPELINE_CREATED_AT`).
+Thirteen details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
 pipeline runs for merge requests and for the default branch, so a push to a feature branch
 without a merge request runs no pipeline on either platform. The published tag is
 `<short sha>` where GitHub's `docker/metadata-action` writes `sha-<short sha>`. The SBOM is
@@ -348,7 +356,25 @@ connections, so the variable is required there; the script reads the same variab
 `0.0.0.0`. The binding opens the ports on the dind container's interfaces, not on the runner
 host's. On a Kubernetes executor the job and its services share the pod's network namespace,
 so loopback would work and the variable is optional; `0.0.0.0` there also opens the ports on
-the pod IP for the length of the job, which is acceptable for an ephemeral job.
+the pod IP for the length of the job, which is acceptable for an ephemeral job. `package` has no
+layer cache: each job starts an empty `docker:27-dind` daemon, so every image build pulls the
+base images and runs the Gradle warm-up again, where GitHub's build restores its layers from the
+`gha` cache (`cache-from` and `cache-to`). The file has never run: it passes GitLab's CI JSON
+schema (`app/assets/javascripts/editor/schema/ci.json` in `gitlab-org/gitlab`), which checks
+keyword names and value types but not what the jobs do, while the GitHub workflow runs on every
+pull request and every push to `main`. The resource group's default `unordered` process mode
+only keeps two publishes apart, so an older pipeline can still push `:latest` after a newer one;
+publishing in pipeline order needs the group's `process_mode` set to `oldest_first` once through
+the API (`PUT /projects/:id/resource_groups/registry-publish`), which the file cannot express,
+while GitHub runs the `main` runs of its concurrency group one at a time and replaces a waiting
+run with a newer one, so the newest merge pushes last. `package` sets three OCI labels where
+`docker/metadata-action` sets eight (`title`, `description`, `url`, `source`, `version`,
+`created`, `revision` and `licenses`), so a GitLab image has no title, description, url, version
+or licenses label, and its `created` is the pipeline's creation time where GitHub's is the time
+of the metadata step. Cancelling a superseded merge-request pipeline also depends on the
+project's "Auto-cancel redundant pipelines" setting, which the file cannot set (with it off,
+`interruptible` has no effect), where GitHub's `concurrency` block decides it in the workflow
+alone.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or

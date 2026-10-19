@@ -330,9 +330,11 @@ delivered.
   `smoke` and `scan` in parallel after `package`, where GitHub runs them one after the other
   in a single job; the gate before a publish is the same) on a local `store:ci` tag that is
   retagged for the registry only in `publish`, but it is provided for portability and has not
-  been executed in this project. Both jobs of the live pipeline carry a timeout (20 and 30
-  minutes, several times a measured run) so a hung pull or daemon cannot hold a runner for
-  hours.
+  been executed in this project: it passes GitLab's CI JSON schema, and `docs/DESIGN.md` lists
+  the details in which it differs from the GitHub workflow. Every job of both
+  pipelines carries a timeout (20 or 30 minutes, several times a measured run) so a hung pull
+  or daemon cannot hold a runner for hours, and a new commit cancels a running pull-request or
+  merge-request run but never a running one on `main`.
 - The supply chain of the pipeline is pinned: every GitHub Action to the commit SHA of its
   release with the version in a comment, the `Dockerfile` base images and the Compose
   `postgres:16.2` image by digest, and the Gradle distribution by `distributionSha256Sum` in

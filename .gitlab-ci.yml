@@ -2,6 +2,11 @@ workflow:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      auto_cancel:
+        on_new_commit: none
+
+default:
+  interruptible: true
 
 stages:
   - build
@@ -19,6 +24,7 @@ variables:
 
 build:
   stage: build
+  timeout: 20m
   image: eclipse-temurin:17-jdk-jammy
   services:
     - docker:27-dind
@@ -38,6 +44,7 @@ build:
 
 generator-test:
   stage: build
+  timeout: 20m
   image: node:22-alpine
   script:
     - cd utils
@@ -46,11 +53,17 @@ generator-test:
 
 package:
   stage: package
+  timeout: 30m
   image: docker:27
   services:
     - docker:27-dind
   script:
-    - docker build -t store:ci .
+    - >-
+      docker build
+      --label "org.opencontainers.image.revision=$CI_COMMIT_SHA"
+      --label "org.opencontainers.image.source=$CI_PROJECT_URL"
+      --label "org.opencontainers.image.created=$CI_PIPELINE_CREATED_AT"
+      -t store:ci .
     - docker save store:ci -o image.tar
   artifacts:
     paths:
@@ -59,6 +72,7 @@ package:
 
 smoke:
   stage: smoke
+  timeout: 30m
   image: docker:27
   services:
     - docker:27-dind
@@ -77,6 +91,7 @@ smoke:
 
 scan:
   stage: scan
+  timeout: 30m
   image:
     name: aquasec/trivy:0.70.0
     entrypoint: [""]
@@ -91,6 +106,9 @@ scan:
 
 publish:
   stage: publish
+  timeout: 30m
+  interruptible: false
+  resource_group: registry-publish
   image: docker:27
   services:
     - docker:27-dind
