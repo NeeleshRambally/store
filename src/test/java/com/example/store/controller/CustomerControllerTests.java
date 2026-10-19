@@ -1,5 +1,6 @@
 package com.example.store.controller;
 
+import com.example.store.config.JacksonConfig;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
@@ -12,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -34,6 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(CustomerController.class)
+@Import(JacksonConfig.class)
 class CustomerControllerTests {
 
     @Autowired
@@ -79,6 +82,19 @@ class CustomerControllerTests {
                 .andExpect(jsonPath("$.detail").value("Unknown property 'id'"))
                 .andExpect(jsonPath("$.errors[0].field").value("id"))
                 .andExpect(jsonPath("$.errors[0].message").value("is not a known property"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsABooleanName() throws Exception {
+        when(customerService.create(any())).thenReturn(new CustomerDTO(1L, "true", List.of(), 0));
+
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a string"));
         verify(customerService, never()).create(any());
     }
 

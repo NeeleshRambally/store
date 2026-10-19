@@ -13,9 +13,11 @@ web test and provide no actual protection.
 - This phase does not add Spring Security. The service is assumed to run behind an
   authenticating gateway or service mesh that terminates TLS and authenticates callers.
 - The controls that are shipped now and do not depend on identity: strict request DTOs with
-  validation, rejection of unknown JSON properties, problem-detail responses that never leak
-  exception messages or stack traces, actuator exposure limited to `health`, `info` and
-  `prometheus` with health details hidden, and a container image that runs as a non-root user.
+  validation (JSON types are bound exactly, so a string or a fraction is never coerced into an
+  id, nor a number or a boolean into text), rejection of unknown JSON properties,
+  problem-detail responses that never leak exception messages or stack traces, actuator
+  exposure limited to `health`, `info` and `prometheus` with health details hidden, and a
+  container image that runs as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`).
 - Request bodies are bounded by the service itself, not only by the gateway: a body over

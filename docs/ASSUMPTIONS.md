@@ -41,6 +41,15 @@ delivered.
   overwriting data (which the original code allowed), and the problem detail names the
   property (`Unknown property 'id'`, with `id` in `errors`) so the client also learns what to
   drop.
+- Request bodies are bound strictly. Jackson's defaults coerce a JSON string or a fraction into
+  an id (`"customerId": "5"` or `5.7` created an order for customer 5) and a number or a
+  boolean into a string (`"description": 123` was stored as `123`), so a malformed request
+  acted on values the client never sent; each is now a 400 naming the field. Three consequences
+  are deliberate and change what an existing client sees: `5.0` and `5e0` are rejected although
+  they are integral, because an id is a JSON integer; an empty string for an id is
+  `must be an integer` rather than `must not be null`; and Jackson stops at the first field it
+  cannot bind, so `errors` lists one type failure even when several fields are wrong (a body
+  that binds still has every Bean Validation failure listed).
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
