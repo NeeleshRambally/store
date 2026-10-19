@@ -303,8 +303,23 @@ delivered.
   the contract declares it as required on every response and the contract check enforces it.
   Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
-- GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages in the same order
-  for GitLab but is provided for portability and has not been executed in this project.
+- GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages for GitLab (with
+  `smoke` and `scan` in parallel after `package`, where GitHub runs them one after the other
+  in a single job; the gate before a publish is the same) on a local `store:ci` tag that is
+  retagged for the registry only in `publish`, but it is provided for portability and has not
+  been executed in this project. Both jobs of the live pipeline carry a timeout (20 and 30
+  minutes, several times a measured run) so a hung pull or daemon cannot hold a runner for
+  hours.
+- The supply chain of the pipeline is pinned: every GitHub Action to the commit SHA of its
+  release with the version in a comment, the `Dockerfile` base images and the Compose
+  `postgres:16.2` image by digest, and the Gradle distribution by `distributionSha256Sum` in
+  the wrapper, so the image build stage verifies what it downloads. Dependabot moves each pin
+  in its weekly pull request (the `github-actions`, `docker` and `docker-compose` ecosystems),
+  which is the review path, because its security alerts do not cover SHA-pinned actions.
+- The Compose `store` and `migrate` services run with a read-only root, a tmpfs `/tmp`, no
+  capabilities, `no-new-privileges` and a 512 MiB memory limit measured against the service's
+  footprint after the smoke run; `postgres` stays unhardened because `initdb` needs root
+  capabilities on first start (ADR 0008).
 - The image is scanned on every pull request and a critical or high fixable vulnerability
   blocks the merge; unfixable findings are reported but do not block, because there is nothing
   a code change can do about them. The delivered image runs on Spring Boot 3.5.16, the last
@@ -321,8 +336,9 @@ delivered.
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
-  explicitly; GitHub Actions majors and the other image updates arrive automatically in grouped
-  pull requests because the pipeline validates them.
+  explicitly; GitHub Actions majors (as SHA moves with a rewritten version comment) and the
+  other image updates arrive automatically in grouped pull requests because the pipeline
+  validates them.
 - A scan finding that cannot be fixed on the supported line is handled as a documented,
   time-boxed exception (ADR 0004), never by lowering the gate.
 

@@ -89,6 +89,14 @@ if [ "$mode" = compose ]; then
 
   expect_denied "store_app create table" 'permission denied for schema public' 'create table smoke_probe(id int)'
   expect_denied "store_app update customer" 'permission denied for table customer' 'update customer set name = name where id = 1'
+
+  expect "DELETE /order/1" 405 -X DELETE -H "X-Request-Id: smoke-$$" "$app/order/1"
+  contains "DELETE /order/1" '"status":405'
+  if ! docker compose logs --no-log-prefix store | grep -F "\"requestId\":\"smoke-$$\"" | grep -Fq '"service":{"name":"store","version":"'; then
+    docker compose logs --no-log-prefix --tail 20 store > "$body" 2>&1
+    fail "store logs: no ECS JSON line carrying requestId smoke-$$ with service name and version"
+  fi
+  echo "ok   store logs -> ECS JSON line with requestId smoke-$$"
 fi
 
 echo "Smoke test passed"

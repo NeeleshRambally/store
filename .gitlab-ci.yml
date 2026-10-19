@@ -50,8 +50,8 @@ package:
   services:
     - docker:27-dind
   script:
-    - docker build -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" .
-    - docker save "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" -o image.tar
+    - docker build -t store:ci .
+    - docker save store:ci -o image.tar
   artifacts:
     paths:
       - image.tar
@@ -64,7 +64,7 @@ smoke:
     - docker:27-dind
   needs: [package]
   variables:
-    STORE_IMAGE: "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    STORE_IMAGE: store:ci
   script:
     - apk add --no-cache curl
     - docker load -i image.tar
@@ -97,7 +97,8 @@ publish:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - docker load -i image.tar
-    - docker tag "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA" "$CI_REGISTRY_IMAGE:latest"
+    - docker tag store:ci "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker tag store:ci "$CI_REGISTRY_IMAGE:latest"
     - printf '%s' "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
     - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
     - docker push "$CI_REGISTRY_IMAGE:latest"
