@@ -68,8 +68,8 @@ included (see Configuration). More data can be generated with the script describ
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL |
-| `DB_USERNAME` | none (`admin` under the `local` profile) | Database user; without it the first connection fails and the process exits |
-| `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password; without it the first connection fails and the process exits |
+| `DB_USERNAME` | none (`admin` under the `local` profile) | Database user, from the variable or the file `/run/secrets/DB_USERNAME` (see below); without either the first connection fails and the process exits |
+| `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password, from the variable or the file `/run/secrets/DB_PASSWORD`; without either the first connection fails and the process exits |
 | `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`connection-timeout`), then the request is a 503 |
@@ -89,6 +89,26 @@ threads to roughly the pool times the share of request time spent outside the da
 (serialisation, compression, the ETag hash); every endpoint spends most of its time in the
 database, so the defaults leave the threads well above the pool and the 5 s wait is the real
 bound. `FailClosedConfigurationTest` pins the resolved default and the variable.
+
+The two credentials can also be files. `application.yaml` imports
+`optional:configtree:/run/secrets/`, which turns each file in that directory into a property
+named after the file, with its trailing newline trimmed, so `/run/secrets/DB_USERNAME` and
+`/run/secrets/DB_PASSWORD` resolve the two placeholders. A variable of the same name still wins
+over its file, and where the directory does not exist (the tests, `bootRun`, the Compose stack
+as shipped) the import adds nothing. Compose mounts a secret under the variable's name:
+```yaml
+services:
+  store:
+    secrets:
+      - source: db_password
+        target: DB_PASSWORD
+secrets:
+  db_password:
+    file: ./db_password.txt
+```
+Name the files after the variables, never after the properties: a file named
+`spring.datasource.password` replaces the property itself, so it silently overrides
+`DB_PASSWORD`, and only `SPRING_DATASOURCE_PASSWORD` would still beat it.
 
 A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
 binds the unresolved placeholder as a literal, so the process fails at Liquibase's first

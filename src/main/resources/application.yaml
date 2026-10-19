@@ -1,6 +1,8 @@
 spring:
   application:
     name: store
+  config:
+    import: optional:configtree:/run/secrets/
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5433/store}
     username: ${DB_USERNAME}
