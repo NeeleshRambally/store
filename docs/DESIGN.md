@@ -241,11 +241,13 @@ repository cannot be reached, fails the warm-up with `Could not resolve all file
 configuration ...`; Gradle's `dependencies` report would not serve here, because it resolves
 metadata only and exits 0 when a library is missing, printing `FAILED` in the report.
 
-Both jobs carry a `timeout-minutes`: 20 for `build` and 30 for `docker`. Measured runs take
-2.0 to 2.5 minutes for `build` and 2.7 to 5.5 minutes for `docker`, and a `docker` run with a
-cold build cache can reach about 10 minutes, so the limits leave a wide margin over a normal
-run while a hung Testcontainers pull, Gradle daemon or image pull releases the runner within
-half an hour instead of GitHub's six-hour default.
+Both jobs carry a `timeout-minutes`: 20 for `build` and 30 for `docker`. The last 15 green
+push runs on `main`, from run 39172594999 (2026-10-18) to run 39289734712 (2026-10-19), took
+2.0 to 3.0 minutes for `build` and 2.4 to 5.7 minutes for `docker` from job start to job
+completion (read from the jobs API on 2026-10-19), and a `docker` run with a cold build cache
+can reach about 10 minutes, so the limits leave a wide margin over a normal run while a hung
+Testcontainers pull, Gradle daemon or image pull releases the runner within half an hour
+instead of GitHub's six-hour default.
 
 Pulling the delivered image: the package is private because the repository is, so log in with
 a token that carries `read:packages`, then pull it and run it on the network of the Compose
