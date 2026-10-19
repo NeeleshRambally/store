@@ -451,8 +451,11 @@ Request input is strict rather than coerced (ADR 0002):
   `Unknown property 'id'` and an `errors` entry `is not a known property`; a value of the wrong
   JSON type is a 400 with the detail `Invalid request content.` and an `errors` entry that names
   the field by its path (`productIds[0]`) with `must be an integer`, `must be a string` or
-  `must be an array`. Malformed JSON and a body that is not a JSON object are a 400 with the
-  detail `Failed to read request` and no `errors`.
+  `must be an array`. Malformed JSON, a body that is not a JSON object and anything but
+  whitespace after the object are a 400 with the detail `Failed to read request` and no
+  `errors`. `spring.jackson.deserialization.fail-on-trailing-tokens` is on because Jackson
+  otherwise stops reading after the first JSON value: an order body followed by a stray `x`
+  used to create the order.
 - JSON types are bound exactly. A JSON string, a fraction or an exponent where an integer is
   expected (`"5"`, `""`, `5.7`, `5.0`, `5e0`) and a number or a boolean where a string is
   expected are such type failures, where Jackson's defaults would coerce them

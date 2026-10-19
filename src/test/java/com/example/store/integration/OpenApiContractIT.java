@@ -347,6 +347,22 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void contentAfterAnOrderBodyMatchesTheContract() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        Interaction interaction = exchange(
+                HttpMethod.POST,
+                "/order",
+                Map.of(),
+                headers,
+                "{\"description\":\"Contract trailing\",\"customerId\":5,\"productIds\":[1]} x");
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("detail").asText()).isEqualTo("Failed to read request");
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void oversizedOrderMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "a".repeat(70_000), "customerId", 1, "productIds", List.of(1)));
