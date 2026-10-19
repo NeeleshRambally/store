@@ -219,8 +219,9 @@ them. Reports land in `build/reports`.
    8080 and 200 for the liveness probe on 8081; then, in `compose` mode, the `migrate`
    container's exit code must be 0, `docker inspect` must show the `migrate` and `store`
    containers with a read-only root filesystem, a tmpfs on `/tmp`, `CapDrop` `ALL`,
-   `no-new-privileges:true` and `Memory` and `MemorySwap` both 536870912 (512 MiB without
-   swap) and every port `postgres` and `store` publish bound to `STORE_BIND_ADDRESS`
+   `no-new-privileges:true`, `Memory` and `MemorySwap` both 536870912 (512 MiB without swap)
+   and a `json-file` log rotated at 3 files of 10 MB, and every port `postgres` and `store`
+   publish bound to `STORE_BIND_ADDRESS`
    (127.0.0.1 when unset), `store_app` must be able to `select count(*) from customer`
    through `psql` in the database container, and `create table` and `update customer` as
    `store_app` must fail with `permission denied for schema public` and `permission denied for
@@ -724,8 +725,14 @@ probes and metrics are reachable from inside the cluster but never from the publ
   since each busy thread adds its stack and buffers outside the heap. `postgres` stays unhardened
   because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its
   own user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
-  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0. ADR 0008
-  records the settings. The smoke test's `compose` mode reads each of them back with
+  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0. Both
+  services also rotate their log (`logging` with the `json-file` driver, `max-size: "10m"` and
+  `max-file: "3"`): Docker's default `json-file` driver keeps a container's whole output in one
+  file that grows without bound, and the access line makes that output grow with every
+  request. A line takes about 520 B in that file, the JSON line escaped inside Docker's own
+  record (computed from the record format), so the three files of 10 MB hold roughly the last
+  60,000 lines of each container. ADR 0008 records the settings. The smoke test's `compose`
+  mode reads each of them back with
   `docker inspect` on both containers, so a pipeline run fails when one is removed, and a new
   limit needs the asserted 536870912 changed with it
 

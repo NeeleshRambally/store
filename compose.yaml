@@ -39,6 +39,11 @@ services:
         limits:
           memory: 512m
     memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     restart: "no"
 
   store:
@@ -66,6 +71,11 @@ services:
         limits:
           memory: 512m
     memswap_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     stop_grace_period: 30s
     ports:
       - "${STORE_BIND_ADDRESS:-127.0.0.1}:8080:8080"
