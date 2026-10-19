@@ -149,32 +149,31 @@ runs, in one task and in one JVM:
 * controller slice tests (`@WebMvcTest`),
 * integration tests against a real PostgreSQL started by Testcontainers,
 * Cucumber acceptance scenarios in `src/test/resources/features`,
-* an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are
-  validated against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real
-  requests cover the 200 offset and cursor pages of the three list endpoints and the three by-id
-  reads, and the customer-filtered page and the product-filtered cursor page of `/order`; the
-  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated
-  product id, a fractional `customerId` and a numeric product `description`); the 400 of a
-  non-numeric id on the three by-id paths, of an unknown sort property on `/order` and
-  `/products`, of a cursor combined with a page, of a negative `after`, of a negative `page`, of
-  a `size` beyond the 32-bit range, of a `customerId` of 0 and of `customerId` combined with
-  `productId` on `/order`, and of a multi-word `name` and of a `name` containing a NUL on
-  `/customer` (while a no-break space, and a word containing U+0085 and U+2028, are accepted by
-  both); the 404 of an unknown order, product and customer and of an order for an unknown
-  customer; the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
-  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+* an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are validated
+  against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real requests cover
+  the 200 offset and cursor pages of the three list endpoints and the three by-id reads, and the
+  customer-filtered page and the product-filtered cursor page of `/order`; the 201 and the
+  rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated product id, a
+  fractional `customerId`, a numeric product `description` and a NUL in each request string);
+  the 400 of a non-numeric id on the three by-id paths, of an unknown sort property on `/order`
+  and `/products`, of a cursor combined with a page, of a negative `after`, of a negative
+  `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of `customerId`
+  combined with `productId` on `/order`, and of a multi-word `name` and of a `name` containing a
+  NUL on `/customer` (while a no-break space, and a word containing U+0085 and U+2028, are
+  accepted by both); the 404 of an unknown order, product and customer and of an order for an
+  unknown customer; the 413 of an oversized body and the 415 of a `POST /order` sent as
+  `text/plain`; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
   `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
   be declared per operation, because the method is absent from the contract; `info.description`
   states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
   are validated synthetically against `POST /order` and `GET /order`, because no real request
-  reaches them
-  (there are no unique constraints and no injected failure). The specification declares
-  `X-Request-Id` as a required header on every response, `Location` on every 201 and
+  reaches them (there are no unique constraints and no injected failure). The specification
+  declares `X-Request-Id` as a required header on every response, `Location` on every 201 and
   `Retry-After` on every 503, and the validator enforces declared headers, so a response that
   drops one fails the check (the synthetic 409 and 500 cases had to carry the id before they
-  passed again, and a synthetic 503 without `Retry-After` is rejected, which a case pins). An undocumented
-  response field, a missing required field at any depth, a missing declared header, an
-  undeclared status or a request the specification would reject fails the build, so the
+  passed again, and a synthetic 503 without `Retry-After` is rejected, which a case pins). An
+  undocumented response field, a missing required field at any depth, a missing declared header,
+  an undeclared status or a request the specification would reject fails the build, so the
   specification cannot drift from the implementation.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
@@ -462,6 +461,10 @@ Request input is strict rather than coerced (ADR 0002):
   `spring.jackson.mapper.allow-coercion-of-scalars` are off, and `JacksonConfig` fails the
   number-to-text and boolean-to-text coercions those two leave on. Jackson stops at the first
   field it cannot bind, so `errors` lists one type failure even when several fields are wrong.
+- The strings of a request body (`description`, `name`) are single-line text: a control
+  character (U+0000 to U+001F or U+007F, so also a tab or a line break) is a 400 naming the
+  field (`must not contain control characters`). A NUL used to reach the insert, which
+  PostgreSQL rejects in text, and came back as a 409; a tab or a line break was stored.
 - `name` on `GET /customer` is a single word: ASCII whitespace, a C0 control character or DEL
   (U+0000 to U+001F, U+007F) is a 400 naming `name`
   (`must be a single word without whitespace or control characters`); a NUL used to reach

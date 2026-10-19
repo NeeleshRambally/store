@@ -73,6 +73,19 @@ class CustomerControllerTests {
     }
 
     @Test
+    void createRejectsAControlCharacterInTheName() throws Exception {
+        when(customerService.create(any())).thenReturn(new CustomerDTO(1L, "Ada Lovelace", List.of(), 0));
+
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Ada\\u0000Lovelace\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not contain control characters"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
     void createRejectsUnknownProperties() throws Exception {
         mockMvc.perform(post("/customer")
                         .contentType(MediaType.APPLICATION_JSON)
