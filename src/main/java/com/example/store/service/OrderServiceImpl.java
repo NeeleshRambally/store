@@ -56,8 +56,7 @@ public class OrderServiceImpl implements OrderService {
         Customer customer = customerRepository
                 .findById(request.customerId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer", request.customerId()));
-        Order order = orderMapper.toEntity(request);
-        order.setCustomer(customer);
+        Order order = new Order(request.description(), customer);
         List<Product> products = loadProducts(request.productIds());
         order.getProducts().addAll(products);
         OrderDTO created = orderMapper.orderToOrderDTO(orderRepository.save(order));

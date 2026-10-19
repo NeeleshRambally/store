@@ -14,9 +14,9 @@ import jakarta.persistence.OrderBy;
 import jakarta.persistence.SequenceGenerator;
 import jakarta.persistence.Table;
 
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,8 +24,7 @@ import java.util.List;
 @Entity
 @Table(name = "\"order\"")
 @Getter
-@Setter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Order {
 
     @Id
@@ -47,6 +46,11 @@ public class Order {
             inverseJoinColumns = @JoinColumn(name = "product_id"))
     @OrderBy("id")
     private List<Product> products = new ArrayList<>();
+
+    public Order(String description, Customer customer) {
+        this.description = description;
+        this.customer = customer;
+    }
 
     @Override
     public boolean equals(Object other) {

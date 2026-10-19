@@ -47,9 +47,7 @@ class InsertBatchingIT extends AbstractIntegrationTest {
             Customer customer = customerRepository.getReferenceById(1L);
             List<Order> orders = LongStream.rangeClosed(1, 3)
                     .mapToObj(i -> {
-                        Order order = new Order();
-                        order.setDescription("Batched order " + i);
-                        order.setCustomer(customer);
+                        Order order = new Order("Batched order " + i, customer);
                         LongStream.rangeClosed(1, 3)
                                 .mapToObj(productRepository::getReferenceById)
                                 .forEach(order.getProducts()::add);

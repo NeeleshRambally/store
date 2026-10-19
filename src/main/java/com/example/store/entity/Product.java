@@ -9,17 +9,16 @@ import jakarta.persistence.Id;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.SequenceGenerator;
 
+import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 import java.util.HashSet;
 import java.util.Set;
 
 @Entity
 @Getter
-@Setter
-@NoArgsConstructor
+@NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Product {
 
     @Id
@@ -32,6 +31,10 @@ public class Product {
 
     @ManyToMany(mappedBy = "products", fetch = FetchType.LAZY)
     private Set<Order> orders = new HashSet<>();
+
+    public Product(String description) {
+        this.description = description;
+    }
 
     @Override
     public boolean equals(Object other) {
