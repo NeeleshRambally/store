@@ -36,10 +36,12 @@ sequence to `max(id) + 1` with `setval(..., false)`.
 - Changeset 6 is applied before the new application version starts, by the migration job of
   ADR 0008: the Compose `migrate` service, or a Kubernetes `Job` or init container ahead of the
   deployment, runs the image with the schema owner's credentials, and the Compose `store`
-  service runs no Liquibase (`SPRING_LIQUIBASE_ENABLED=false`); only `./gradlew bootRun`, the
-  development path, still migrates in-process at start-up. The old version, still serving while
-  the job runs, tolerates the larger increment: an `IDENTITY` insert uses the default of the
-  column, which just skips 49 ids per row.
+  service runs no Liquibase (`SPRING_LIQUIBASE_ENABLED=false`). Liquibase stays enabled by
+  default, so `./gradlew bootRun` and the image run on its own (`docs/DESIGN.md`, Continuous
+  integration) still migrate in-process at start-up, and a rollout that runs the image that way
+  applies changeset 6 on its first new instance. The old version, which keeps serving after
+  changeset 6 is applied, tolerates the larger increment: an `IDENTITY` insert uses the default
+  of the column, which just skips 49 ids per row.
 - Rolling back changeset 6 requires rolling back the application first; the new version refuses
   to start against a sequence with increment 1.
 - Anything that writes explicit ids (seed data, imports) must keep them below the current
