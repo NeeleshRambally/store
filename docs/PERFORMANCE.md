@@ -53,7 +53,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
-| `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page in both paging modes (1) and of `POST /order` (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
+| `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page (1 on the first offset page and in cursor mode, 2 beyond the end) and of `POST /order` (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
 
 ## Results
 
@@ -69,12 +69,16 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | 3,763 B / 949 B, 21,315 B / 4,088 B, 3,399 B / 956 B (`after=0`, default size) |
 | `GET /order?customerId=`, `GET /order?productId=` | n/a | 3 (2 with `after`) | n/a | 3,836 B / 740 B (`customerId=1`, default page); 18,095 B / 2,132 B with `size=100` |
 
-3 is the full-page cost and the maximum: Spring Data skips the count query when the first page
-is shorter than `size`, and the services skip the child query when the page is empty, so a
-short first page costs 2 (`QueryCountIT.shortFirstPageSkipsTheCountQuery`, `name=onne&size=5`
-on the seed) and an empty page 1 (`emptyOrderPageFilteredByCustomerUsesOneStatement`,
-`/order?customerId=999999`); a cursor page is 2, or 1 when empty
-(`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`, `customerId=999999&after=0`). Every
+3 is the full-page cost and the maximum: Spring Data skips the count query when a page is
+shorter than `size` (the total is then the offset plus the rows on the page), except for an
+empty page after the first, whose total it cannot derive, and the services skip the child query
+when the page is empty. So a short first page costs 2
+(`QueryCountIT.shortFirstPageSkipsTheCountQuery`, `name=onne&size=5` on the seed), an empty
+first page 1 (`emptyOrderPageFilteredByCustomerUsesOneStatement`, `/order?customerId=999999`)
+and an empty page beyond the end 2, the page and the count
+(`emptyOrderPageBeyondTheEndUsesTwoStatements`, `/order?customerId=1&page=50&size=20`); a cursor
+page is 2, or 1 when empty (`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`,
+`customerId=999999&after=0`). Every
 figure in the payload column was measured on 2026-10-19 against the Compose stack built from
 `main` at `5215fba` (`docker compose up -d --build`, the seeded database), with
 `curl -s -o /dev/null -w '%{size_download}'` on the exact path of each row, once as is and once

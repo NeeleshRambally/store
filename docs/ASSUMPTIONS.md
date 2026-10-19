@@ -257,8 +257,9 @@ delivered.
   request, not rows. Each list endpoint now performs at most 3 statements regardless of page
   size (the page, its count and the children of exactly that page, for orders, customers and
   products alike), and an integration test pins those numbers. 3 is the full-page cost: the
-  count is skipped when the first page is shorter than `size` and the child query when the page
-  is empty (a short first page of a name search is 2 and an empty filtered page 1, both pinned).
+  count is skipped when a page is shorter than `size`, unless it is an empty page after the
+  first, and the child query when the page is empty (a short first page of a name search is 2,
+  an empty first filtered page 1 and an empty filtered page beyond the end 2, all pinned).
   In cursor mode (`after`) the
   count query is always skipped and the page query seeks to `id > after` instead of discarding
   `OFFSET` rows, so a cursor page is 2 statements whatever its depth (also pinned), 1 when it is
