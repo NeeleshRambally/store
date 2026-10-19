@@ -1,5 +1,9 @@
 package com.example.store.exception;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
+import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
+
 import lombok.extern.slf4j.Slf4j;
 
 import org.hibernate.exception.ConstraintViolationException;
@@ -22,6 +26,8 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 
 // Maps every error to an RFC 7807 ProblemDetail without leaking internal details.
@@ -83,7 +89,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                     .headers(headers)
                     .body(ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, tooLarge.getMessage()));
         }
-        return super.handleHttpMessageNotReadable(ex, headers, status, request);
+        return ResponseEntity.status(status).headers(headers).body(unreadableBody(ex.getCause(), status));
     }
 
     @Override
@@ -93,7 +99,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         problem.setProperty(
                 "errors",
                 ex.getFieldErrors().stream()
-                        .map(error -> Map.of("field", error.getField(), "message", error.getDefaultMessage()))
+                        .map(error -> fieldError(error.getField(), error.getDefaultMessage()))
                         .toList());
         return ResponseEntity.status(status).headers(headers).body(problem);
     }
@@ -106,13 +112,58 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "errors",
                 ex.getParameterValidationResults().stream()
                         .flatMap(result -> result.getResolvableErrors().stream()
-                                .map(error -> Map.of(
-                                        "field",
-                                        parameterName(result.getMethodParameter()),
-                                        "message",
-                                        error.getDefaultMessage())))
+                                .map(error -> fieldError(
+                                        parameterName(result.getMethodParameter()), error.getDefaultMessage())))
                         .toList());
         return ResponseEntity.status(status).headers(headers).body(problem);
+    }
+
+    private static ProblemDetail unreadableBody(Throwable cause, HttpStatusCode status) {
+        if (cause instanceof UnrecognizedPropertyException unknown) {
+            return fieldProblem(
+                    status,
+                    "Unknown property '" + unknown.getPropertyName() + "'",
+                    path(unknown),
+                    "is not a known property");
+        }
+        if (cause instanceof MismatchedInputException mismatch
+                && !mismatch.getPath().isEmpty()) {
+            return fieldProblem(
+                    status, "Invalid request content.", path(mismatch), expectation(mismatch.getTargetType()));
+        }
+        return ProblemDetail.forStatusAndDetail(status, "Failed to read request");
+    }
+
+    private static ProblemDetail fieldProblem(HttpStatusCode status, String detail, String field, String message) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+        problem.setProperty("errors", List.of(fieldError(field, message)));
+        return problem;
+    }
+
+    private static Map<String, String> fieldError(String field, String message) {
+        return Map.of("field", field, "message", message);
+    }
+
+    private static String path(JsonMappingException ex) {
+        StringBuilder path = new StringBuilder();
+        for (JsonMappingException.Reference reference : ex.getPath()) {
+            if (reference.getFieldName() == null) {
+                path.append('[').append(reference.getIndex()).append(']');
+            } else {
+                path.append(path.isEmpty() ? "" : ".").append(reference.getFieldName());
+            }
+        }
+        return path.toString();
+    }
+
+    private static String expectation(Class<?> targetType) {
+        if (Number.class.isAssignableFrom(targetType)) {
+            return "must be an integer";
+        }
+        if (Collection.class.isAssignableFrom(targetType)) {
+            return "must be an array";
+        }
+        return "must be a string";
     }
 
     private static String parameterName(MethodParameter parameter) {

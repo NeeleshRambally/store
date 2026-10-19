@@ -19,6 +19,8 @@ Feature: Customer management
       {"id": 5, "name": "Overwrite"}
       """
     Then the response status is 400
+    And the response problem detail is "Unknown property 'id'"
+    And the response problem lists a validation error for "id"
     And customer 5 is still named "Jean Daniel"
 
   Scenario: Browse customers page by page

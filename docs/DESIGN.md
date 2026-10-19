@@ -432,9 +432,10 @@ Every error handled by Spring MVC on the API connector is an RFC 7807 problem de
 request that never reaches the `DispatcherServlet` (one Tomcat rejects at the connector, such
 as an oversized header) and a 404 on the management connector get Boot's default error body
 (`{"timestamp","status","error","path"}`) instead. Validation failures, whether of a request
-body or of a query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
-names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
-never carry an id; unknown properties are rejected with 400. A request body over
+body or of a query parameter such as `name`, `after`, `customerId` or `productId`, include an
+`errors` array with the offending field names and the constraint messages. A non-numeric path
+id is a 400 problem detail. Requests never carry an id; an unknown property is a 400 that names
+it (see the input rules below). A request body over
 `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds
 65536 bytes`), judged by the declared `Content-Length` before any byte is read or by the bytes
 counted while a chunked body is read; Tomcat appends `Connection: close` to the 413 and
@@ -443,6 +444,15 @@ products, each id at most once: a repeated id is a 400 naming `productIds`, not 
 de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
 the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
 so that a gateway rewriting the host stays correct, which RFC 9110 permits.
+
+Request input is strict rather than coerced (ADR 0002):
+- A body that does not bind names the field. An unknown property is a 400 with the detail
+  `Unknown property 'id'` and an `errors` entry `is not a known property`; a value of the wrong
+  JSON type is a 400 with the detail `Invalid request content.` and an `errors` entry that names
+  the field by its path (`productIds[0]`) with `must be an integer`, `must be a string` or
+  `must be an array`. Malformed JSON and a body that is not a JSON object are a 400 with the
+  detail `Failed to read request` and no `errors`.
+
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
 unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the

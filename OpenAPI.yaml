@@ -734,7 +734,9 @@ components:
           type: string
         errors:
           type: array
-          description: Present on validation failures
+          description: >-
+            Present on validation failures and on a body that does not bind (an unknown
+            property, or a value of the wrong JSON type), naming each field by its path
           items:
             type: object
             properties:
