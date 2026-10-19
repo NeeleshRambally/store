@@ -81,7 +81,7 @@ Feature: Customer management
   Scenario: Name search with no match returns an empty page
     When I search customers by name "zzzzzzzz"
     Then the response status is 200
-    And the page reports page 0, size 20 and at least 0 total elements
+    And the page reports page 0, size 20 and 0 total elements
     And the page is empty
 
   Scenario: A blank name search is rejected
