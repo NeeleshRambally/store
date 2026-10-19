@@ -163,28 +163,32 @@ runs, in one task and in one JVM:
   `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
   and U+2028, are accepted by both); the 404 of an unknown order, product and customer and of
   an order for an unknown customer; the 406 of each of the nine operations for
-  `Accept: application/xml` (the body of `GET /order/1` also equals the documented `orderAsXml`
-  example); the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
-  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`, `GET /customer/{id}`
-  and `GET /customer` page. A 405 for a method a path does not list cannot be declared per
-  operation, because the method is absent from the contract; `info.description` states it and
-  the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies are validated
-  synthetically against `POST /order` and `GET /order`, because no real request reaches them
-  (there are no unique constraints and no injected failure). The specification declares
-  `X-Request-Id` as a required header on every response, `Location` on every 201, `Retry-After`
-  on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a `GET`, and the validator
-  enforces declared headers, so a response that drops one fails the check (the synthetic 409 and
-  500 cases had to carry the id before they passed again, and a synthetic 503 without
-  `Retry-After` and a synthetic 200 and 304 without `ETag` and `Cache-Control` are rejected,
-  which cases pin). The three request schemas declare `additionalProperties: false`
+  `Accept: application/xml`; the 413 of an oversized body and the 415 of a `POST /order` sent
+  as `text/plain`; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+  `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
+  be declared per operation, because the method is absent from the contract; `info.description`
+  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
+  are validated synthetically against `POST /order` and `GET /order`, because no real request
+  reaches them (there are no unique constraints and no injected failure). The specification
+  declares `X-Request-Id` as a required header on every response, `Location` on every 201,
+  `Retry-After` on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a `GET`, and
+  the validator enforces declared headers, so a response that drops one fails the check (the
+  synthetic 409 and 500 cases had to carry the id before they passed again, and a synthetic 503
+  without `Retry-After` and a synthetic 200 and 304 without `ETag` and `Cache-Control` are
+  rejected, which cases pin). The three request schemas declare `additionalProperties: false`
   themselves: the validator injects that rule into every schema that does not declare it, so it
   would reject a body carrying an `id` either way, while a client built from the specification
   would not; a second validator that injects nothing checks that each `POST` schema rejects such
-  a body on its own. An undocumented response field, a missing required field at any depth, a
-  problem detail without a `code` or with one the specification does not list (two synthetic
-  cases pin both), a missing declared header, an undeclared status or a request the
-  specification would reject fails the build, so the specification cannot drift from the
-  implementation.
+  a body on its own. The bodies of the named examples (`unknownSortProperty`, `cursorWithPage`
+  and `combinedFilters` of the 400, `unknownOrder`, `unknownProduct` and `unknownCustomer` of
+  the 404 and `orderAsXml` of the 406) are compared with the responses to the requests their
+  summaries name. In each interaction a case validates, an undocumented response field, a
+  missing required field at any depth, a problem detail without a `code` or with one the
+  specification does not list (two synthetic cases pin both), a missing declared header, an
+  undeclared status, or a request that the server serves and the specification would reject
+  fails the build. What the check proves is bounded by those interactions: a status, a header
+  or a field that only another request would produce can still differ from the specification,
+  which is why each new response arrives with a contract case of its own.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,

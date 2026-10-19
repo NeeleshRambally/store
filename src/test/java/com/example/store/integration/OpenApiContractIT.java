@@ -553,6 +553,7 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json()).isEqualTo(example("BadRequest", "cursorWithPage"));
+        assertConforms(interaction);
     }
 
     @ParameterizedTest(name = "{0} {1}")
@@ -757,6 +758,14 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void unknownCustomerResponseEqualsTheDocumentedExample() {
+        Interaction interaction = get("/customer/999999", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(interaction.json()).isEqualTo(example("NotFound", "unknownCustomer"));
+    }
+
+    @Test
     void nonNumericCustomerIdMatchesTheContract() {
         Interaction interaction = get("/customer/abc", Map.of());
 
@@ -817,6 +826,14 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
         assertConforms(interaction);
+    }
+
+    @Test
+    void unknownProductResponseEqualsTheDocumentedExample() {
+        Interaction interaction = get("/products/999999", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(interaction.json()).isEqualTo(example("NotFound", "unknownProduct"));
     }
 
     @Test
