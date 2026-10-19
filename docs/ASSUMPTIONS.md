@@ -248,14 +248,15 @@ delivered.
   (page, count, orders of the page), 2 when the first page is shorter than `size` because
   Spring Data skips the count, and 2 in cursor mode; `QueryCountIT` pins all three.
 - The predicate is `lower(name) LIKE lower('%...%')` (wildcards in the word escaped) and a
-  trigram GIN index on `lower(name)` (`pg_trgm`) makes it indexable: on the 100-row seed the
-  planner still prefers a sequential scan, on 200,000 rows it uses the index unaided, and a
-  pattern shorter than three characters always falls back to a scan because `pg_trgm` extracts
-  no trigrams from it (`docs/PERFORMANCE.md`, "Substring search", has the plans; `MigrationIT`
-  pins that the predicate shape is served by the index). Creating the extension needs a
-  privileged role on first migration, which the Compose `migrate` job has (`admin`); in
-  production the DBA installs it once and the changeset is a no-op thereafter (ADR 0008
-  records the migration job, the runtime role and what each may do).
+  trigram GIN index on `lower(name)` (`pg_trgm`) makes it indexable. On the 100-row seed the
+  planner prefers a sequential scan. On 200,000 rows the index serves the count, the page of a
+  rare word and a deep page of a common one, while a shallow page of a common word walks the
+  primary key and stops after `size` matches; a pattern shorter than three characters yields no
+  trigram, so its count reads every row (`docs/PERFORMANCE.md`, "Substring search", has the
+  plans and timings; `MigrationIT` pins that the predicate shape is served by the index).
+  Creating the extension needs a privileged role on first migration, which the Compose
+  `migrate` job has (`admin`); in production the DBA installs it once and the changeset is a
+  no-op thereafter (ADR 0008 records the migration job, the runtime role and what each may do).
 
 ## Products (README task 4)
 - A product has an id and a description. Orders and products are many-to-many through an
