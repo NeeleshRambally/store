@@ -5,6 +5,7 @@ import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.ProductDTO;
+import com.example.store.entity.Product;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.ProductMapper;
 import com.example.store.repository.ProductRepository;
@@ -41,7 +42,8 @@ public class ProductServiceImpl implements ProductService {
     @Override
     @Transactional
     public ProductDTO create(CreateProductRequest request) {
-        ProductDTO created = productMapper.productToProductDTO(productRepository.save(productMapper.toEntity(request)));
+        ProductDTO created =
+                productMapper.productToProductDTO(productRepository.save(new Product(request.description())));
         eventPublisher.publishEvent(new ProductCreatedEvent(created.id()));
         return created;
     }

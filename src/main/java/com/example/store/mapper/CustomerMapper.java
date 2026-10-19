@@ -1,6 +1,5 @@
 package com.example.store.mapper;
 
-import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.entity.Customer;
 
@@ -11,8 +10,4 @@ import org.mapstruct.Mapping;
 public interface CustomerMapper {
     @Mapping(target = "orderCount", expression = "java(customer.getOrders().size())")
     CustomerDTO customerToCustomerDTO(Customer customer);
-
-    @Mapping(target = "id", ignore = true)
-    @Mapping(target = "orders", ignore = true)
-    Customer toEntity(CreateCustomerRequest request);
 }

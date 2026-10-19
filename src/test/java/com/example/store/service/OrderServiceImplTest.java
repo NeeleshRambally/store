@@ -77,12 +77,9 @@ class OrderServiceImplTest {
                 productRepository,
                 Mappers.getMapper(OrderMapper.class),
                 eventPublisher);
-        customer = withId(new Customer(), 1L);
-        customer.setName("Ada Lovelace");
-        chair = withId(new Product(), 2L);
-        chair.setDescription("Rustic Chair");
-        table = withId(new Product(), 8L);
-        table.setDescription("Oak Table");
+        customer = withId(new Customer("Ada Lovelace"), 1L);
+        chair = withId(new Product("Rustic Chair"), 2L);
+        table = withId(new Product("Oak Table"), 8L);
     }
 
     @Test
@@ -159,9 +156,7 @@ class OrderServiceImplTest {
 
     @Test
     void findByIdReturnsOrderWithCustomer() {
-        Order order = withId(new Order(), 5L);
-        order.setDescription("Analytical Engine");
-        order.setCustomer(customer);
+        Order order = withId(new Order("Analytical Engine", customer), 5L);
         order.getProducts().add(table);
         when(orderRepository.findById(5L)).thenReturn(Optional.of(order));
 

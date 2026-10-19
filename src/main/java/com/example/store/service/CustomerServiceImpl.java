@@ -6,6 +6,7 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.CustomerOrderDTO;
+import com.example.store.entity.Customer;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.mapper.CustomerMapper;
 import com.example.store.repository.CustomerRepository;
@@ -42,7 +43,7 @@ public class CustomerServiceImpl implements CustomerService {
     @Transactional
     public CustomerDTO create(CreateCustomerRequest request) {
         CustomerDTO created =
-                customerMapper.customerToCustomerDTO(customerRepository.save(customerMapper.toEntity(request)));
+                customerMapper.customerToCustomerDTO(customerRepository.save(new Customer(request.name())));
         eventPublisher.publishEvent(new CustomerCreatedEvent(created.id()));
         return created;
     }

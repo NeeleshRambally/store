@@ -1,6 +1,7 @@
 package com.example.store.mapper;
 
 import com.example.store.dto.ProductDTO;
+import com.example.store.entity.Customer;
 import com.example.store.entity.Order;
 import com.example.store.entity.Product;
 
@@ -15,8 +16,7 @@ class ProductMapperTest {
 
     @Test
     void orderCountFollowsTheOrdersCollection() {
-        Product product = withId(new Product(), 3L);
-        product.setDescription("Rustic Chair");
+        Product product = withId(new Product("Rustic Chair"), 3L);
         product.getOrders().add(order(7L));
         product.getOrders().add(order(5L));
 
@@ -28,8 +28,7 @@ class ProductMapperTest {
 
     @Test
     void aNewProductHasNoOrders() {
-        Product product = withId(new Product(), 101L);
-        product.setDescription("Lamp");
+        Product product = withId(new Product("Lamp"), 101L);
 
         ProductDTO dto = mapper.productToProductDTO(product);
 
@@ -38,6 +37,6 @@ class ProductMapperTest {
     }
 
     private static Order order(long id) {
-        return withId(new Order(), id);
+        return withId(new Order("Analytical Engine", new Customer("Ada Lovelace")), id);
     }
 }
