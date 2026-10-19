@@ -61,8 +61,10 @@ public class OrderServiceImpl implements OrderService {
         List<Product> products = loadProducts(request.productIds());
         order.getProducts().addAll(products);
         OrderDTO created = orderMapper.orderToOrderDTO(orderRepository.save(order));
-        eventPublisher.publishEvent(
-                new OrderCreatedEvent(products.stream().map(Product::getId).toList()));
+        eventPublisher.publishEvent(new OrderCreatedEvent(
+                created.id(),
+                customer.getId(),
+                products.stream().map(Product::getId).toList()));
         return created;
     }
 

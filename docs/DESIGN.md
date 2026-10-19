@@ -642,6 +642,18 @@ probes and metrics are reachable from inside the cluster but never from the publ
   second) and no statement is added (`QueryCountIT` is unchanged). An ingress usually logs
   every request as well; where it does, `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns this
   line off without touching any other logger
+* A created order, customer or product writes one INFO line on
+  `com.example.store.service.CreationEventLogger` once its transaction has committed:
+  `Created order 10051 for customer 2 with 3 products`, `Created customer 101` or
+  `Created product 101`, with the request's `requestId` beside it in the ECS output; ids and
+  the number of products only, never a name or a description. The services publish
+  `OrderCreatedEvent`, `CustomerCreatedEvent` and `ProductCreatedEvent`, and
+  `@TransactionalEventListener(phase = AFTER_COMMIT)` methods log them: with sequence ids the
+  inserts are flushed at commit, after `create()` has returned, so a line written in the
+  service would also appear for a creation whose commit fails. `CreationLogIT` pins the three
+  lines and that a creation whose insert fails at commit logs nothing (it calls each service
+  directly with a 256-character text, which the request validation would have refused, so
+  that only the column rejects it)
 * A database that cannot be reached is a 503, not a 500. A request that cannot obtain a
   connection within the pool's 5 s `connection-timeout` (the pool exhausted, or the database
   down) reaches the handler as `CannotCreateTransactionException`, and a connection lost after

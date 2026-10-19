@@ -26,7 +26,7 @@ class ProductCacheEvictorTest {
     void evictsEveryProductOfTheCreatedOrder() {
         when(cacheManager.getCache("products")).thenReturn(products);
 
-        new ProductCacheEvictor(cacheManager).onOrderCreated(new OrderCreatedEvent(List.of(2L, 8L)));
+        new ProductCacheEvictor(cacheManager).onOrderCreated(new OrderCreatedEvent(10001L, 1L, List.of(2L, 8L)));
 
         verify(products).evict(2L);
         verify(products).evict(8L);
