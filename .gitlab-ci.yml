@@ -87,6 +87,7 @@ scan:
   artifacts:
     paths:
       - sbom.cdx.json
+    expire_in: 90 days
 
 publish:
   stage: publish
