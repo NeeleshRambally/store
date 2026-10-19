@@ -7,18 +7,22 @@ import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 
 import lombok.extern.slf4j.Slf4j;
 
+import org.hibernate.TransactionException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.MethodParameter;
 import org.springframework.core.NestedRuntimeException;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -95,12 +99,22 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         log.warn(
                 "Database unavailable: {}", ex.getMostSpecificCause().getClass().getName());
         log.debug("Database unavailable", ex);
-        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                .header(HttpHeaders.RETRY_AFTER, "5")
-                .body(problem(
-                        HttpStatus.SERVICE_UNAVAILABLE,
-                        "service_unavailable",
-                        "The service cannot obtain a database connection"));
+        return serviceUnavailable("service_unavailable", "The service cannot obtain a database connection");
+    }
+
+    @ExceptionHandler(JpaSystemException.class)
+    ResponseEntity<ProblemDetail> handleJpaSystemFailure(JpaSystemException ex) {
+        if (ex.getCause() instanceof TransactionException) {
+            return handleDatabaseUnavailable(ex);
+        }
+        return ResponseEntity.internalServerError().body(handleUnexpected(ex));
+    }
+
+    @ExceptionHandler({QueryTimeoutException.class, TransactionTimedOutException.class})
+    ResponseEntity<ProblemDetail> handleDatabaseTimeout(NestedRuntimeException ex) {
+        log.warn("Database timeout: {}", ex.getMostSpecificCause().getClass().getName());
+        log.debug("Database timeout", ex);
+        return serviceUnavailable("database_timeout", "The database did not answer in time");
     }
 
     @ExceptionHandler(Exception.class)
@@ -181,6 +195,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                     status, "validation_failed", "Invalid request content.", path(mapping), "must be a 64-bit integer");
         }
         return problem(status, "malformed_body", "Failed to read request");
+    }
+
+    private static ResponseEntity<ProblemDetail> serviceUnavailable(String code, String detail) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, code, detail));
     }
 
     private static ProblemDetail problem(HttpStatusCode status, String code, String detail) {

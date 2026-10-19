@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -96,6 +97,24 @@ class GlobalExceptionHandlerLogTest {
                 .contains("java.sql.SQLTransientConnectionException")
                 .doesNotContain("HikariPool");
         assertThat(event(Level.DEBUG).getThrowableProxy().getMessage()).contains("EntityManager");
+    }
+
+    @Test
+    void aDatabaseTimeoutIsLoggedByItsCauseClassWithoutTheStatement() {
+        QueryTimeoutException ex = new QueryTimeoutException(
+                "JDBC exception executing SQL [select o1_0.id from \"order\" o1_0 fetch first ? rows only]"
+                        + " [ERROR: canceling statement due to statement timeout]",
+                new SQLException("ERROR: canceling statement due to statement timeout", "57014"));
+
+        ResponseEntity<ProblemDetail> response = handler.handleDatabaseTimeout(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+        assertThat(response.getBody().getDetail()).isEqualTo("The database did not answer in time");
+        assertThat(event(Level.WARN).getFormattedMessage())
+                .contains("java.sql.SQLException")
+                .doesNotContain("select");
+        assertThat(event(Level.DEBUG).getThrowableProxy().getMessage()).contains("select o1_0.id");
     }
 
     @Test

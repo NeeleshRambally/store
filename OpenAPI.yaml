@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: store
-  version: '2.0.0'
+  version: '2.1.0'
   description: >-
     A simple store. Every error handled by the service's Spring MVC layer on the API port is an
     RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
@@ -14,8 +14,8 @@ info:
     know and handle it by the status, because adding a code is a minor version of this contract;
     removing or renaming one is a major version. The version is that of the contract itself,
     independent of the version of the service that implements it; 2.0.0 is incompatible with
-    the delivered 1.0, and docs/ASSUMPTIONS.md ("Contract version and client migration") lists
-    what a 1.0 client has to change.
+    the delivered 1.0, 2.1.0 adds the code database_timeout, and docs/ASSUMPTIONS.md ("Contract
+    version and client migration") lists what a 1.0 client has to change.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
@@ -774,9 +774,12 @@ components:
             code: internal_error
     ServiceUnavailable:
       description: >-
-        The service cannot obtain a database connection: the pool's connection-timeout (5 s)
-        elapsed or the database is unreachable; retry after the Retry-After delay. On a POST
-        the write may or may not have been applied (the POSTs are not idempotent)
+        The database cannot serve the request; retry after the Retry-After delay. The code
+        service_unavailable means that no database connection could be obtained (the pool's
+        connection-timeout of 5 s elapsed, or the database is unreachable) or that the
+        connection was lost during the request; database_timeout means that a statement was
+        cancelled or the transaction ran past its deadline. On a POST the write may or may not
+        have been applied (the POSTs are not idempotent)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -786,13 +789,25 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
-          example:
-            type: about:blank
-            title: Service Unavailable
-            status: 503
-            detail: The service cannot obtain a database connection
-            instance: /order
-            code: service_unavailable
+          examples:
+            serviceUnavailable:
+              summary: GET /order?size=5 whose database connection is lost
+              value:
+                type: about:blank
+                title: Service Unavailable
+                status: 503
+                detail: The service cannot obtain a database connection
+                instance: /order
+                code: service_unavailable
+            databaseTimeout:
+              summary: GET /order?size=5 whose statement is cancelled
+              value:
+                type: about:blank
+                title: Service Unavailable
+                status: 503
+                detail: The database did not answer in time
+                instance: /order
+                code: database_timeout
   schemas:
     ProblemDetail:
       title: ProblemDetail
@@ -829,9 +844,10 @@ components:
             a customer or product named in the body, does not exist. conflict: the write
             conflicts with existing data. payload_too_large, unsupported_media_type,
             not_acceptable and method_not_allowed: the conditions their statuses name.
-            service_unavailable: no database connection could be obtained. internal_error: an
-            unexpected failure. A client must accept a code that is not listed here (see the
-            description of the API).
+            service_unavailable: no database connection could be obtained, or the connection was
+            lost during the request. database_timeout: a database statement was cancelled or the
+            transaction ran past its deadline. internal_error: an unexpected failure. A client
+            must accept a code that is not listed here (see the description of the API).
           enum:
             - validation_failed
             - invalid_parameter
@@ -847,6 +863,7 @@ components:
             - not_acceptable
             - method_not_allowed
             - service_unavailable
+            - database_timeout
             - internal_error
         errors:
           type: array

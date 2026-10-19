@@ -28,6 +28,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -55,6 +56,9 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private PostgreSQLContainer<?> container;
 
     @Test
     void orderPageMatchesTheContract() {
@@ -326,6 +330,30 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.GET, unavailable));
         assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.POST, unavailable));
+    }
+
+    @Test
+    void cancelledStatementResponseEqualsTheDocumentedExample() throws Exception {
+        Interaction interaction;
+        try (TableLock lock = TableLock.on(container, "\"order\"")) {
+            interaction = lock.cancelWaiting(() -> get("/order", Map.of("size", "5")));
+        }
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(interaction.json()).isEqualTo(example("ServiceUnavailable", "databaseTimeout"));
+        assertConforms(interaction);
+    }
+
+    @Test
+    void lostConnectionResponseEqualsTheDocumentedExample() throws Exception {
+        Interaction interaction;
+        try (TableLock lock = TableLock.on(container, "\"order\"")) {
+            interaction = lock.terminateWaiting(() -> get("/order", Map.of("size", "5")));
+        }
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(interaction.json()).isEqualTo(example("ServiceUnavailable", "serviceUnavailable"));
+        assertConforms(interaction);
     }
 
     @Test
