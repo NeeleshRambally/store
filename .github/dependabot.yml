@@ -18,7 +18,7 @@ updates:
       actions:
         patterns: ["*"]
     ignore:
-      - dependency-name: gradle/actions
+      - dependency-name: gradle/actions/setup-gradle
         update-types: ["version-update:semver-major"]
   - package-ecosystem: docker
     directory: /
