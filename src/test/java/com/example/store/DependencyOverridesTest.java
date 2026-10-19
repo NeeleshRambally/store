@@ -1,5 +1,6 @@
 package com.example.store;
 
+import org.apache.catalina.util.ServerInfo;
 import org.junit.jupiter.api.Test;
 
 import java.lang.module.ModuleDescriptor.Version;
@@ -21,5 +22,10 @@ class DependencyOverridesTest {
         String version = Class.forName("org.postgresql.Driver").getPackage().getImplementationVersion();
 
         assertThat(Version.parse(version)).isGreaterThanOrEqualTo(Version.parse("42.7.14"));
+    }
+
+    @Test
+    void tomcatCarriesTheFixesForItsCriticalFindings() {
+        assertThat(Version.parse(ServerInfo.getServerNumber())).isGreaterThanOrEqualTo(Version.parse("10.1.61"));
     }
 }
