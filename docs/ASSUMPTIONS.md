@@ -341,6 +341,9 @@ delivered.
   creation); nothing in a response grows with the tables, whereas before the bound a customer
   carried about 100 orders and a product about 200 ids on the seed. See ADR 0003, "Nested
   collections", and the measured payloads in `docs/PERFORMANCE.md`.
+- Latency is observable per route in production: `http_server_requests_seconds` carries
+  buckets from 5 ms to 10 s, so the p95 or p99 of `GET /order` and `GET /customer` comes from
+  the scrape rather than from an average (`docs/DESIGN.md`, Operations).
 - The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
 - Every whitelisted sort property is indexed together with `id` (changeset 7), and the service
   appends `id` as a tie-break in the direction of the last sort property, so a sorted offset page
