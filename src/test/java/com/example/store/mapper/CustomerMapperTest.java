@@ -15,10 +15,9 @@ class CustomerMapperTest {
 
     @Test
     void orderCountFollowsTheOrdersCollection() {
-        Customer customer = withId(new Customer(), 3L);
-        customer.setName("Vicki Kutch");
-        customer.getOrders().add(order(7L, "Handcrafted Soft Chair"));
-        customer.getOrders().add(order(5L, "Rustic Lamp"));
+        Customer customer = withId(new Customer("Vicki Kutch"), 3L);
+        customer.getOrders().add(withId(new Order("Handcrafted Soft Chair", customer), 7L));
+        customer.getOrders().add(withId(new Order("Rustic Lamp", customer), 5L));
 
         CustomerDTO dto = mapper.customerToCustomerDTO(customer);
 
@@ -28,18 +27,11 @@ class CustomerMapperTest {
 
     @Test
     void aNewCustomerHasNoOrders() {
-        Customer customer = withId(new Customer(), 101L);
-        customer.setName("Ada");
+        Customer customer = withId(new Customer("Ada"), 101L);
 
         CustomerDTO dto = mapper.customerToCustomerDTO(customer);
 
         assertThat(dto.orders()).isEmpty();
         assertThat(dto.orderCount()).isZero();
-    }
-
-    private static Order order(long id, String description) {
-        Order order = withId(new Order(), id);
-        order.setDescription(description);
-        return order;
     }
 }
