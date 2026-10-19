@@ -65,6 +65,11 @@ Feature: Order management
     And the first order on the page belongs to customer "Vicki Kutch"
     And every order on the page lists at least one product
 
+  Scenario: A negative page number is rejected
+    When I request orders with page -1 and size 20
+    Then the response status is 400
+    And the response problem lists a validation error for "page"
+
   Scenario: Orders of one customer
     When I request orders of customer 1
     Then the response status is 200

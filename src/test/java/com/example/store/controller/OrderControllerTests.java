@@ -371,6 +371,48 @@ class OrderControllerTests {
     }
 
     @Test
+    void getAllRejectsANegativePage() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 0"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAZeroSize() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("size"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 1"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAZeroSizeInCursorMode() throws Exception {
+        when(orderService.findAfter(any(), any())).thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, null));
+
+        mockMvc.perform(get("/order").param("after", "0").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("size"));
+        verify(orderService, never()).findAfter(any(), any());
+    }
+
+    @Test
+    void getAllRejectsANonNumericPage() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("page", "abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: 'abc'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
     void getAllRejectsAZeroCustomerId() throws Exception {
         mockMvc.perform(get("/order").param("customerId", "0"))
                 .andExpect(status().isBadRequest())

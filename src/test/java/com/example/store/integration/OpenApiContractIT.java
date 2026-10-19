@@ -144,6 +144,28 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void negativePageMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("page", "-1"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("page");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void pageSizeBeyondThirtyTwoBitsMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("size", "3000000000"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("detail").asText())
+                .isEqualTo("Failed to convert 'size' with value: '3000000000'");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void orderPageFilteredByCustomerMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("customerId", "1", "size", "2"));
 
