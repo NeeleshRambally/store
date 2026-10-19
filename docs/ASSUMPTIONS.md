@@ -307,7 +307,7 @@ delivered.
   `/actuator/health/liveness` and `/actuator/health/readiness`, nothing in `compose.yaml` waits
   on the store's health, the smoke script polls `/actuator/health/readiness` itself, and without
   a shell or `curl` in the image the only probe command would be a second JVM started inside the
-  same memory limit.
+  same 512 MiB limit, where the service alone peaked at 477.4 MiB under load (ADR 0008).
 - Migrations are a job and the runtime role cannot alter the schema. The Compose stack runs the
   image once as `migrate` (no web server, schema owner `admin`, `seed` context) and starts
   `store` only after it has exited 0; `store` connects as `store_app`, a role created by
@@ -338,9 +338,10 @@ delivered.
   in its weekly pull request (the `github-actions`, `docker` and `docker-compose` ecosystems),
   which is the review path, because its security alerts do not cover SHA-pinned actions.
 - The Compose `store` and `migrate` services run with a read-only root, a tmpfs `/tmp`, no
-  capabilities, `no-new-privileges` and a 512 MiB memory limit measured against the service's
-  footprint after the smoke run; `postgres` stays unhardened because `initdb` needs root
-  capabilities on first start (ADR 0008).
+  capabilities, `no-new-privileges` and a 512 MiB memory limit without swap, in which the
+  image's entrypoint gives the heap 30% under SerialGC, a share measured under concurrent
+  load; `postgres` stays unhardened because `initdb` needs root capabilities on first start
+  (ADR 0008).
 - The image is scanned on every pull request and a critical or high fixable vulnerability
   blocks the merge; findings without a fix are excluded from the gate (`--ignore-unfixed`) and
   are not listed, because there is nothing a code change can do about them; the SBOM is the

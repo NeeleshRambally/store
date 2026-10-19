@@ -38,6 +38,7 @@ services:
       resources:
         limits:
           memory: 512m
+    memswap_limit: 512m
     restart: "no"
 
   store:
@@ -64,6 +65,7 @@ services:
       resources:
         limits:
           memory: 512m
+    memswap_limit: 512m
     stop_grace_period: 30s
     ports:
       - "8080:8080"

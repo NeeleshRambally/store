@@ -17,4 +17,4 @@ COPY --from=build /workspace/extracted/application/ ./
 USER 65532:65532
 ENV LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs
 EXPOSE 8080 8081
-ENTRYPOINT ["/usr/bin/java", "-XX:MaxRAMPercentage=75", "-XX:+ExitOnOutOfMemoryError", "org.springframework.boot.loader.launch.JarLauncher"]
+ENTRYPOINT ["/usr/bin/java", "-XX:+UseSerialGC", "-XX:MaxRAMPercentage=30", "-XX:+ExitOnOutOfMemoryError", "org.springframework.boot.loader.launch.JarLauncher"]
