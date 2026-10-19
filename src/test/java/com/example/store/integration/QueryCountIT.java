@@ -22,7 +22,7 @@ import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Pins the number of database round trips per request so an N+1 regression fails the build; caches start cold.
+// Pins the statements each request prepares so an N+1 regression fails the build; caches start cold.
 class QueryCountIT extends AbstractIntegrationTest {
 
     @Autowired
