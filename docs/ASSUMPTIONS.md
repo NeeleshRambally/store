@@ -463,9 +463,19 @@ delivered.
   until the schemas declared the rule.
 
 ## Delivery
-- Every change arrives on a branch, goes through a pull request with a review, and is
-  squash-merged once CI is green. Branch rulesets are not available on a private repository of
-  the free GitHub plan, so the gate is enforced by process rather than by the platform.
+- Every change arrives on a branch and goes through a pull request, which is merged once both
+  CI jobs are green and a second account has approved it. Branch rulesets and required checks
+  are not available on a private repository of the free GitHub plan, so the gate is a
+  procedure, not a platform control, and the approval is posted by the procedure that then
+  merges, a step of it rather than an independent review. The procedure has held in this form
+  from #27 on. Before it a merge waited for `build` only (#7 to #10 were merged while
+  their `docker` job was still running, and #11 after that job had failed at set-up, so its
+  image was neither built nor scanned), and no push run on `main` finished green between #5
+  and #30. `main`'s history is not rewritten: the squash commits up to #64 keep their
+  pull-request text as written (imperative subjects from #27, bodies wrapped at 72 columns from
+  #51 but for one 73-column line in #60), and from #65 on pull requests are rebase-merged, so
+  each commit keeps its author while GitHub records the merging account as committer
+  (`docs/DESIGN.md`, Development workflow).
 - The container image runs as a non-root user on a distroless Java 17 runtime with no shell,
   package manager or `curl`, with layered jar extraction for efficient caching; its JRE is the
   Debian package `temurin-17-jre`, which the scan and the SBOM list but no advisory data the
@@ -601,8 +611,8 @@ containers and the address of every published port are read with `docker inspect
 runtime role's grants are checked in the database container, and the access line of a request
 must appear in the container's ECS output. The image that is published from the
 default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
-`docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
-review, and the platform cannot enforce required checks on a private free-plan repository, so
+`docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and an
+approval, and the platform cannot enforce required checks on a private free-plan repository, so
 the procedure is the gate.
 
 ## Defects found in the original code and what was done

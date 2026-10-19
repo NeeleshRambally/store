@@ -207,12 +207,26 @@ observed by a test, because the API has no slow request to hold open while a shu
 signalled; ADR 0008 says the same.
 
 ## Development workflow
-Every change goes through a pull request. The pipeline must be green and the change reviewed
-before it is squash-merged into `main`. New behaviour starts with a failing test (unit, slice or
-integration) and, for API behaviour, a Cucumber scenario. In this single-author project the
-review step is exercised by a second account, so that the branch workflow and the approval
-gate stay real instead of being switched off; the substantive review is the audit-driven
-follow-up work recorded in the ADRs and in the pull requests that closed each audit.
+Every change goes through a pull request and is merged into `main` once both CI jobs are green
+and the pull request is approved. New behaviour starts with a failing test (unit, slice or
+integration) and, for API behaviour, a Cucumber scenario. This is a single-author project: the
+approval comes from a second account and is posted by the same procedure that then merges, so
+it is a procedural step, not an independent gate, and GitHub enforces neither the approval nor
+the checks on a private free-plan repository (see Continuous integration).
+
+The history shows how the procedure reached that form; `main`'s history is kept as it is:
+* Before #27 a merge waited for `build` only. #7 to #10 were merged while their `docker` job was
+  still running (each passed within three minutes), and #11 after its `docker` job had failed at
+  set-up, because the pinned `aquasecurity/trivy-action@0.28.0` tag did not resolve, so neither
+  the image build nor the scan ran. After #5 no push run on `main` finished green until #30: the
+  runs of #6 to #10, #27, #17 and #28 were cancelled by the next merge, and the run of #11
+  failed. From #27 on both jobs were green before every merge.
+* The squash subjects are imperative from #27 on and the bodies wrapped at 72 columns from #51
+  on (one line of #60 has 73); the earlier squash commits carry their pull-request text as it
+  was written.
+* Pull requests up to #64 were squash-merged, one commit each under the merging account. From
+  #65 on they are rebase-merged: each commit lands on `main` as written and keeps its author,
+  the repository's commit identity, while GitHub records the merging account as the committer.
 
 ## Testing
 ```shell
@@ -369,8 +383,9 @@ stack splits that into the `migrate` job and the `store_app` runtime (see Runnin
 `STORE_IMAGE=ghcr.io/neeleshambally/store:latest docker compose up -d --no-build` runs the
 pulled image that way.
 
-Both jobs must be green and the change reviewed before a merge; GitHub cannot enforce required
-checks on a private free-plan repository, so that is a procedural gate. Permissions are scoped
+Both jobs must be green and the pull request approved before a merge, as they have been for
+every merge from #27 on (see Development workflow); GitHub cannot enforce required checks on a
+private free-plan repository, so that is a procedural gate. Permissions are scoped
 per job: `build` has `contents: read`, `docker` has `contents: read` and `packages: write` for
 the push.
 
