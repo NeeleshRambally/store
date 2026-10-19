@@ -461,7 +461,9 @@ Request input is strict rather than coerced (ADR 0002):
   reading after the first JSON value: an order body followed by a stray `x` used to create the
   order. `spring.jackson.parser.strict-duplicate-detection` is on because Jackson otherwise keeps
   the last occurrence of a repeated property: `{"customerId":5,"customerId":6}` used to create
-  an order for customer 6.
+  an order for customer 6. A repetition that came after every field had appeared once was a 500
+  instead, logged as an unhandled exception: Jackson had already built the record and failed
+  with a type-definition error, which Spring does not report as an unreadable body.
 - JSON types are bound exactly. A JSON string, a fraction or an exponent where an integer is
   expected (`"5"`, `""`, `5.7`, `5.0`, `5e0`) and a number or a boolean where a string is
   expected are such type failures, where Jackson's defaults would coerce them

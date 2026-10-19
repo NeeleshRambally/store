@@ -329,6 +329,19 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsAPropertyRepeatedAfterTheLastField() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Late\",\"customerId\":5,\"productIds\":[2],\"customerId\":6}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createReturnsNotFoundForUnknownCustomer() throws Exception {
         when(orderService.create(new CreateOrderRequest("Test Order", 99L, List.of(2L))))
                 .thenThrow(new ResourceNotFoundException("Customer", 99L));
