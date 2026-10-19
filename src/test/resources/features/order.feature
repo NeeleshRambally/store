@@ -200,7 +200,7 @@ Feature: Order management
     And the response problem code is "database_timeout"
     And the response asks to retry after 5 seconds
 
-  Scenario: A database connection lost during a request is a retryable 503
+  Scenario: A database session terminated while orders are read is a retryable 503
     When I request orders with size 5 while the order table is locked and the waiting session is terminated
     Then the response status is 503
     And the response problem code is "service_unavailable"
