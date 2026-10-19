@@ -413,10 +413,13 @@ revision), what was done, and where the reasoning lives.
 - No validation and no error handling, so a constraint failure was a 500 with a stack trace:
   Bean Validation on the request records and `GlobalExceptionHandler` mapping everything to
   RFC 7807 problem details; ADR 0001 and "API contract" above.
-- Hard-coded `admin:admin` credentials (`application.yaml:4-5`) and SQL logging
-  (`format_sql`, `use_sql_comments`, `application.yaml:11-12`) in the base profile: the base
-  profile has no credential defaults and no SQL logging, the README path lives in the `local`
-  profile; "Production posture" above, `docs/DESIGN.md` (Configuration) and ADR 0008.
+- Hard-coded `admin:admin` credentials (`application.yaml:4-5`) in the base profile, beside
+  `format_sql` and `use_sql_comments` (`application.yaml:11-12`), which shape SQL but log none:
+  nothing set `org.hibernate.SQL` to DEBUG, so no statement was ever logged. The base profile
+  now has no credential defaults and neither option; the README path lives in the `local`
+  profile, which keeps the two options, sets `org.hibernate.SQL` to DEBUG so that `bootRun`
+  logs every statement, and is left out of the bootJar; "Production posture" above,
+  `docs/DESIGN.md` (Running locally, Configuration) and ADR 0008.
 - Seed data loaded in every environment (`db.changelog-2.yaml` without a context): the seed
   changesets carry `context: seed` and `LIQUIBASE_CONTEXTS` defaults to `prod`; "Production
   posture" above.
