@@ -326,8 +326,9 @@ delivered.
   footprint after the smoke run; `postgres` stays unhardened because `initdb` needs root
   capabilities on first start (ADR 0008).
 - The image is scanned on every pull request and a critical or high fixable vulnerability
-  blocks the merge; unfixable findings are reported but do not block, because there is nothing
-  a code change can do about them. The delivered image runs on Spring Boot 3.5.16, the last
+  blocks the merge; findings without a fix are excluded from the gate (`--ignore-unfixed`) and
+  are not listed, because there is nothing a code change can do about them; the SBOM is the
+  record of what the image contains. The delivered image runs on Spring Boot 3.5.16, the last
   BOM of a line that left open-source support on 2026-06-30: an unsupported line, stated
   plainly. Until the upgrade every fixable finding in a Boot-managed library is closed by a
   per-library version override in `build.gradle` (one `ext` line per library, two today:
@@ -337,7 +338,9 @@ delivered.
   Spring Boot 4.1.x is tracked as
   [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
-  set is auditable. The image published from `main` is the one that was scanned and smoke-tested:
+  set is auditable. The data generator's one dependency carries an accepted npm advisory,
+  GHSA-qxc2-j82w-r537 on `@faker-js/faker` 7.6.0, through a code path the script never calls;
+  `utils/README.md` ("Known advisory") records it with the reasoning and the review date. The image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
