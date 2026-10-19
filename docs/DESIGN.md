@@ -5,7 +5,12 @@ the service is built, run, tested and delivered, and points to the reasoning beh
 decision.
 
 ## Prerequisites
-* JDK 17 (the Gradle toolchain downloads one if it is missing)
+* A JDK 17 to 24 to run Gradle (the Spring Boot and toolchain plugins need 17; Gradle 8.14
+  supports running on Java 24 at most, and on Java 25 it starts but `spotlessCheck` fails). The
+  build compiles and runs on a Java 17 toolchain: Gradle uses an installed JDK 17 when it finds
+  one and otherwise downloads Eclipse Temurin 17 (about 190 MB) into `~/.gradle/jdks` on the
+  first build; offline, point `org.gradle.java.installations.paths` in
+  `~/.gradle/gradle.properties` at an installed JDK 17
 * Docker (used by Docker Compose for local runs and by Testcontainers for the tests)
 * A PostgreSQL installed on bare metal (the README's alternative) needs the `pg_trgm` contrib
   module, which changeset 4 creates as an extension; the official image and most
