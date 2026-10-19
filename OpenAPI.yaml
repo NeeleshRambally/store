@@ -3,11 +3,11 @@ info:
   title: store
   version: '1.0'
   description: >-
-    A simple store. Every error the service handles is an RFC 7807 problem detail
-    (application/problem+json) with the statuses declared per operation below. A method that is
-    not listed on a path (for example DELETE /order/1, which the pipeline's smoke test sends)
-    answers a 405 problem detail; OpenAPI cannot declare a response for a method the contract
-    does not define, so that case is stated here instead.
+    A simple store. Every error handled by the service's Spring MVC layer on the API port is an
+    RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
+    below. A method that is not listed on a path (for example DELETE /order/1, which the
+    pipeline's smoke test sends) answers a 405 problem detail; OpenAPI cannot declare a response
+    for a method the contract does not define, so that case is stated here instead.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
