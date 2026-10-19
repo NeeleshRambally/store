@@ -344,7 +344,8 @@ delivered.
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
   set is auditable. The data generator's one dependency carries an accepted npm advisory,
   GHSA-qxc2-j82w-r537 on `@faker-js/faker` 7.6.0, through a code path the script never calls;
-  `utils/README.md` ("Known advisory") records it with the reasoning and the review date. The image published from `main` is the one that was scanned and smoke-tested:
+  `utils/README.md` ("Known advisory") records it with the reasoning and the review date. The
+  image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
