@@ -461,6 +461,13 @@ public class StoreApiSteps {
         assertThat(body.get("totalElements").asLong()).isGreaterThanOrEqualTo(totalElements);
     }
 
+    @Then("the page reports page {int}, size {int} and {int} total elements")
+    public void pageReportsExactly(int page, int size, int totalElements) {
+        assertThat(body.get("page").asInt()).isEqualTo(page);
+        assertThat(body.get("size").asInt()).isEqualTo(size);
+        assertThat(body.get("totalElements").asLong()).isEqualTo(totalElements);
+    }
+
     @Then("the page reports as many matches as the database lists")
     public void pageReportsAsManyMatchesAsListed() {
         int size = body.get("size").asInt();
