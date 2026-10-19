@@ -2,4 +2,9 @@ package com.example.store.dto;
 
 import java.util.List;
 
-public record OrderDTO(Long id, String description, OrderCustomerDTO customer, List<OrderProductDTO> products) {}
+public record OrderDTO(Long id, String description, OrderCustomerDTO customer, List<OrderProductDTO> products) {
+
+    public OrderDTO {
+        products = List.copyOf(products);
+    }
+}

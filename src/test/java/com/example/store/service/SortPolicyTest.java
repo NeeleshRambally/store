@@ -7,6 +7,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -68,5 +71,23 @@ class SortPolicyTest {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("ID"));
 
         assertThatThrownBy(() -> policy.validate(pageable)).hasMessage("Unknown sort property: ID");
+    }
+
+    @Test
+    void keepsItsPropertiesWhenTheSetItWasBuiltFromChanges() {
+        Set<String> properties = new HashSet<>(Set.of("id"));
+        SortPolicy idOnly = new SortPolicy(properties);
+
+        properties.add("description");
+
+        assertThatThrownBy(() -> idOnly.validate(PageRequest.of(0, 20, Sort.by("description"))))
+                .isInstanceOf(InvalidSortPropertyException.class);
+    }
+
+    @Test
+    void rejectsChangesToItsProperties() {
+        SortPolicy idOnly = new SortPolicy(new HashSet<>(Set.of("id")));
+
+        assertThatThrownBy(() -> idOnly.allowed().add("description")).isInstanceOf(UnsupportedOperationException.class);
     }
 }
