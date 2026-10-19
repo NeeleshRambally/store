@@ -135,6 +135,18 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void createNamesTheLowestMissingProductIdWhateverTheRequestOrder() {
+        when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
+        when(productRepository.findAllById(List.of(999999L, 999998L, 2L))).thenReturn(List.of(chair));
+
+        assertThatThrownBy(() ->
+                        service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(999999L, 999998L, 2L))))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessage("Product with id 999998 was not found");
+        verify(orderRepository, never()).save(any());
+    }
+
+    @Test
     void createRejectsUnknownCustomer() {
         when(customerRepository.findById(99L)).thenReturn(Optional.empty());
 

@@ -9,7 +9,9 @@ delivered.
 - The project is treated as a production service: every change ships with tests at the unit,
   integration (real PostgreSQL via Testcontainers) and acceptance (Cucumber) level, and CI fails
   on any failing test, formatting violation or coverage below 80% of lines, measured outside the
-  generated MapStruct implementations and the launcher class (`docs/DESIGN.md`, Testing).
+  whole `mapper` package (the generated MapStruct implementations and the hand-written
+  `ProductMapper.orderIds`, which is tested but not counted) and the launcher class
+  (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
@@ -84,7 +86,9 @@ delivered.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
-- Errors are RFC 7807 problem details. Validation failures list the offending fields, for a
+- Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
+  request that never reaches the `DispatcherServlet`, and a 404 on the management connector,
+  get Boot's default error body instead. Validation failures list the offending fields, for a
   request body and for a query parameter alike (`name`, `after`); nothing else about the
   failure is exposed. A whitespace-only `name` or `description` is a validation failure, and the
   specification says so (`pattern: '\S'`) so that a client built from it rejects the same
@@ -278,7 +282,12 @@ delivered.
   controllers sent it). The 503 of a lost database is declared on every operation with
   `Retry-After` required (the synthetic case failed with `Response status 503 not defined for
   path '/order'` until it was, and a second case pins that a 503 without `Retry-After` is
-  rejected).
+  rejected). The 415 of a `POST` whose `Content-Type` is not `application/json` is declared on
+  the three `POST`s the same way (the captured `text/plain` case failed with `Response status
+  415 not defined for path '/order'` until it was). A 405 for a method a path does not list
+  cannot be declared, since the method does not exist in the contract: `info.description`
+  says so and the smoke test checks `DELETE /order/1`; the `servers` entry says that the public
+  base URL is set by the gateway (ADR 0002) rather than listing a placeholder.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
@@ -321,8 +330,9 @@ delivered.
   footprint after the smoke run; `postgres` stays unhardened because `initdb` needs root
   capabilities on first start (ADR 0008).
 - The image is scanned on every pull request and a critical or high fixable vulnerability
-  blocks the merge; unfixable findings are reported but do not block, because there is nothing
-  a code change can do about them. The delivered image runs on Spring Boot 3.5.16, the last
+  blocks the merge; findings without a fix are excluded from the gate (`--ignore-unfixed`) and
+  are not listed, because there is nothing a code change can do about them; the SBOM is the
+  record of what the image contains. The delivered image runs on Spring Boot 3.5.16, the last
   BOM of a line that left open-source support on 2026-06-30: an unsupported line, stated
   plainly. Until the upgrade every fixable finding in a Boot-managed library is closed by a
   per-library version override in `build.gradle` (one `ext` line per library, two today:
@@ -332,7 +342,9 @@ delivered.
   Spring Boot 4.1.x is tracked as
   [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
-  set is auditable. The image published from `main` is the one that was scanned and smoke-tested:
+  set is auditable. The data generator's one dependency carries an accepted npm advisory,
+  GHSA-qxc2-j82w-r537 on `@faker-js/faker` 7.6.0, through a code path the script never calls;
+  `utils/README.md` ("Known advisory") records it with the reasoning and the review date. The image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
