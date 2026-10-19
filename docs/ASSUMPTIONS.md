@@ -341,11 +341,11 @@ delivered.
   record of what the image contains. The delivered image runs on Spring Boot 3.5.16, the last
   BOM of a line that left open-source support on 2026-06-30: an unsupported line, stated
   plainly. Until the upgrade every fixable finding in a Boot-managed library is closed by a
-  per-library version override in `build.gradle` (one `ext` line per library, two today:
-  `jackson-bom.version` and `postgresql.version`, pinned by `DependencyOverridesTest`),
-  reviewed weekly through the Dependabot pull requests and removed at the upgrade; the two
-  Framework 6 advisories without a 6.x fix are time-boxed exceptions (ADR 0004). The upgrade to
-  Spring Boot 4.1.x is tracked as
+  per-library version override in `build.gradle` (one `ext` line per library, three today:
+  `tomcat.version`, `jackson-bom.version` and `postgresql.version`, each with a floor at its
+  version in `DependencyOverridesTest`), reviewed weekly through the Dependabot pull requests
+  and removed at the upgrade; the two Framework 6 advisories without a 6.x fix are time-boxed
+  exceptions (ADR 0004). The upgrade to Spring Boot 4.1.x is tracked as
   [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
   set is auditable. The data generator's one dependency carries an accepted npm advisory,
