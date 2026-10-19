@@ -67,6 +67,20 @@ nothing in a response or a log line identified the request a client was asking a
   API has no slow request to hold open while a shutdown is signalled, so a test could only
   show that an idle server stops, which the configuration already states. The fail-closed
   start-up, by contrast, is observed by `FailClosedStartupIT`.
+- **The Compose services are hardened.** `store` and `migrate` run with `read_only: true`
+  and `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` are the only
+  writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]` and
+  `deploy.resources.limits.memory: 512m`, which Compose v2 honours without Swarm. The memory
+  limit gives the image's `-XX:MaxRAMPercentage=75` a bound (`MaxHeapSize` 384 MiB inside the
+  container) and is measured, not guessed: the service holds about 256 MiB of RSS (255.9 and
+  256.2 MiB in two readings) after the smoke run under the default 200 request threads, so
+  the limit must rise with `TOMCAT_THREADS_MAX` and `DB_POOL_SIZE`. `postgres` is left
+  unhardened because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data
+  directory to its own user; a production database is a managed service or its own hardening
+  exercise, not this stack's. The tmpfs is not decoration: with it removed the `migrate` job
+  still exits 0 (no web server, so the JVM only loses its `hsperfdata` file), but `store`
+  fails with `Unable to start web server`, because Tomcat creates its base directory under
+  `java.io.tmpdir` and the read-only root refuses it, and readiness is never reached.
 - **Request size.** `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API
   connector only) wraps every request so that a declared `Content-Length` over
   `REQUEST_MAX_BODY_BYTES` (64 KiB by default) fails before a byte is read and a chunked body
@@ -91,15 +105,26 @@ nothing in a response or a log line identified the request a client was asking a
   the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code
-  and the runtime role's grants on the started stack.
+  and the runtime role's grants on the started stack, plus the structured log line of a 405.
+- The Compose stack is the only runnable deployment shipped, so its hardening is the
+  reference for any other environment: a read-only root with a writable `/tmp`, no
+  capabilities, no privilege escalation and a memory limit sized to the measured footprint
+  plus the thread and pool settings. `docker inspect` on the started stack shows
+  `ReadonlyRootfs`, `CapDrop`, `SecurityOpt`, `Memory` and `Tmpfs` for both services.
 - The runtime role no longer owns the schema in the Compose stack and the pipelines; the
   `migrate` job owns the rollout order, so a failed migration stops the stack before the
   service starts. The role split is Compose-specific wiring: any other environment needs the
   same role, the same two credential pairs and the job ahead of the deployment.
 - A client that sends its own id gets it back on every status, including 304, 413 and 500, and
   can quote it to operations; log lines of one request share `requestId` in the ECS JSON
-  output. A data-integrity conflict is logged at WARN by SQL state and constraint name only,
-  never with the driver message that quotes the request's values; the full cause is at DEBUG.
+  output, one object per line with nested `log`, `service` (name and version) and `ecs`
+  members and the MDC entries at the top level. The smoke test's `compose` mode proves it on
+  the started image: `DELETE /order/1` with `X-Request-Id: smoke-<pid>` is the one request
+  path that logs at the shipped levels (the 405 is a WARN from
+  `org.springframework.web.servlet.PageNotFound`), and the `store` container's output must
+  carry a line with that `requestId` and the `service` name and version. A data-integrity
+  conflict is logged at WARN by SQL state and constraint name only, never with the driver
+  message that quotes the request's values; the full cause is at DEBUG.
 - Readiness and the database are coupled: a planned database maintenance window takes the
   service out of rotation for its duration, which is the intended behaviour and must be
   communicated as such.

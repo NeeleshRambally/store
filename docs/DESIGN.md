@@ -168,7 +168,10 @@ history is measured under them. Reports land in `build/reports`.
    container's exit code must be 0, `store_app` must be able to `select count(*) from customer`
    through `psql` in the database container, and `create table` and `update customer` as
    `store_app` must fail with `permission denied for schema public` and `permission denied for
-   table customer`. A failing step prints the `migrate` and `store` logs and fails the job; the
+   table customer`, and `DELETE /order/1` sent with `X-Request-Id: smoke-<pid>` must be a 405
+   problem detail whose log line the `store` container's output carries as ECS JSON with
+   `"requestId":"smoke-<pid>"` and the `service` name and version (see Operations). A failing
+   step prints the `migrate` and `store` logs and fails the job; the
    stack is always torn down. On `main` the job then tags that same `store:ci` image and pushes
    it to GitHub Container Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`,
    so the digest delivered is
@@ -176,6 +179,12 @@ history is measured under them. Reports land in `build/reports`.
    compiled from the same commit by the image build (wrapper-pinned Gradle, BOM-locked
    versions) and the tested jar is the `build` job's, so the artifact identity is the commit,
    not the jar bytes.
+
+Both jobs carry a `timeout-minutes`: 20 for `build` and 30 for `docker`. Measured runs take
+2.0 to 2.5 minutes for `build` and 2.7 to 5.5 minutes for `docker`, and a `docker` run with a
+cold build cache can reach about 10 minutes, so the limits leave a wide margin over a normal
+run while a hung Testcontainers pull, Gradle daemon or image pull releases the runner within
+half an hour instead of GitHub's six-hour default.
 
 Pulling the delivered image: the package is private because the repository is, so log in with
 a token that carries `read:packages`, then pull and run it against a database the container
@@ -207,34 +216,50 @@ Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
 Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
-majors except for `gradle/actions`, and the base images as one grouped pull request with the
-Java major excluded. Both `FROM` lines of the `Dockerfile` are pinned by the multi-arch index
-digest with the tag kept for readability, so a rebuild resolves the same base image until
-Dependabot refreshes the digest (a digest refresh carries no major, so the exclusion does not
-suppress it). Actions are
-referenced by major tag rather than commit SHA on purpose: the grouped weekly pull request is the
-update path, and a SHA pin would freeze the pipeline on a deprecated revision without automation
-that rewrites the SHA. `gradle/actions/setup-gradle` stays on v5 because v6 moved the build cache
-into a closed-source component that requires accepting separate terms of use.
+majors except for `gradle/actions`, the `Dockerfile` base images as one grouped pull request with
+the Java major excluded, and the `compose.yaml` images as the `compose-images` group. Both `FROM`
+lines of the `Dockerfile` and the `postgres:16.2` image of `compose.yaml` are pinned by the
+multi-arch index digest with the tag kept for readability, so a rebuild or a `compose up`
+resolves the same image until Dependabot refreshes the digest (a digest refresh carries no major,
+so the exclusions do not suppress it). The Compose entry ignores every version update of
+`postgres`, so the tag stays at the README's 16.2 while digest refreshes still arrive, and
+ignores `store` entirely, because Dependabot reads `${STORE_IMAGE:-store:local}` as a Docker Hub
+image to look up. Every action is pinned to the commit SHA of its release with the version in a
+trailing comment; Dependabot's github-actions ecosystem moves the SHA and rewrites the comment in
+the grouped weekly pull request, so a pin never freezes the pipeline. The cost is that Dependabot
+security alerts cover only semver-referenced actions, not SHA pins; the weekly update and the
+pinned version comment are the review path instead. `gradle/actions/setup-gradle` stays on the v5
+line (major updates ignored) because v6 moved the build cache into a closed-source component that
+requires separate terms of use. The Gradle wrapper carries `distributionSha256Sum`, so every
+distribution it downloads is verified against the checksum before it is unpacked, independently
+of `validateDistributionUrl`: the image build stage downloads on every build, runners and
+developers verify on their first download and reuse the cache afterwards, and adding the key
+invalidated no existing cache.
 
 `.gitlab-ci.yml` is provided for portability and has not been executed in this project; there is
-no GitLab project for this repository. It follows the same order: `build` runs
+no GitLab project for this repository. It follows the same stages: `build` runs
 `./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule while
 `generator-test`, in the same stage on `node:22-alpine`, runs `npm ci && npm test` in `utils`
 (the GitLab `build` image has no Node), `package` builds the
-image once and saves it as the `image.tar` artifact, `smoke` loads that tarball, starts the stack
-with Compose inside `docker:27-dind` and runs the same script against `http://docker:8080` and
+image once as the local tag `store:ci` and saves it as the `image.tar` artifact, `smoke`
+loads that tarball, starts the stack with Compose inside `docker:27-dind` and runs the same
+script against `http://docker:8080` and
 `http://docker:8081`, `scan` runs Trivy 0.70.0 (the version `aquasecurity/trivy-action@v0.36.0`
 installs by default on GitHub) on the tarball with the same severity, `--ignore-unfixed` and
-`.trivyignore` settings, and `publish`, on the default branch only, loads the same tarball and
-pushes it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` after `package`, `smoke` and `scan`
-have passed.
-Three details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
+`.trivyignore` settings, and `publish`, on the default branch only, loads the same tarball,
+retags it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both after `package`,
+`smoke` and `scan` have passed; as on GitHub, the registry name is touched only by the publish
+step, so a merge-request pipeline of a project without a container registry still builds, smokes
+and scans.
+Four details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
 pipeline runs for merge requests and for the default branch, so a push to a feature branch
 without a merge request runs no pipeline on either platform. The published tag is
 `<short sha>` where GitHub's `docker/metadata-action` writes `sha-<short sha>`. The SBOM is
 CycloneDX produced by Trivy rather than SPDX produced by Syft; both scans print the findings
-table to the job log and neither stores a report.
+table to the job log and neither stores a report. The order of the checks: GitHub runs the
+scan, the SBOM and the smoke test one after the other in the single `docker` job, while on
+GitLab `smoke` and `scan` both `needs: [package]` and run in parallel after it; `publish` needs
+all three, so the gate before a push is the same.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or
@@ -338,11 +363,20 @@ probes and metrics are reachable from inside the cluster but never from the publ
 * `RequestBodyLimitFilter` enforces `REQUEST_MAX_BODY_BYTES` and, like `RequestIdFilter`, is a
   `@Component` filter registered on the API connector only: the management connector's child
   context does not inherit it, and the actuator takes no request bodies
-* Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`)
-  with `service.name` and `service.version` taken from `spring.application.name` and the
-  build version, and `requestId` as a field on every line written while a request is handled;
-  a data-integrity conflict is logged at WARN by SQL state and constraint name, never with
-  the driver message that quotes the request's values (the full cause is at DEBUG)
+* Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`):
+  one object per line with nested members, `"log":{"level":...,"logger":...}`,
+  `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (the service name and version come
+  from `spring.application.name` and the build version), `"message"`,
+  `"ecs":{"version":"8.11"}`, and every MDC entry as a top-level member, so
+  `"requestId":"<id>"` is on every line written while a request is handled. The smoke test's
+  `compose` mode proves the shape on the started image rather than asserting it: no 2xx, 400,
+  404, 413 or 415 request logs at the shipped levels, so the step sends `DELETE /order/1` with
+  `X-Request-Id: smoke-<pid>` (an unsupported method is logged at WARN by
+  `org.springframework.web.servlet.PageNotFound` while the id is in the MDC), expects the 405
+  problem detail and then requires a `store` log line carrying `"requestId":"smoke-<pid>"` and
+  `"service":{"name":"store","version":"`. A data-integrity conflict is logged at WARN by SQL
+  state and constraint name, never with the driver message that quotes the request's values
+  (the full cause is at DEBUG)
 * A database that cannot be reached is a 503, not a 500. A request that cannot obtain a
   connection within the pool's 5 s `connection-timeout` (the pool exhausted, or the database
   down) reaches the handler as `CannotCreateTransactionException`, and a connection lost after
@@ -373,6 +407,21 @@ probes and metrics are reachable from inside the cluster but never from the publ
   deployment. `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008
   records the split, which changeset needs a privileged role, and the `down -v` step for a
   volume created before the job existed
+* The Compose `store` and `migrate` services are hardened: `read_only: true` with
+  `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` live there),
+  `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]` and
+  `deploy.resources.limits.memory: 512m`, which Compose v2 honours without Swarm and which
+  gives the image's `-XX:MaxRAMPercentage=75` a bound to be a percentage of (`MaxHeapSize`
+  resolves to 384 MiB inside the container). The limit is a measured choice: after the smoke
+  run the service holds about 256 MiB of RSS (255.9 and 256.2 MiB in two readings) under the
+  default `TOMCAT_THREADS_MAX` of 200, so 512 MiB leaves the heap room to fill plus metaspace
+  and thread stacks; a larger `TOMCAT_THREADS_MAX` or `DB_POOL_SIZE` needs the limit raised
+  with it, since each busy thread adds its stack and buffers on top of the heap. `postgres`
+  stays unhardened because
+  `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its own
+  user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
+  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0.
+  ADR 0008 records the settings; `docker inspect` on the started stack shows them
 
 ## Further reading
 * `docs/ASSUMPTIONS.md`: the judgement calls behind each task and how they can be defended.
