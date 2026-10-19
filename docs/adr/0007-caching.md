@@ -55,8 +55,9 @@ key is the id, the value is small, and the API has no `PUT` or `DELETE`.
 - Raise the TTL only on evidence: `cache_gets_total{cache="orders",result="hit"}` and
   `cache_gets_total{cache="products",result="hit"}` against `result="miss"` show whether the
   cache earns its staleness.
-- `OpenAPI.yaml` documents the reusable `If-None-Match` parameter, the `304` response and the
-  `ETag` and `Cache-Control` headers on every `GET`.
+- `OpenAPI.yaml` documents the reusable `If-None-Match` parameter and the `304` response, and
+  declares the `ETag` and `Cache-Control` headers as required on every 200 and 304 of a `GET`,
+  so the contract check fails such a response without them.
 - Tests share one context and one cache, so a test may never assume a cold or a warm cache for
   an id it did not populate itself (`QueryCountIT` resets the caches; the others create what
   they read).

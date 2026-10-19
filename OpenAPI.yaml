@@ -568,14 +568,16 @@ components:
         example: '5'
     ETag:
       description: >-
-        Weak validator of the response body (W/"..."); send it back in If-None-Match to
-        revalidate. Weak so that the body can still be compressed.
+        Weak validator of the response body (W/"..."), on every 200 and 304 of a GET; send it
+        back in If-None-Match to revalidate. Weak so that the body can still be compressed.
+      required: true
       schema:
         type: string
     CacheControl:
       description: >-
-        Always no-cache: the response may be stored but must be revalidated with If-None-Match
-        before it is reused.
+        Always no-cache, on every 200 and 304 of a GET: the response may be stored but must be
+        revalidated with If-None-Match before it is reused.
+      required: true
       schema:
         type: string
         example: no-cache
