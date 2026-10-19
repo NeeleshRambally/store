@@ -105,16 +105,27 @@ nothing in a response or a log line identified the request a client was asking a
   content or oversized values. No tracing library (`micrometer-tracing`) is added: there is no
   collector in scope, a trace id without a backend is noise, and the header is exactly where a
   gateway's or a tracer's id attaches when one arrives.
+- **One access line per request.** `AccessLogFilter` writes one INFO line on
+  `com.example.store.access` for every request on the API connector, with the method, the
+  route template, the status and the duration, never the raw path, the query string or the
+  body (a search word is a query parameter). Without it most requests write no line at the
+  shipped levels (a successful read, a 304, a 400, a 404, a 413 and a 415 log nothing), so a
+  request id a client quotes would find nothing; with it every id finds at least that line.
+  It is on by default because the service cannot know whether an ingress in front of it logs
+  requests, and `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns it off where one does;
+  `docs/DESIGN.md`, Operations, gives the format, the size of a line and its measured cost.
 
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
-  rule and the grace periods; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`
-  and `RequestIdIT` pin them, `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
+  rule, the access line and the grace periods; `ActuatorIT`, `RequestIdFilterTests`,
+  `RequestIdFilterMdcTest`, `RequestIdIT` and `AccessLogIT` pin them,
+  `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
   the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
   the hardening of the `migrate` and `store` containers, the address of every published port
-  and the runtime role's grants on the started stack, plus the structured log line of a 405.
+  and the runtime role's grants on the started stack, plus the 405 problem detail of
+  `DELETE /order/1` and the ECS access line of a `GET /order/1`.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
   capabilities, no privilege escalation and a memory limit without swap, sized to the
@@ -133,11 +144,10 @@ nothing in a response or a log line identified the request a client was asking a
 - A client that sends its own id gets it back on every status, including 304, 413 and 500, and
   can quote it to operations; log lines of one request share `requestId` in the ECS JSON
   output, one object per line with nested `log`, `service` (name and version) and `ecs`
-  members and the MDC entries at the top level. The smoke test's `compose` mode proves it on
-  the started image: `DELETE /order/1` with `X-Request-Id: smoke-<pid>` is the one request
-  path that logs at the shipped levels (the 405 is a WARN from
-  `org.springframework.web.servlet.PageNotFound`), and the `store` container's output must
-  carry a line with that `requestId` and the `service` name and version. A data-integrity
+  members and the MDC entries at the top level, and every request writes at least its access
+  line. The smoke test's `compose` mode proves it on the started image: `GET /order/1` sent
+  with `X-Request-Id: smoke-<pid>` must leave its access line, with that `requestId`, the route
+  and the `service` name and version, in the `store` container's output. A data-integrity
   conflict is logged at WARN by SQL state and constraint name only, never with the driver
   message that quotes the request's values; the full cause is at DEBUG.
 - Readiness and the database are coupled: a planned database maintenance window takes the

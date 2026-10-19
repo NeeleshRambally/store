@@ -409,6 +409,10 @@ delivered.
 - Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
   is also in the MDC of every log line of that request, so a client-quoted id finds the logs;
   the contract declares it as required on every response and the contract check enforces it.
+  Every request on the API port writes one access line (method, route template, status and
+  duration; never the query string or the body), so a quoted id always finds at least that
+  line. An ingress usually logs requests too; the line stays on by default because the service
+  cannot tell whether one does, and `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` removes it.
   Distributed tracing is deferred with the same reasoning as authentication: nothing in scope
   consumes a trace, and the header is the hook a tracer attaches to (ADR 0008).
 - GitHub Actions is the live pipeline; `.gitlab-ci.yml` runs the same stages for GitLab (with
@@ -480,8 +484,9 @@ is started with Compose as the restricted runtime role and must become ready
 (`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds), answer
 the API on 8080 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page, a 413 for
 an oversized body) with the actuator on 8081 only; the job's exit code, the hardening of both
-containers and the address of every published port are read with `docker inspect`, and the
-runtime role's grants are checked in the database container. The image that is published from the
+containers and the address of every published port are read with `docker inspect`, the
+runtime role's grants are checked in the database container, and the access line of a request
+must appear in the container's ECS output. The image that is published from the
 default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
 `docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
 review, and the platform cannot enforce required checks on a private free-plan repository, so
