@@ -12,6 +12,10 @@ public record SortPolicy(Set<String> allowed) {
 
     private static final String TIE_BREAK = "id";
 
+    public SortPolicy {
+        allowed = Set.copyOf(allowed);
+    }
+
     public static SortPolicy of(String... properties) {
         return new SortPolicy(Set.of(properties));
     }
