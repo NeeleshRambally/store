@@ -344,7 +344,10 @@ delivered.
   image's entrypoint gives the heap 30% under SerialGC, a share measured under concurrent
   load; the smoke test's `compose` mode asserts each of these settings on both containers, so
   dropping one fails the pipeline. `postgres` stays unhardened because `initdb` needs root
-  capabilities on first start (ADR 0008).
+  capabilities on first start (ADR 0008). The stack publishes the API, the actuator and the
+  database on 127.0.0.1 only, because the API has no authentication and the database role is
+  the `admin` superuser (ADR 0002); `STORE_BIND_ADDRESS` names another address, and the GitLab
+  smoke job sets `0.0.0.0` because it reaches its dind daemon over the network.
 - The image is scanned on every pull request and a critical or high fixable vulnerability
   blocks the merge; findings without a fix are excluded from the gate (`--ignore-unfixed`) and
   are not listed, because there is nothing a code change can do about them; the SBOM is the
@@ -379,9 +382,9 @@ every build: the image that was just built migrates a fresh PostgreSQL as the `m
 is started with Compose as the restricted runtime role and must become ready
 (`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds), answer
 the API on 8080 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page, a 413 for
-an oversized body) with the actuator on 8081 only; the job's exit code and the hardening of
-both containers are read with `docker inspect`, and the runtime role's grants are checked in
-the database container. The image that is published from the
+an oversized body) with the actuator on 8081 only; the job's exit code, the hardening of both
+containers and the address of every published port are read with `docker inspect`, and the
+runtime role's grants are checked in the database container. The image that is published from the
 default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
 `docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and a
 review, and the platform cannot enforce required checks on a private free-plan repository, so

@@ -113,8 +113,8 @@ nothing in a response or a log line identified the request a client was asking a
   the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
-  the hardening of the `migrate` and `store` containers and the runtime role's grants on the
-  started stack, plus the structured log line of a 405.
+  the hardening of the `migrate` and `store` containers, the address of every published port
+  and the runtime role's grants on the started stack, plus the structured log line of a 405.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
   capabilities, no privilege escalation and a memory limit without swap, sized to the
@@ -122,7 +122,10 @@ nothing in a response or a log line identified the request a client was asking a
   test's `compose` mode asserts it with `docker inspect` on both services (`ReadonlyRootfs`,
   `Tmpfs` with `/tmp`, `CapDrop` with `ALL`, `SecurityOpt` with `no-new-privileges:true`, and
   `Memory` and `MemorySwap` both 536870912, so no swap), so a pipeline run fails when a
-  setting is removed, and a new limit needs the asserted value changed with it.
+  setting is removed, and a new limit needs the asserted value changed with it. The stack
+  publishes its ports on 127.0.0.1 unless `STORE_BIND_ADDRESS` names another address, and the
+  same mode checks every published port's `HostIp` against that value (the GitLab smoke job
+  sets `0.0.0.0` to reach the ports of its dind daemon).
 - The runtime role no longer owns the schema in the Compose stack and the pipelines; the
   `migrate` job owns the rollout order, so a failed migration stops the stack before the
   service starts. The role split is Compose-specific wiring: any other environment needs the

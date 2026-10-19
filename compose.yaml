@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: admin
       POSTGRES_DB: store
     ports:
-      - "5434:5432"
+      - "${STORE_BIND_ADDRESS:-127.0.0.1}:5434:5432"
     volumes:
       - store-postgres:/var/lib/postgresql/data
       - ./scripts/postgres-init/01-roles.sql:/docker-entrypoint-initdb.d/01-roles.sql:ro
@@ -68,8 +68,8 @@ services:
     memswap_limit: 512m
     stop_grace_period: 30s
     ports:
-      - "8080:8080"
-      - "8081:8081"
+      - "${STORE_BIND_ADDRESS:-127.0.0.1}:8080:8080"
+      - "${STORE_BIND_ADDRESS:-127.0.0.1}:8081:8081"
 
 volumes:
   store-postgres:
