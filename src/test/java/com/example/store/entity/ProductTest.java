@@ -2,16 +2,15 @@ package com.example.store.entity;
 
 import org.junit.jupiter.api.Test;
 
+import static com.example.store.entity.EntityIds.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ProductTest {
 
     @Test
     void toStringDoesNotTraverseOrders() {
-        Product product = new Product();
-        product.setId(7L);
-        Order order = new Order();
-        order.setId(3L);
+        Product product = withId(new Product(), 7L);
+        Order order = withId(new Order(), 3L);
         order.getProducts().add(product);
         product.getOrders().add(order);
 
@@ -20,11 +19,9 @@ class ProductTest {
 
     @Test
     void equalityIsBasedOnIdOnly() {
-        Product first = new Product();
-        first.setId(1L);
+        Product first = withId(new Product(), 1L);
         first.setDescription("Chair");
-        Product second = new Product();
-        second.setId(1L);
+        Product second = withId(new Product(), 1L);
         second.setDescription("Table");
 
         assertThat(first).isEqualTo(second);
@@ -39,7 +36,7 @@ class ProductTest {
     void hashCodeIsStableAcrossIdAssignment() {
         Product product = new Product();
         int before = product.hashCode();
-        product.setId(42L);
+        withId(product, 42L);
 
         assertThat(product.hashCode()).isEqualTo(before);
     }
