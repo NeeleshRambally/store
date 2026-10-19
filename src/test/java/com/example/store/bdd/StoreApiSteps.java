@@ -149,6 +149,11 @@ public class StoreApiSteps {
         get("/order/" + id);
     }
 
+    @When("I request order {string}")
+    public void requestOrderByRawId(String id) throws Exception {
+        get("/order/" + id);
+    }
+
     @When("I request order {int} again with that ETag")
     public void requestOrderWithETag(int id) throws Exception {
         HttpHeaders headers = new HttpHeaders();

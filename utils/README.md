@@ -32,6 +32,19 @@ is the generator's own check (determinism, the two size variables and their reje
 `build` job of `.github/workflows/ci.yml` and the `generator-test` job of `.gitlab-ci.yml` run
 `npm ci && npm test` in this directory.
 
+# Known advisory
+`npm audit` reports GHSA-qxc2-j82w-r537 (high, CWE-95) against `@faker-js/faker` 7.6.0: code
+execution through `helpers.fake`, affecting every release up to 10.4.0. The generator never
+calls `helpers.fake` (`grep -n helpers generateData.js` prints nothing; it uses
+`faker.name.fullName`, `faker.commerce.productName` and `faker.datatype.number` on a fixed
+seed) and runs only on a developer machine against this checked-in script, so the advisory is
+accepted. The fix is on the Faker 10 line (`npm audit` offers 10.6.0, a semver-major), which
+renames `faker.name` to `faker.person` along the way and changes every seeded value, so taking
+it would regenerate `data.sql` and break every test that asserts the seed; that is the reason
+for staying on 7.6.0 (see "Notes"). `npm ci` does not fail on audit findings, so the
+pipelines' `npm ci && npm test` step is unaffected. Reviewed 2026-10-19; re-check when the
+seed is next regenerated, which is when the major can be taken.
+
 # Notes
 The generator is fully seeded: the customer names, the order descriptions and the customer of
 each order all come from Faker's seeded generator, so running it twice produces the same file

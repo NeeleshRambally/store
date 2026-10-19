@@ -94,6 +94,11 @@ Feature: Order management
     Then the response status is 404
     And the response problem detail is "Order with id 999999 was not found"
 
+  Scenario: Fetching an order with a non-numeric id is rejected
+    When I request order "abc"
+    Then the response status is 400
+    And the response problem detail is "Failed to convert 'id' with value: 'abc'"
+
   Scenario: Walk orders with a cursor
     When I request orders after 0 with size 5
     Then the response status is 200

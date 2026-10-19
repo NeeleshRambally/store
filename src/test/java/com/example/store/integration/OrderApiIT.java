@@ -121,6 +121,14 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsNonNumericOrderId() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order/abc", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: 'abc'");
+    }
+
+    @Test
     void listsOrdersPageWithTheirCustomer() {
         ResponseEntity<PageResponse<OrderDTO>> response =
                 restTemplate.exchange("/order", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});

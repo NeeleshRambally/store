@@ -312,6 +312,19 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void unsupportedMediaTypeMatchesTheContract() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.TEXT_PLAIN);
+
+        Interaction interaction = exchange(HttpMethod.POST, "/order", Map.of(), headers, "not json");
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(interaction.json().get("status").asInt()).isEqualTo(415);
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void unknownSortPropertyMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("sort", "nope"));
 
