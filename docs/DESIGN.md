@@ -582,8 +582,10 @@ order and then answered 406, and a `GET` of an unknown id or with an invalid par
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
 unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the
-service for `CACHE_TTL`; `products` entries are evicted when an order containing the product is
-created, so its order ids and `orderCount` reflect the new order on the next read.
+service for `CACHE_TTL`; `products` entries are evicted after an order containing the product
+commits, so the next read normally lists the new order, but a read that missed the cache before
+that commit can store the old value after the eviction, and the entry then stays stale for up
+to `CACHE_TTL` (ADR 0007).
 `GET /customer/{id}` is not cached in the service: its `orderCount` changes on every
 `POST /order` and nothing keys customers for eviction, so each read costs its 2 statements.
 

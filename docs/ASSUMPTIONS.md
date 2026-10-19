@@ -371,9 +371,10 @@ delivered.
   `CACHE_TYPE=none` to disable): a repeated read runs no statement and opens no session (pinned
   by the integration test). An order never changes after creation, so `orders` entries are never
   evicted; a product's order ids and `orderCount` change on `POST /order`, so those `products` entries are
-  evicted after the commit on the node that served the write. On another replica, or after a
-  write that bypasses the service, a product can be stale for up to the TTL; that bound is the
-  reason the default is short. See ADR 0007.
+  evicted after the commit on the node that served the write. A product can still be stale for
+  up to the TTL: on another replica, after a write that bypasses the service, and on the same
+  node when a read that missed the cache before the commit stores the old value after the
+  eviction. That bound is the reason the default is short. See ADR 0007.
 
 ## Testing strategy
 - TDD for every production change: each test was observed failing before the code that makes
