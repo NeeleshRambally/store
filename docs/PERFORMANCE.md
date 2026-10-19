@@ -261,72 +261,128 @@ trigram index).
 `GET /customer?name=<word>` runs `lower(c.name) like lower(concat('%', :word, '%')) escape '!'`
 (`CustomerRepository`), which PostgreSQL plans as `lower(name) ~~ '%word%'`. Changeset 4 creates
 `idx_customer_name_trgm`, a GIN index with `gin_trgm_ops` on the same expression, `lower(name)`.
-Whether the planner uses it depends on the table: on the 100-row seed a sequential scan of one
-page is cheaper than a GIN lookup, so the seed never shows the index. Plans measured with
-`EXPLAIN (ANALYZE, BUFFERS)` on a throwaway PostgreSQL 16.2 (the `customer` table from
-`schema.sql`, the extension and index from changeset 4, `ANALYZE` after loading):
+Whether the planner uses it depends on the table and the statement: on the 100-row seed a
+sequential scan of one page is cheaper than a GIN lookup, so the seed never shows the index.
+Every plan below was measured by hand on 2026-10-19 with the jar of `f0b1595` on a throwaway
+PostgreSQL 16.2, with `EXPLAIN (ANALYZE, BUFFERS)`, warm, the times as the range over five runs.
 
 The 100 seeded customers, unaided, and then with `SET LOCAL enable_seqscan = off`, which is
 what `MigrationIT.customerNameSearchPredicateIsServedByTheTrigramIndex` pins: it `EXPLAIN`s a
 hand-written statement of the same shape (`lower(name) LIKE lower(...) ESCAPE '!'`), so it pins
 that the predicate shape is served by the index, not the SQL Hibernate renders from the JPQL
-(which matches today). Since changeset 7 the pin
-also drops `idx_customer_name_id` inside its rolled-back transaction: on 100 rows a full bitmap
-scan of that small B-tree (cost 8.6) beats the GIN lookup (cost 30), so with the sort index in
-place the planner never shows the trigram path on the seed even with sequential scans off.
+(which matches today). Since changeset 7 the pin also drops `idx_customer_name_id` inside its
+rolled-back transaction: with sequential scans off and that index present, the planner prefers
+an `Index Only Scan using idx_customer_name_id` that filters all 100 entries (cost 14.1) to the
+GIN lookup (cost 17.0), so on the seed the trigram path appears only without it.
 
 ```
-Seq Scan on customer  (cost=0.00..2.50 rows=1 width=23) (actual time=0.005..0.033 rows=1 loops=1)
+Seq Scan on customer  (cost=0.00..2.50 rows=1 width=23) (actual time=0.003..0.022 rows=1 loops=1)
   Filter: (lower((name)::text) ~~ '%onne%'::text)
   Rows Removed by Filter: 99
   Buffers: shared hit=1
-Execution Time: 0.042 ms
+Execution Time: 0.025 ms
 
-Bitmap Heap Scan on customer  (cost=29.98..33.99 rows=1 width=23) (actual time=0.033..0.034 rows=1 loops=1)
+Bitmap Heap Scan on customer  (cost=12.99..17.00 rows=1 width=23) (actual time=0.005..0.005 rows=1 loops=1)
   Recheck Cond: (lower((name)::text) ~~ '%onne%'::text)
   Heap Blocks: exact=1
+  Buffers: shared hit=6
+  ->  Bitmap Index Scan on idx_customer_name_trgm  (cost=0.00..12.99 rows=1 width=0) (actual time=0.003..0.003 rows=1 loops=1)
+        Index Cond: (lower((name)::text) ~~ '%onne%'::text)
+        Buffers: shared hit=5
+Execution Time: 0.012 ms
+```
+
+The first took 0.025 to 0.037 ms and the second 0.009 to 0.019 ms; the search's own page
+statement on the seed is the same sequential scan under a sort and a limit (0.023 to 0.046 ms).
+
+The production-sized case is 200,000 customers made by this statement in a database that the
+jar migrated with `LIQUIBASE_CONTEXTS=prod` (no seed), with the two name indexes dropped before
+the load and created again after it as changesets 4 and 7 define them, then `ANALYZE customer`:
+
+```sql
+INSERT INTO customer (id, name)
+SELECT g,
+       (ARRAY['Muriel','Lance','Denise','Dianne','Jean','Vicki','Winifred','Robin','Leticia',
+              'Natalie','Velma','Verna','Salvatore','Irma','Zachary','Alexander','Hattie',
+              'Angelo','Moses','Della'])[((g - 1) / 30) % 20 + 1]
+       || ' ' ||
+       (ARRAY['Stiedemann','Harris','Lemke','Daniel','Kutch','Morissette','Steuber','MacGyver',
+              'Oberbrunner','Mosciski','Beahan','Feil','Stoltenberg','Adams','Mayer','Quigley',
+              'Pfannerstill','Johnson','Rutherford','Hoeger','Murray','Stark','Donnelly','Kling',
+              'Ritchie','Gutmann','Bernier','Schaefer','Wolff','Carter'])[((g - 1) % 30) + 1]
+FROM generate_series(1, 200000) AS g;
+```
+
+The table holds 600 distinct names (20 first names by 30 surnames): 6,666 rows contain `onne`,
+13,333 contain `on` and none contains `zqxw`. A search runs two statements, which Hibernate
+renders as
+
+```sql
+select c1_0.id,c1_0.name from customer c1_0 where lower(c1_0.name) like lower(('%'||?||'%')) escape '!' order by c1_0.id fetch first ? rows only
+select count(c1_0.id) from customer c1_0 where lower(c1_0.name) like lower(('%'||?||'%')) escape '!'
+```
+
+(the page adds `offset ? rows` from page 1 on, and Spring Data skips the count when the first
+page is short). They were measured as `EXPLAIN (ANALYZE, BUFFERS) EXECUTE` of prepared copies
+under `plan_cache_mode = force_custom_plan`, the plans a connection's first executions get; the
+server's `auto_explain` log of the application's own requests against the same table showed the
+same plans.
+
+| Statement | Plan | Buffers | Time |
+|-----------|------|---------|------|
+| Page 0 of `onne` (3.3% of the rows) | `Limit → Index Scan using customer_pkey`, the filter removing 573 rows before 20 match | 8 | 0.17 to 0.19 ms |
+| Page 1 of `onne` | the same walk of `customer_pkey`, 1,153 rows removed | 14 | 0.26 to 0.28 ms |
+| Page 332 of `onne` (offset 6,640, the last full page) | `Limit → Sort → Bitmap Heap Scan → Bitmap Index Scan on idx_customer_name_trgm` over all 6,666 matches | 1,346 | 2.7 to 2.9 ms |
+| Count of `onne` | `Aggregate → Bitmap Heap Scan → Bitmap Index Scan on idx_customer_name_trgm`, 6,666 rows, none removed by the recheck | 1,346 | 2.6 to 3.1 ms |
+| Page 0 of `zqxw` (no match, so no count) | `Limit → Sort → Bitmap Heap Scan → Bitmap Index Scan on idx_customer_name_trgm` | 3 | 0.005 to 0.008 ms |
+| Page 1 and count of `zqxw` | the same trigram lookup | 3 | 0.006 to 0.021 ms |
+| Page 0 of `on` (two letters) | the walk of `customer_pkey`, 273 rows removed | 5 | 0.07 to 0.09 ms |
+| Count of `on` | `Parallel Seq Scan on customer`: `pg_trgm` extracts no trigram from a pattern shorter than three characters, so the index cannot be consulted | 1,334 | 19.5 to 20.0 ms |
+
+So the index serves the count, rare words and deep pages of a common word, while a shallow page
+of a common word walks the primary key and stops after `size` matches, which costs little while
+the matches are dense; a word that matches nothing costs three buffers on either statement.
+The page and the count of `onne`:
+
+```
+Limit  (cost=0.42..11.26 rows=20 width=23) (actual time=0.015..0.179 rows=20 loops=1)
   Buffers: shared hit=8
-  ->  Bitmap Index Scan on idx_customer_name_trgm  (cost=0.00..29.98 rows=1 width=0) (actual time=0.030..0.030 rows=1 loops=1)
-        Index Cond: (lower((name)::text) ~~ '%onne%'::text)
-        Buffers: shared hit=7
-Execution Time: 0.086 ms
+  ->  Index Scan using customer_pkey on customer c1_0  (cost=0.42..7541.42 rows=13919 width=23) (actual time=0.015..0.178 rows=20 loops=1)
+        Filter: (lower((name)::text) ~~ '%onne%'::text)
+        Rows Removed by Filter: 573
+        Buffers: shared hit=8
+Execution Time: 0.183 ms
+
+Aggregate  (cost=1684.25..1684.26 rows=1 width=8) (actual time=2.628..2.628 rows=1 loops=1)
+  Buffers: shared hit=1346
+  ->  Bitmap Heap Scan on customer c1_0  (cost=106.67..1649.46 rows=13919 width=8) (actual time=0.418..2.355 rows=6666 loops=1)
+        Recheck Cond: (lower((name)::text) ~~ '%onne%'::text)
+        Heap Blocks: exact=1334
+        Buffers: shared hit=1346
+        ->  Bitmap Index Scan on idx_customer_name_trgm  (cost=0.00..103.19 rows=13919 width=0) (actual time=0.360..0.360 rows=6666 loops=1)
+              Index Cond: (lower((name)::text) ~~ '%onne%'::text)
+              Buffers: shared hit=12
+Execution Time: 2.641 ms
 ```
 
-200,000 customers generated with `generate_series` (20 first names by 30 surnames, 6,666 of
-them matching `%onne%`), unaided: the planner picks the index, and reads 1,786 buffers instead
-of the whole table (re-checked after changeset 7 on a throwaway table carrying both
-`idx_customer_name_trgm` and `idx_customer_name_id`: the plan is still the
-`Bitmap Index Scan on idx_customer_name_trgm`, 8.2 ms for 33,300 matching rows):
+The plan cache (see "Sorted pages") changes the count on a busy connection. With one pooled
+connection the count switched to a generic plan from its tenth execution and kept the trigram
+index for `onne` (3.8 to 6.1 ms in the application's requests), while the page statement with an
+offset stayed on custom plans through all sixteen of its executions. A generic count cannot tell
+that a two-letter word yields no trigram, so for `on` it reads the whole trigram index and the
+recheck removes 186,667 of the 200,000 rows (1,985 buffers; 76 to 78 ms under
+`force_generic_plan`, 82 and 92 ms in the application's requests), about four times the parallel
+sequential scan of the custom plan. Forcing generic plans everywhere would hurt rare words
+instead: the generic page plan walks `customer_pkey` for `zqxw` and filters out all 200,000 rows
+(1,883 buffers, 67 to 69 ms instead of under 0.01 ms). `prepareThreshold` and `plan_cache_mode`
+therefore stay at their defaults, which let PostgreSQL choose per statement.
 
-```
-Bitmap Heap Scan on customer  (cost=2184.07..3562.88 rows=6387 width=21) (actual time=2.490..5.513 rows=6666 loops=1)
-  Recheck Cond: (lower((name)::text) ~~ '%onne%'::text)
-  Heap Blocks: exact=1282
-  Buffers: shared hit=1786
-  ->  Bitmap Index Scan on idx_customer_name_trgm  (cost=0.00..2182.47 rows=6387 width=0) (actual time=2.386..2.386 rows=6666 loops=1)
-        Index Cond: (lower((name)::text) ~~ '%onne%'::text)
-        Buffers: shared hit=504
-Planning Time: 0.454 ms
-Execution Time: 5.691 ms
-```
-
-The same 200,000 rows with a two-character word (`%on%`): `pg_trgm` extracts no trigram from
-a pattern shorter than three characters, so the index cannot be consulted and every such
-search is a sequential scan however large the table:
-
-```
-Seq Scan on customer  (cost=0.00..4283.00 rows=52753 width=21) (actual time=0.007..38.660 rows=53334 loops=1)
-  Filter: (lower((name)::text) ~~ '%on%'::text)
-  Rows Removed by Filter: 146666
-  Buffers: shared hit=1283
-Planning Time: 0.406 ms
-Execution Time: 39.801 ms
-```
-
-So the index is right for the production table and irrelevant for the seed, and a one- or
-two-character search (which the API accepts) costs a scan of the customer table; the page
-limit still bounds what is returned and the count query pays the same scan. If such searches
-turn out to be common the remedy is a minimum word length in the API, not another index.
+So the index is right for the production table and irrelevant for the seed. A one- or
+two-character search (which the API accepts) cannot use it: its count reads every row, as a
+sequential scan or, on a generic plan, through the whole trigram index, and its page walks the
+primary key until `size` rows match, which is quick for common letters and a full walk for rare
+ones; the page limit still bounds what is returned. If such searches turn out to be common the
+remedy is a minimum word length in the API, not another index.
 
 ## Caching
 Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionIT`,
