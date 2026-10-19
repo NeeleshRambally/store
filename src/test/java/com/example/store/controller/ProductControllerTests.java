@@ -71,6 +71,19 @@ class ProductControllerTests {
     }
 
     @Test
+    void createRejectsAControlCharacterInTheDescription() throws Exception {
+        when(productService.create(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Rustic\\tChair\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not contain control characters"));
+        verify(productService, never()).create(any());
+    }
+
+    @Test
     void createRejectsClientSuppliedId() throws Exception {
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)

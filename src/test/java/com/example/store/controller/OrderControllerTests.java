@@ -117,6 +117,19 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsAControlCharacterInTheDescription() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Line one\\nLine two\",\"customerId\":5,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not contain control characters"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createRejectsAFractionalCustomerId() throws Exception {
         when(orderService.create(any())).thenReturn(ORDER);
 

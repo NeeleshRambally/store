@@ -113,8 +113,15 @@ delivered.
   body that does not bind: an unknown property or a value of the wrong JSON type is named by its
   path (`productIds[0]`), while malformed JSON stays `Failed to read request` without `errors`;
   nothing else about the failure is exposed. A whitespace-only `name` or `description` is a
-  validation failure, and the specification says so (`pattern: '\S'`) so that a client built
-  from it rejects the same value.
+  validation failure, and the specification says so (its `pattern` requires a character that is
+  not whitespace) so that a client built from it rejects the same value.
+- Request strings are single-line text: a control character (U+0000 to U+001F or U+007F, so also
+  a tab or a line break) in `description` or `name` is a 400 naming the field
+  (`must not contain control characters`). Before the rule a NUL reached the insert, which
+  PostgreSQL rejects in text, and came back as a 409, and a tab or a line break was stored. A
+  schema carries one `pattern`, so the specification combines this rule with the not-blank one:
+  `^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$`, any number of
+  characters that are not controls around one that is neither a control nor whitespace.
 - The three `POST`s are not idempotent: each inserts unconditionally, there are no unique
   constraints, and no `Idempotency-Key` header is supported, so a gateway or client that
   retries after a timeout (or after the 503 of a lost database, which does not say whether the
@@ -301,25 +308,27 @@ delivered.
   paths declare the 400 of a non-numeric id; every `POST` declares 409 and every operation 500
   (reusable problem-detail responses, no `default`, which would hide an undeclared status from
   the validator); `Order`, `Customer` and `Product` declare their required properties so a
-  dropped `customer`, `products` or `orders` fails the check; the request strings carry
-  `pattern: '\S'` next to `minLength: 1` so a whitespace-only value is rejected by the
-  specification as it is by the server; `productIds` declares `maxItems: 100`; and `Customer`
-  and `Product` declare `orderCount` as required, which failed eight contract cases until the
-  DTOs carried it. A later round tightened what the specification enforces rather than what it
-  describes: the nested `customer`, `products` and `orders` objects declare their required
-  properties, `productIds` declares `uniqueItems`, `X-Request-Id` is declared as required on
-  every response (the synthetic 409 and 500 cases failed with `Header 'X-Request-Id' is
-  expected ... but not found` until they carried it, proof that the validator checks declared
-  headers) and `Location` on every 201 (the three `POST` captures failed the same way until the
-  controllers sent it). The 503 of a lost database is declared on every operation with
-  `Retry-After` required (the synthetic case failed with `Response status 503 not defined for
-  path '/order'` until it was, and a second case pins that a 503 without `Retry-After` is
-  rejected). The 415 of a `POST` whose `Content-Type` is not `application/json` is declared on
-  the three `POST`s the same way (the captured `text/plain` case failed with `Response status
-  415 not defined for path '/order'` until it was). A 405 for a method a path does not list
-  cannot be declared, since the method does not exist in the contract: `info.description`
-  says so and the smoke test checks `DELETE /order/1`; the `servers` entry says that the public
-  base URL is set by the gateway (ADR 0002) rather than listing a placeholder.
+  dropped `customer`, `products` or `orders` fails the check; the request strings carry a
+  `pattern` that requires a character that is not whitespace next to `minLength: 1` so a
+  whitespace-only value is rejected by the specification as it is by the server (the same
+  `pattern` now also excludes control characters); `productIds` declares `maxItems: 100`; and
+  `Customer` and `Product` declare `orderCount` as required, which failed eight contract cases
+  until the DTOs carried it. A later round tightened what the specification enforces rather than
+  what it describes: the nested `customer`, `products` and `orders` objects declare their
+  required properties, `productIds` declares `uniqueItems`, `X-Request-Id` is declared as
+  required on every response (the synthetic 409 and 500 cases failed with
+  `Header 'X-Request-Id' is expected ... but not found` until they carried it, proof that the
+  validator checks declared headers) and `Location` on every 201 (the three `POST` captures
+  failed the same way until the controllers sent it). The 503 of a lost database is declared on
+  every operation with `Retry-After` required (the synthetic case failed with
+  `Response status 503 not defined for path '/order'` until it was, and a second case pins that
+  a 503 without `Retry-After` is rejected). The 415 of a `POST` whose `Content-Type` is not
+  `application/json` is declared on the three `POST`s the same way (the captured `text/plain`
+  case failed with `Response status 415 not defined for path '/order'` until it was). A 405 for
+  a method a path does not list cannot be declared, since the method does not exist in the
+  contract: `info.description` says so and the smoke test checks `DELETE /order/1`; the
+  `servers` entry says that the public base URL is set by the gateway (ADR 0002) rather than
+  listing a placeholder.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
