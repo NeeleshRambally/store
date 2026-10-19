@@ -46,8 +46,8 @@ advanced past the seeded ids, so the first insert failed outright.
 | B-tree indexes on the whitelisted sort columns with `id` as the trailing column: `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` (changeset 7) | A shallow sorted offset page is a backward index scan over the entries it returns instead of a top-N sort of the whole table; a deep sorted offset page still pays the offset (see "Sorted pages" below); `MigrationIT` pins the three plans |
 | `spring.jpa.open-in-view: false`; services are `@Transactional(readOnly = true)` and return DTOs | No query can run outside a service transaction; the connection is returned before serialisation starts |
 | `default_batch_fetch_size: 100` | Safety net only; no endpoint relies on it |
-| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the order and product by-id bodies stay below the threshold and are sent as is, while a customer with 20 nested orders is just above it and is compressed (1,049 B / 418 B) |
-| HikariCP pool size and timeouts made explicit and configurable | Predictable behaviour under load; fail fast when the database is unreachable |
+| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the order and product by-id bodies stay below the threshold and are sent as is, while a customer with 20 nested orders is just above it and is compressed (1,049 B / 424 B) |
+| HikariCP pool size configurable (`DB_POOL_SIZE`), connection and validation timeouts explicit (5 s, 2 s) | Predictable behaviour under load; fail fast when the database is unreachable |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
 | `GET /order?customerId=` and `GET /order?productId=`: the same page, count and products queries with a `where c.id = :customerId` predicate on `idx_order_customer_id` or a `join o.products p where p.id = :productId` on `idx_order_product_product_id` (the join-table primary key makes the join row-preserving) | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; the full list of one customer's or one product's orders is reachable without raising the per-request cost |
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
@@ -64,7 +64,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /products` | n/a | 3 | n/a | 3,427 B / 975 B (default page); 16,901 B / 4,529 B with `size=100` |
 | `GET /order/{id}`, `GET /products/{id}` (cold) | n/a | 1, 2 | n/a | 178 B (`/order/1`), 165 B (`/products/2`, 20 of its 200 order ids); under the 1 KB compression threshold, so sent as is |
 | `GET /order/{id}`, `GET /products/{id}` (same id within 60 s) | n/a | 0, no session | n/a | the same bodies, or 0 B with a matching `If-None-Match` |
-| `GET /customer/{id}` | n/a | 2 (1 on a miss); every read, there is no service cache | n/a | 1,049 B / 418 B (`/customer/1`, 20 of its ~100 orders) |
+| `GET /customer/{id}` | n/a | 2 (1 on a miss); every read, there is no service cache | n/a | 1,049 B / 424 B (`/customer/1`, 20 of its 96 orders) |
 | `GET /customer?name=` | n/a | 3 for a full page, 2 for a short first page | n/a | 1,115 B / 467 B for `name=onne` (one customer on the seed) |
 | `GET /order?after=`, `GET /customer?after=` (with or without `name`), `GET /products?after=` | n/a | 2 | n/a | 3,763 B / 949 B, 21,315 B / 4,088 B, 3,399 B / 956 B (`after=0`, default size) |
 | `GET /order?customerId=`, `GET /order?productId=` | n/a | 3 (2 with `after`) | n/a | 3,836 B / 740 B (`customerId=1`, default page); 18,095 B / 2,132 B with `size=100` |
@@ -74,12 +74,15 @@ is shorter than `size`, and the services skip the child query when the page is e
 short first page costs 2 (`QueryCountIT.shortFirstPageSkipsTheCountQuery`, `name=onne&size=5`
 on the seed) and an empty page 1 (`emptyOrderPageFilteredByCustomerUsesOneStatement`,
 `/order?customerId=999999`); a cursor page is 2, or 1 when empty
-(`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`, `customerId=999999&after=0`). The payload column was
-measured on 2026-10-18 against the Compose stack built from `main` (`426e08f`, `docker compose
-up -d --build`, the seeded database), with
-`curl -s -o /dev/null -w '%{size_download}'`, once as is and once with
-`Accept-Encoding: gzip`; the "before" columns repeat the measurement on the original code at
-the top of this document.
+(`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`, `customerId=999999&after=0`). Every
+figure in the payload column was measured on 2026-10-19 against the Compose stack built from
+`main` at `5215fba` (`docker compose up -d --build`, the seeded database), with
+`curl -s -o /dev/null -w '%{size_download}'` on the exact path of each row, once as is and once
+with `Accept-Encoding: gzip`, and the stack was removed with `docker compose down -v` afterwards.
+An earlier revision of this table cited `426e08f`, a commit that predates `GET /customer/{id}`;
+the `/customer/1` figure had been taken through a temporary print in `CustomerApiIT` and the
+re-measurement changed only its gzip size (418 B to 424 B). The "before" columns repeat the
+measurement on the original code at the top of this document.
 
 With a remote database the request latency is now a small constant number of round trips
 regardless of data volume, and the body of a response is bounded by `size` (rows per page, at
@@ -124,8 +127,13 @@ shape over `order_product` serves the products. The statement is served by
 `idx_order_customer_id` when the page's customers own a small share of the order table
 (`MigrationIT.customerOrderWindowIsServedByTheCustomerIdIndex` pins a `Bitmap Index Scan` for
 three customers with sequential scans disabled); a `size=100` page on the 100-customer seed
-legitimately scans the whole table, because those customers own all of it. What is bounded
-now: rows per page (`size`, at most 100), orders per customer and order ids per product
+legitimately scans the whole table, because those customers own all of it. The statement's work
+is proportional to the orders of the parents on the page, bounded in count by `size` and
+unbounded per parent: `count(*) over (partition by customer_id)` reads every order of each
+parent to produce `orderCount`, so a customer with a million orders costs a million index
+entries on every page it appears on even though the response carries twenty of them. If a
+parent's orders ever grow without bound, the remedy is a cached or approximate `orderCount`,
+not a different window. What is bounded now: rows per page (`size`, at most 100), orders per customer and order ids per product
 (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
 The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
 statements per page. Measured after the bound (the method is under "Results"): the default
@@ -192,8 +200,12 @@ mode remains the constant-cost walk in `id` order only (`after` cannot be combin
 `Index Only Scan Backward using idx_product_description_id` and
 `Index Only Scan using idx_customer_name_id`. `MigrationIT` pins the three plans with
 `SET LOCAL enable_seqscan = off` on the seed (`sortedOrderPageIsServedByTheDescriptionIndex`,
-`sortedProductPageIsServedByTheDescriptionIndex`, `sortedCustomerPageIsServedByTheNameIndex`),
-so a sort rendered in a shape the index cannot serve fails the build. The filtered pages
+`sortedProductPageIsServedByTheDescriptionIndex`, `sortedCustomerPageIsServedByTheNameIndex`).
+As with the trigram pin below, each `EXPLAIN`s a hand-written statement of the shape the
+repositories' JPQL renders to (`order by description desc, id desc` and the other two), so the
+pins hold that the sorted shape is served by the index, not the SQL Hibernate renders, which is
+not captured; the tie-break direction that keeps the rendered shape index-servable is held by
+`SortPolicyTest.appendsAnIdTieBreakInTheDirectionOfTheLastProperty`. The filtered pages
 (`customerId`, `productId`) and the name search keep their plans (`idx_order_customer_id`, the
 trigram index).
 
