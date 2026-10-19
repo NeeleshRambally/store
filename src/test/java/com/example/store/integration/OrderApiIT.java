@@ -156,6 +156,24 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aNonJsonAcceptHeaderIsRejectedBeforeTheOrderIsCreated() {
+        Long before = ordersDescribed("Accepting only XML");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_XML));
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                "/order",
+                new HttpEntity<>(
+                        "{\"description\":\"Accepting only XML\",\"customerId\":5,\"productIds\":[2]}", headers),
+                String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
+        assertThat(response.getHeaders().getContentType()).isEqualTo(MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(ordersDescribed("Accepting only XML")).isEqualTo(before);
+    }
+
+    @Test
     void returnsNotFoundForUnknownCustomer() {
         ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
                 "/order",

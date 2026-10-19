@@ -58,6 +58,8 @@ paths:
                   - $ref: '#/components/schemas/OrderCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -91,6 +93,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '409':
           $ref: '#/components/responses/Conflict'
         '413':
@@ -143,6 +147,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -193,6 +199,8 @@ paths:
                   - $ref: '#/components/schemas/CustomerCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -222,6 +230,8 @@ paths:
                 $ref: '#/components/schemas/Customer'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '409':
           $ref: '#/components/responses/Conflict'
         '413':
@@ -272,6 +282,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -311,6 +323,8 @@ paths:
                   - $ref: '#/components/schemas/ProductCursorPage'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -340,6 +354,8 @@ paths:
                 $ref: '#/components/schemas/Product'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '409':
           $ref: '#/components/responses/Conflict'
         '413':
@@ -390,6 +406,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '404':
           $ref: '#/components/responses/NotFound'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
         '304':
           $ref: '#/components/responses/NotModified'
         '500':
@@ -652,6 +670,29 @@ components:
                 detail: Customer with id 999999 was not found
                 instance: /customer/999999
                 code: not_found
+    NotAcceptable:
+      description: >-
+        The Accept header admits neither application/json nor application/problem+json, the
+        media types every operation produces. The request was not processed: the 406 is
+        decided before the parameters are validated or the body is read, so a POST created
+        nothing. An Accept that also admits */*, as a browser's does, is served JSON.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            orderAsXml:
+              summary: GET /order/1 with Accept application/xml
+              value:
+                type: about:blank
+                title: Not Acceptable
+                status: 406
+                detail: 'Acceptable representations: [application/json, application/problem+json].'
+                instance: /order/1
+                code: not_acceptable
     Conflict:
       description: >-
         The write conflicts with existing data (a database constraint rejected it); the body
