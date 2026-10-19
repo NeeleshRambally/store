@@ -9,8 +9,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -115,6 +118,23 @@ class OrderApiIT extends AbstractIntegrationTest {
                 .extracting(error -> error.get("field"))
                 .containsExactly("description");
         assertThat(ordersDescribed("Line one\nLine two")).isEqualTo(before);
+    }
+
+    @Test
+    void contentAfterTheBodyIsRejectedWithoutCreatingAnOrder() {
+        Long before = ordersDescribed("Trailing content");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
+                "/order",
+                new HttpEntity<>(
+                        "{\"description\":\"Trailing content\",\"customerId\":5,\"productIds\":[2]} x", headers),
+                ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to read request");
+        assertThat(ordersDescribed("Trailing content")).isEqualTo(before);
     }
 
     @Test

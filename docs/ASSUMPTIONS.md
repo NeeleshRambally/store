@@ -50,6 +50,9 @@ delivered.
   `must be an integer` rather than `must not be null`; and Jackson stops at the first field it
   cannot bind, so `errors` lists one type failure even when several fields are wrong (a body
   that binds still has every Bean Validation failure listed).
+- A request body is exactly one JSON object: anything but whitespace after it is a 400
+  (`Failed to read request`). Jackson stops reading after the first JSON value by default, so an
+  order body followed by a stray `x` used to create the order.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
@@ -121,10 +124,11 @@ delivered.
   Boot's default error body instead. Validation failures list the offending fields, for a
   request body and for a query parameter alike (`name`, `after`, `page`, `size`), and so does a
   body that does not bind: an unknown property or a value of the wrong JSON type is named by its
-  path (`productIds[0]`), while malformed JSON stays `Failed to read request` without `errors`;
-  nothing else about the failure is exposed. A whitespace-only `name` or `description` is a
-  validation failure, and the specification says so (its `pattern` requires a character that is
-  not whitespace) so that a client built from it rejects the same value.
+  path (`productIds[0]`), while malformed JSON, content after the JSON object included, is
+  `Failed to read request` without `errors`; nothing else about the failure is exposed. A
+  whitespace-only `name` or `description` is a validation failure, and the specification says
+  so (its `pattern` requires a character that is not whitespace) so that a client built from it
+  rejects the same value.
 - Request strings are single-line text: a control character (U+0000 to U+001F or U+007F, so also
   a tab or a line break) in `description` or `name` is a 400 naming the field
   (`must not contain control characters`). Before the rule a NUL reached the insert, which
