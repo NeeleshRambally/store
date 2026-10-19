@@ -278,7 +278,12 @@ delivered.
   controllers sent it). The 503 of a lost database is declared on every operation with
   `Retry-After` required (the synthetic case failed with `Response status 503 not defined for
   path '/order'` until it was, and a second case pins that a 503 without `Retry-After` is
-  rejected).
+  rejected). The 415 of a `POST` whose `Content-Type` is not `application/json` is declared on
+  the three `POST`s the same way (the captured `text/plain` case failed with `Response status
+  415 not defined for path '/order'` until it was). A 405 for a method a path does not list
+  cannot be declared, since the method does not exist in the contract: `info.description`
+  says so and the smoke test checks `DELETE /order/1`; the `servers` entry says that the public
+  base URL is set by the gateway (ADR 0002) rather than listing a placeholder.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

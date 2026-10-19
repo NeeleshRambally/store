@@ -120,8 +120,11 @@ runs, in one task and in one JVM:
   `after`, of a `customerId` of 0 and of `customerId` combined with `productId` on `/order`,
   and of a multi-word `name` on `/customer` (while a no-break space in `name` is accepted by
   both); the 404 of an unknown order, product and customer and of an order for an unknown
-  customer; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
-  `GET /customer/{id}` and `GET /customer` page. The 409, 500 and 503 bodies are validated
+  customer; the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
+  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+  `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
+  be declared per operation, because the method is absent from the contract; `info.description`
+  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies are validated
   synthetically against `POST /order` and `GET /order`, because no real request reaches them
   (there are no unique constraints and no injected failure). The specification declares
   `X-Request-Id` as a required header on every response, `Location` on every 201 and
