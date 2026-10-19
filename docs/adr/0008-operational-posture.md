@@ -112,14 +112,17 @@ nothing in a response or a log line identified the request a client was asking a
   and `RequestIdIT` pin them, `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
   the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
-  `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code
-  and the runtime role's grants on the started stack, plus the structured log line of a 405.
+  `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
+  the hardening of the `migrate` and `store` containers and the runtime role's grants on the
+  started stack, plus the structured log line of a 405.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
   capabilities, no privilege escalation and a memory limit without swap, sized to the
-  footprint measured under load for the shipped thread, pool and cache settings. `docker
-  inspect` on the started stack shows `ReadonlyRootfs`, `CapDrop`, `SecurityOpt`, `Memory`,
-  `MemorySwap` (equal to `Memory`, so no swap) and `Tmpfs` for both services.
+  footprint measured under load for the shipped thread, pool and cache settings. The smoke
+  test's `compose` mode asserts it with `docker inspect` on both services (`ReadonlyRootfs`,
+  `Tmpfs` with `/tmp`, `CapDrop` with `ALL`, `SecurityOpt` with `no-new-privileges:true`, and
+  `Memory` and `MemorySwap` both 536870912, so no swap), so a pipeline run fails when a
+  setting is removed, and a new limit needs the asserted value changed with it.
 - The runtime role no longer owns the schema in the Compose stack and the pipelines; the
   `migrate` job owns the rollout order, so a failed migration stops the stack before the
   service starts. The role split is Compose-specific wiring: any other environment needs the
