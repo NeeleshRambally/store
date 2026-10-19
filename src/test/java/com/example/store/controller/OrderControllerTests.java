@@ -311,6 +311,24 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsABodyThatRepeatsAProperty() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Dup\",\"customerId\":5,\"customerId\":6,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"A\",\"description\":\"B\",\"customerId\":5,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to read request"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createReturnsNotFoundForUnknownCustomer() throws Exception {
         when(orderService.create(new CreateOrderRequest("Test Order", 99L, List.of(2L))))
                 .thenThrow(new ResourceNotFoundException("Customer", 99L));

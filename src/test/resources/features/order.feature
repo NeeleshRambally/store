@@ -83,6 +83,14 @@ Feature: Order management
     Then the response status is 400
     And the response problem detail is "Failed to read request"
 
+  Scenario: An order body that repeats a property is rejected
+    When I create an order with payload:
+      """
+      {"description": "Repeated property", "customerId": 5, "customerId": 6, "productIds": [2]}
+      """
+    Then the response status is 400
+    And the response problem detail is "Failed to read request"
+
   Scenario: Browse orders with their customer
     When I request orders with page 0 and size 20
     Then the response status is 200

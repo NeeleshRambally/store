@@ -138,6 +138,24 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aRepeatedPropertyIsRejectedWithoutCreatingAnOrder() {
+        Long before = ordersDescribed("Repeated customer id");
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
+                "/order",
+                new HttpEntity<>(
+                        "{\"description\":\"Repeated customer id\",\"customerId\":5,\"customerId\":6,\"productIds\":[2]}",
+                        headers),
+                ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to read request");
+        assertThat(ordersDescribed("Repeated customer id")).isEqualTo(before);
+    }
+
+    @Test
     void returnsNotFoundForUnknownCustomer() {
         ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
                 "/order",
