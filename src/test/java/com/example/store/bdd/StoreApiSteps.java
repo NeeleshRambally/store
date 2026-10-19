@@ -16,6 +16,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.LongStream;
@@ -159,6 +160,26 @@ public class StoreApiSteps {
     public void searchCustomersByName(String name) throws Exception {
         get(UriComponentsBuilder.fromPath("/customer")
                 .queryParam("name", name)
+                .build()
+                .toUriString());
+    }
+
+    @When("I search customers by name {string} sorted by {string} with size {int}")
+    public void searchCustomersByNameSorted(String name, String sort, int size) throws Exception {
+        get(UriComponentsBuilder.fromPath("/customer")
+                .queryParam("name", name)
+                .queryParam("sort", sort)
+                .queryParam("size", size)
+                .build()
+                .toUriString());
+    }
+
+    @When("I search customers by name {string} after {int} with size {int}")
+    public void searchCustomersByNameAfter(String name, int after, int size) throws Exception {
+        get(UriComponentsBuilder.fromPath("/customer")
+                .queryParam("name", name)
+                .queryParam("after", after)
+                .queryParam("size", size)
                 .build()
                 .toUriString());
     }
@@ -435,6 +456,13 @@ public class StoreApiSteps {
         body.get("content").forEach(order -> ids.add(order.get("id").asLong()));
 
         assertThat(ids).hasSize(50).containsExactlyElementsOf(expected);
+    }
+
+    @Then("the page lists the customers in name descending order")
+    public void pageListsCustomersByNameDescending() {
+        assertThat(body.get("content").findValuesAsText("name"))
+                .isNotEmpty()
+                .isSortedAccordingTo(Comparator.reverseOrder());
     }
 
     @Then("the first order on the page belongs to customer {string}")

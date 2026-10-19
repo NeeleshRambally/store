@@ -50,6 +50,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getOrders
       description: >-
         Get a page of orders, each with its customer and the products it contains, optionally
@@ -83,6 +85,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: createOrder
       description: >-
         Create a new order for an existing customer containing the given products; the response
@@ -129,6 +133,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getOrder
       description: Get a single order by id, with its customer and the products it contains
   /customer:
@@ -176,6 +182,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getCustomers
       description: >-
         Get a page of customers, each with its orders, optionally filtered by a word substring of
@@ -205,6 +213,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: createCustomer
       description: Create a new customer
       requestBody:
@@ -249,6 +259,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getCustomer
       description: >-
         Get a single customer by id, with its newest orders (bounded like the list items) and
@@ -286,6 +298,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProducts
       description: >-
         Get a page of products, each with the ids of the orders that contain it. Without after the
@@ -315,6 +329,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: createProduct
       description: Create a new product
       requestBody:
@@ -359,6 +375,8 @@ paths:
           $ref: '#/components/responses/NotModified'
         '500':
           $ref: '#/components/responses/ServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProduct
       description: Get a single product with the ids of the orders that contain it
 components:
@@ -492,6 +510,13 @@ components:
       schema:
         type: string
         example: /order/10001
+    RetryAfter:
+      description: >-
+        Seconds after which the request may be retried; sent with every 503
+      required: true
+      schema:
+        type: string
+        example: '5'
     ETag:
       description: >-
         Weak validator of the response body (W/"..."); send it back in If-None-Match to
@@ -554,7 +579,9 @@ components:
                 detail: customerId and productId cannot be combined
                 instance: /order
     NotFound:
-      description: The referenced resource does not exist
+      description: >-
+        The referenced resource does not exist: the id in the path, or the customer or a
+        product named in a POST /order body (the detail names the lowest missing product id)
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -562,6 +589,31 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            unknownOrder:
+              summary: GET /order/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Order with id 999999 was not found
+                instance: /order/999999
+            unknownProduct:
+              summary: GET /products/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Product with id 999999 was not found
+                instance: /products/999999
+            unknownCustomer:
+              summary: GET /customer/999999
+              value:
+                type: about:blank
+                title: Not Found
+                status: 404
+                detail: Customer with id 999999 was not found
+                instance: /customer/999999
     Conflict:
       description: >-
         The write conflicts with existing data (a database constraint rejected it); the body
@@ -612,6 +664,26 @@ components:
             type: about:blank
             title: Internal Server Error
             status: 500
+            instance: /order
+    ServiceUnavailable:
+      description: >-
+        The service cannot obtain a database connection: the pool's connection-timeout (5 s)
+        elapsed or the database is unreachable; retry after the Retry-After delay. On a POST
+        the write may or may not have been applied (the POSTs are not idempotent)
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          example:
+            type: about:blank
+            title: Service Unavailable
+            status: 503
+            detail: The service cannot obtain a database connection
             instance: /order
   schemas:
     ProblemDetail:

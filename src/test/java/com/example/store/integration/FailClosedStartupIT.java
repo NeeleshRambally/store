@@ -27,4 +27,16 @@ class FailClosedStartupIT extends AbstractIntegrationTest {
                 .rootCause()
                 .hasMessageContaining("password authentication failed for user \"${DB_USERNAME}\"");
     }
+
+    @Test
+    void startUpWithBlankLiquibaseContextsFailsBeforeTheFirstConnection() {
+        SpringApplicationBuilder application =
+                new SpringApplicationBuilder(StoreApplication.class).web(WebApplicationType.NONE);
+
+        assertThatThrownBy(() -> application.run(
+                        "--spring.datasource.url=" + container.getJdbcUrl(), "--spring.liquibase.contexts="))
+                .isInstanceOf(IllegalStateException.class)
+                .hasNoCause()
+                .hasMessageContaining("spring.liquibase.contexts is blank");
+    }
 }

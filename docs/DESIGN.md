@@ -7,6 +7,9 @@ decision.
 ## Prerequisites
 * JDK 17 (the Gradle toolchain downloads one if it is missing)
 * Docker (used by Docker Compose for local runs and by Testcontainers for the tests)
+* A PostgreSQL installed on bare metal (the README's alternative) needs the `pg_trgm` contrib
+  module, which changeset 4 creates as an extension; the official image and most
+  distributions bundle it
 * Node.js 22 and npm, only to run or test the data generator in `utils`
 
 ## Running locally
@@ -44,8 +47,9 @@ development path); in Compose the `migrate` job does it ahead of the service. Sa
 customers, 10,000 orders, 100 products) is loaded when the `seed` Liquibase context is active,
 which it is under the `local` profile, in the tests and in the `migrate` job of `compose.yaml`;
 the base configuration applies the context-free changesets only (`LIQUIBASE_CONTEXTS` defaults
-to `prod`), so an environment that sets nothing
-gets the schema and no sample rows. More data can be generated with the script described in
+to `prod`), so an environment that sets nothing gets the schema and no sample rows. A blank
+value is rejected at start-up, because an empty context set would apply every changeset, seed
+included (see Configuration). More data can be generated with the script described in
 `utils/README.md`.
 
 ## Configuration
@@ -54,14 +58,25 @@ gets the schema and no sample rows. More data can be generated with the script d
 | `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL |
 | `DB_USERNAME` | none (`admin` under the `local` profile) | Database user; without it the first connection fails and the process exits |
 | `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password; without it the first connection fails and the process exits |
-| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data |
+| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
-| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size |
+| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`connection-timeout`), then the request is a 503 |
+| `TOMCAT_THREADS_MAX` | `200` | Tomcat request threads (`server.tomcat.threads.max`); see the sizing note below |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
 | `REQUEST_MAX_BODY_BYTES` | `65536` | Largest request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail |
+
+The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
+threads at most 10 requests touch the database concurrently; the rest wait up to 5 s for a
+connection and then get a 503 problem detail with `Retry-After: 5` (see Operations), so a
+remote database that slows down degrades into retryable 503s rather than into 200 threads
+blocked on one pool. Size the pool to the database's connection budget per replica, and the
+threads to roughly the pool times the share of request time spent outside the database
+(serialisation, compression, the ETag hash); every endpoint spends most of its time in the
+database, so the defaults leave the threads well above the pool and the 5 s wait is the real
+bound. `FailClosedConfigurationTest` pins the resolved default and the variable.
 
 A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
 binds the unresolved placeholder as a literal, so the process fails at Liquibase's first
@@ -70,7 +85,14 @@ connection (`password authentication failed for user "${DB_USERNAME}"` when a se
 behaviour: no environment can start on the sample credentials by omission.
 `FailClosedStartupIT` observes it against a real database: a second, non-web application
 started without the two variables fails with `password authentication failed for user
-"${DB_USERNAME}"` as the root cause. The graceful drain (see Operations) is documented but not
+"${DB_USERNAME}"` as the root cause. A blank `LIQUIBASE_CONTEXTS` (or
+`SPRING_LIQUIBASE_CONTEXTS`) is caught earlier, before any connection, by
+`LiquibaseContextsGuard`, an `EnvironmentPostProcessor` registered in
+`META-INF/spring.factories`: an empty context list makes Liquibase run every changeset, seed
+included, so the guard stops start-up with `spring.liquibase.contexts is blank` unless
+`spring.liquibase.enabled` is `false` (the Compose `store` service); the failure block is
+printed as plain text rather than JSON because logging is not yet initialised at that point
+(the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see Operations) is documented but not
 observed by a test, because the API has no slow request to hold open while a shutdown is
 signalled; ADR 0008 says the same.
 
@@ -99,15 +121,24 @@ runs, in one task and in one JVM:
   and of a multi-word `name` on `/customer` (while a no-break space in `name` is accepted by
   both); the 404 of an unknown order, product and customer and of an order for an unknown
   customer; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
-  `GET /customer/{id}` and `GET /customer` page. The 409 and 500 bodies are validated
+  `GET /customer/{id}` and `GET /customer` page. The 409, 500 and 503 bodies are validated
   synthetically against `POST /order` and `GET /order`, because no real request reaches them
   (there are no unique constraints and no injected failure). The specification declares
-  `X-Request-Id` as a required header on every response and `Location` on every 201, and the
-  validator enforces declared headers, so a response that drops either fails the check (the
-  synthetic 409 and 500 cases had to carry the id before they passed again). An undocumented
+  `X-Request-Id` as a required header on every response, `Location` on every 201 and
+  `Retry-After` on every 503, and the validator enforces declared headers, so a response that
+  drops one fails the check (the synthetic 409 and 500 cases had to carry the id before they
+  passed again, and a synthetic 503 without `Retry-After` is rejected, which a case pins). An undocumented
   response field, a missing required field at any depth, a missing declared header, an
   undeclared status or a request the specification would reject fails the build, so the
   specification cannot drift from the implementation.
+
+The test classes follow one naming convention per tier: `*Test` runs without a Spring test
+context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
+`RequestBodyLimitPropertiesTest`), `*Tests` is a `@WebMvcTest` slice (all six), and `*IT` runs
+on the shared Testcontainers context (`CucumberIT` is the acceptance suite on the same
+context). Where a unit test and a slice cover the same class the slice carries `Slice` in its
+name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the tier is never a
+single letter apart.
 
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Two
 exclusions apply to the report and the gate alike: `**/mapper/**` (the MapStruct-generated
@@ -312,12 +343,27 @@ probes and metrics are reachable from inside the cluster but never from the publ
   build version, and `requestId` as a field on every line written while a request is handled;
   a data-integrity conflict is logged at WARN by SQL state and constraint name, never with
   the driver message that quotes the request's values (the full cause is at DEBUG)
+* A database that cannot be reached is a 503, not a 500. A request that cannot obtain a
+  connection within the pool's 5 s `connection-timeout` (the pool exhausted, or the database
+  down) reaches the handler as `CannotCreateTransactionException`, and a connection lost after
+  the transaction began as `DataAccessResourceFailureException`; both are answered with a 503
+  problem detail (`The service cannot obtain a database connection`) and `Retry-After: 5`,
+  logged at WARN by the cause's class name only (the driver message can carry hosts or SQL;
+  the full cause is at DEBUG). The ingress therefore sees a 503 with `Retry-After` for each
+  timed-out acquisition, and readiness reports `db` DOWN while no connection can be obtained,
+  but only after the same 5 s `connection-timeout`, so probe timeouts must exceed it; a replica
+  is then also taken out of rotation. Both recover without a restart once the database answers.
+  A 503 on a `POST` does not guarantee the write was not applied: the `POST`s are not
+  idempotent (`docs/ASSUMPTIONS.md`, "API contract"). `GlobalExceptionHandlerTests` and
+  `GlobalExceptionHandlerLogTest` pin the status, the header and the log line, and
+  `OpenApiContractIT` the declaration on every operation
 * Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
   stop grace for it, and a Kubernetes deployment needs the same margin in
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
 * A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
   process exits during start-up and the orchestrator reports a crash, not a running service
-  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data (see Configuration)
+  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data and blank is refused
+  at start-up (see Configuration)
 * Migrations are a job, not a start-up side effect: the Compose stack runs the same image once
   as `migrate` with the schema owner's credentials before `store` starts, and `store` connects
   as `store_app` (connect, `SELECT`, `INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`)

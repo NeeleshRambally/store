@@ -5,8 +5,13 @@ Users reported that `GET /customer` and `GET /order` are very slow in production
 database is not co-located with the service and every round trip pays a high network latency.
 
 ## Measurements on the original code
-Taken against PostgreSQL 16.2 with Hibernate statistics enabled and the seeded data set
-(100 customers, 10,000 orders).
+Taken on the import commit (`57a5fa1`; `git show 57a5fa1:<path>` reproduces any file) against
+PostgreSQL 16.2 with the seeded data set (100 customers, 10,000 orders). Method, the same as for
+the "after" figures: statement and entity counts from Hibernate statistics
+(`spring.jpa.properties.hibernate.generate_statistics: true`, `getPrepareStatementCount()` and
+`getEntityLoadCount()`), payload bytes with `curl -s -o /dev/null -w '%{size_download}'`, and
+query timings with `EXPLAIN (ANALYZE)` in the Testcontainers database. The "after" side of each
+table is pinned by a test; the "before" side is re-measured by checking out that commit.
 
 | Request | Rows returned | Payload | JDBC statements | Why |
 |---------|---------------|---------|-----------------|-----|
@@ -41,7 +46,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | B-tree indexes on the whitelisted sort columns with `id` as the trailing column: `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` (changeset 7) | A shallow sorted offset page is a backward index scan over the entries it returns instead of a top-N sort of the whole table; a deep sorted offset page still pays the offset (see "Sorted pages" below); `MigrationIT` pins the three plans |
 | `spring.jpa.open-in-view: false`; services are `@Transactional(readOnly = true)` and return DTOs | No query can run outside a service transaction; the connection is returned before serialisation starts |
 | `default_batch_fetch_size: 100` | Safety net only; no endpoint relies on it |
-| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the by-id bodies stay below the threshold and are sent as is |
+| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the order and product by-id bodies stay below the threshold and are sent as is, while a customer with 20 nested orders is just above it and is compressed (1,049 B / 418 B) |
 | HikariCP pool size and timeouts made explicit and configurable | Predictable behaviour under load; fail fast when the database is unreachable |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
 | `GET /order?customerId=` and `GET /order?productId=`: the same page, count and products queries with a `where c.id = :customerId` predicate on `idx_order_customer_id` or a `join o.products p where p.id = :productId` on `idx_order_product_product_id` (the join-table primary key makes the join row-preserving) | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; the full list of one customer's or one product's orders is reachable without raising the per-request cost |
@@ -94,7 +99,7 @@ the statement counts are unchanged.
 | Request | Entities loaded before | Entities loaded after | Statements |
 |---------|------------------------|-----------------------|------------|
 | `GET /order?size=100` | 263 (100 orders, their customers, the products of those orders) | 0 | 3 → 3 |
-| `GET /customer?size=50` | 4,999 (50 customers and their 4,949 orders) | 0 | 3 → 3 |
+| `GET /customer?size=50` | 4,999 (50 customers and their 4,949 orders; taken in the shared test context, so the count exceeds the seed by the rows other tests had created) | 0 | 3 → 3 |
 | `GET /customer?name=a&size=5` | 502 | 0 | 3 → 3 |
 | `GET /products?size=20` | 3,422 (20 products and the 3,402 orders containing them) | 0 | 3 → 3 |
 | `GET /products/2` | 203 (the product and the orders containing it, through the entity graph) | 0 | 1 → 2 |
@@ -202,8 +207,10 @@ page is cheaper than a GIN lookup, so the seed never shows the index. Plans meas
 `schema.sql`, the extension and index from changeset 4, `ANALYZE` after loading):
 
 The 100 seeded customers, unaided, and then with `SET LOCAL enable_seqscan = off`, which is
-what `MigrationIT.customerNameSearchPredicateIsServedByTheTrigramIndex` pins so a change to the
-predicate that stops matching the index expression fails the build. Since changeset 7 the pin
+what `MigrationIT.customerNameSearchPredicateIsServedByTheTrigramIndex` pins: it `EXPLAIN`s a
+hand-written statement of the same shape (`lower(name) LIKE lower(...) ESCAPE '!'`), so it pins
+that the predicate shape is served by the index, not the SQL Hibernate renders from the JPQL
+(which matches today). Since changeset 7 the pin
 also drops `idx_customer_name_id` inside its rolled-back transaction: on 100 rows a full bitmap
 scan of that small B-tree (cost 8.6) beats the GIN lookup (cost 30), so with the sort index in
 place the planner never shows the trigram path on the seed even with sequential scans off.

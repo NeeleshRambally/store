@@ -23,6 +23,8 @@ production database is not co-located with the service, so round trips dominate 
 - `GET /customer` pages the customers first and then loads the orders of exactly those
   customers with one `left join fetch ... where id in (...)` query: 3 statements for a full
   page.
+- The two child queries above are the original shape; today's are the native window query of
+  "Nested collections" below over the row projections of ADR 0006, at the same counts.
 - 3 is the full-page cost and the maximum: Spring Data skips the count query when the first
   page is shorter than `size`, and the services skip the child query when the page is empty, so
   a short first page costs 2 and an empty one 1 (both pinned by `QueryCountIT`).
@@ -89,10 +91,11 @@ and that window instead of the entity graph: 2 statements, no entity, cached and
 before.
 
 - The README's "a customer has 0 or more orders" and the products task's "list of the order
-  IDs" are still met: the list is present on every response, bounded and with its total, and
-  nothing is lost because the complete lists are `GET /order?customerId=` and
-  `GET /order?productId=`, paged, filtered on the indexed foreign keys and added for exactly this
-  purpose before the bound was introduced.
+  IDs" are delivered in bounded form: the newest `NESTED_ORDERS_LIMIT` ids (raisable to 100)
+  plus `orderCount` on every response. That deviates from the literal wording for performance
+  reasons, and nothing is lost because the complete lists are `GET /order?customerId={id}` and
+  `GET /order?productId={id}`, paged, filtered on the indexed foreign keys and added for
+  exactly this purpose before the bound was introduced.
 - Newest rather than oldest because a bounded list that never changes once full tells an
   operator nothing; the newest orders plus the total answer "is this customer active and how
   much" directly, and the ascending order inside the list keeps the response shape of every

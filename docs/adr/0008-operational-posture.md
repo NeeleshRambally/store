@@ -48,9 +48,15 @@ nothing in a response or a log line identified the request a client was asking a
   `readinessState,db` and the group shows component names
   (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`), so
   a replica whose database connection is gone stops receiving traffic instead of answering
-  500s. The trade-off is accepted knowingly: during a database outage every replica goes
-  unready at once and the ingress returns 503 instead of the service's own 500, which is the
-  honest signal for a service that cannot serve a single request without its database. The
+  errors. The trade-off is accepted knowingly: during a database outage every replica goes
+  unready at once and the ingress returns 503, which is the honest signal for a service that
+  cannot serve a single request without its database. The service answers the same way for
+  the requests that reach it meanwhile: a connection that cannot be obtained within the
+  pool's 5 s `connection-timeout` (`CannotCreateTransactionException`) or that is lost inside
+  the transaction (`DataAccessResourceFailureException`) is a 503 problem detail with
+  `Retry-After: 5`, declared on every operation in `OpenAPI.yaml`, so overload and a lost
+  database are distinguishable from a bug (500) at the ingress; the readiness `db` component
+  turns DOWN only after that same 5 s, so probe timeouts must exceed it. The
   health endpoint itself stays detail-free; liveness stays `LivenessState` only, so a database
   outage never restarts the process.
 - **Stop grace covers the drain.** `server.shutdown: graceful` with a 20 s phase timeout is
@@ -81,7 +87,8 @@ nothing in a response or a log line identified the request a client was asking a
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
   rule and the grace periods; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`
-  and `RequestIdIT` pin them, `RequestBodyLimitFilterTests`, `RequestBodyLimitFilterTest` and
+  and `RequestIdIT` pin them, `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
+  the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code
   and the runtime role's grants on the started stack.
@@ -96,3 +103,11 @@ nothing in a response or a log line identified the request a client was asking a
 - Readiness and the database are coupled: a planned database maintenance window takes the
   service out of rotation for its duration, which is the intended behaviour and must be
   communicated as such.
+- The context default `${LIQUIBASE_CONTEXTS:prod}` covers an unset variable only; an explicitly
+  blank one binds to an empty context list, and Liquibase runs every changeset when no runtime
+  context is given, so the seed would land in a production schema. `LiquibaseContextsGuard`
+  (an `EnvironmentPostProcessor` registered in `META-INF/spring.factories`) therefore refuses a
+  blank or absent `spring.liquibase.contexts` before any bean or connection exists, unless
+  `spring.liquibase.enabled` is `false` as in the Compose `store` service; the failure is a
+  plain-text block because logging is not yet initialised. `FailClosedConfigurationTest` and
+  `FailClosedStartupIT` pin it.

@@ -48,6 +48,9 @@ store:
 
 server:
   shutdown: graceful
+  tomcat:
+    threads:
+      max: ${TOMCAT_THREADS_MAX:200}
   compression:
     enabled: true
     mime-types: application/json,application/problem+json,text/plain
