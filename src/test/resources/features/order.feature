@@ -194,6 +194,18 @@ Feature: Order management
     Then the response status is 400
     And the response problem detail is "after cannot be combined with page or sort"
 
+  Scenario: A statement cancelled while it waits for a lock is a retryable 503
+    When I request orders with size 5 while the order table is locked and the waiting statement is cancelled
+    Then the response status is 503
+    And the response problem code is "database_timeout"
+    And the response asks to retry after 5 seconds
+
+  Scenario: A database connection lost during a request is a retryable 503
+    When I request orders with size 5 while the order table is locked and the waiting session is terminated
+    Then the response status is 503
+    And the response problem code is "service_unavailable"
+    And the response asks to retry after 5 seconds
+
   Scenario: A repeated read of an order with its ETag is not modified
     When I request order 1
     Then the response status is 200

@@ -1,5 +1,6 @@
 package com.example.store.bdd;
 
+import com.example.store.integration.TableLock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -12,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
@@ -36,6 +38,9 @@ public class StoreApiSteps {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private PostgreSQLContainer<?> container;
 
     private ResponseEntity<String> response;
     private JsonNode body;
@@ -281,6 +286,20 @@ public class StoreApiSteps {
         get("/order?page=" + page + "&size=" + size);
     }
 
+    @When("I request orders with size {int} while the order table is locked and the waiting statement is cancelled")
+    public void requestOrdersAndCancelTheWaitingStatement(int size) throws Exception {
+        try (TableLock lock = TableLock.on(container, "\"order\"")) {
+            capture(lock.cancelWaiting(() -> restTemplate.getForEntity("/order?size=" + size, String.class)));
+        }
+    }
+
+    @When("I request orders with size {int} while the order table is locked and the waiting session is terminated")
+    public void requestOrdersAndTerminateTheWaitingSession(int size) throws Exception {
+        try (TableLock lock = TableLock.on(container, "\"order\"")) {
+            capture(lock.terminateWaiting(() -> restTemplate.getForEntity("/order?size=" + size, String.class)));
+        }
+    }
+
     @Then("the response status is {int}")
     public void responseStatusIs(int status) {
         assertThat(response.getStatusCode().value()).isEqualTo(status);
@@ -457,6 +476,11 @@ public class StoreApiSteps {
     @Then("the response problem code is {string}")
     public void responseProblemCodeIs(String code) {
         assertThat(body.path("code").asText()).isEqualTo(code);
+    }
+
+    @Then("the response asks to retry after {int} seconds")
+    public void responseAsksToRetryAfter(int seconds) {
+        assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo(String.valueOf(seconds));
     }
 
     @Then("the number of orders described as {string} is unchanged")
