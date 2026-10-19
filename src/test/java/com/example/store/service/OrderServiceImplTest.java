@@ -112,14 +112,18 @@ class OrderServiceImplTest {
     }
 
     @Test
-    void createPublishesTheProductIdsOfTheNewOrderAfterSaving() {
+    void createPublishesTheNewOrderWithItsCustomerAndProductIdsAfterSaving() {
         when(customerRepository.findById(1L)).thenReturn(Optional.of(customer));
         when(productRepository.findAllById(List.of(8L, 2L))).thenReturn(List.of(chair, table));
-        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
+            Order saved = invocation.getArgument(0);
+            saved.setId(10001L);
+            return saved;
+        });
 
         service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(8L, 2L)));
 
-        verify(eventPublisher).publishEvent(new OrderCreatedEvent(List.of(2L, 8L)));
+        verify(eventPublisher).publishEvent(new OrderCreatedEvent(10001L, 1L, List.of(2L, 8L)));
     }
 
     @Test

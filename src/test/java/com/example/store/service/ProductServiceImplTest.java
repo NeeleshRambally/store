@@ -19,6 +19,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mapstruct.factory.Mappers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -43,12 +44,18 @@ class ProductServiceImplTest {
     @Mock
     private ProductRepository productRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private ProductServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new ProductServiceImpl(
-                productRepository, Mappers.getMapper(ProductMapper.class), new NestedOrdersProperties(20));
+                productRepository,
+                Mappers.getMapper(ProductMapper.class),
+                new NestedOrdersProperties(20),
+                eventPublisher);
     }
 
     @Test
@@ -69,9 +76,25 @@ class ProductServiceImplTest {
     }
 
     @Test
+    void createPublishesTheNewProductAfterSaving() {
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> {
+            Product saved = invocation.getArgument(0);
+            saved.setId(101L);
+            return saved;
+        });
+
+        service.create(new CreateProductRequest("Rustic Chair"));
+
+        verify(eventPublisher).publishEvent(new ProductCreatedEvent(101L));
+    }
+
+    @Test
     void findByIdReturnsProductWithItsNewestOrderIdsAndTheTotal() {
         service = new ProductServiceImpl(
-                productRepository, Mappers.getMapper(ProductMapper.class), new NestedOrdersProperties(2));
+                productRepository,
+                Mappers.getMapper(ProductMapper.class),
+                new NestedOrdersProperties(2),
+                eventPublisher);
         when(productRepository.findRow(2L)).thenReturn(Optional.of(new ProductRow(2L, "Rustic Chair")));
         when(productRepository.findOrderRows(List.of(2L), 2))
                 .thenReturn(List.of(new ProductOrderRow(2L, 1L, 3), new ProductOrderRow(2L, 43L, 3)));

@@ -114,11 +114,17 @@ nothing in a response or a log line identified the request a client was asking a
   It is on by default because the service cannot know whether an ingress in front of it logs
   requests, and `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns it off where one does;
   `docs/DESIGN.md`, Operations, gives the format, the size of a line and its measured cost.
+- **Creations are logged after the commit.** A created order, customer or product writes one
+  INFO line with its id (an order also with its customer and its number of products) from a
+  `@TransactionalEventListener(phase = AFTER_COMMIT)` method, never from the service: the
+  sequence ids defer the insert to the commit, which can still fail after `create()` has
+  returned, and a line for a row that was never stored would mislead whoever reads it.
 
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
-  rule, the access line and the grace periods; `ActuatorIT`, `RequestIdFilterTests`,
-  `RequestIdFilterMdcTest`, `RequestIdIT` and `AccessLogIT` pin them,
+  rule, the access and creation lines and the grace periods; `ActuatorIT`,
+  `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`, `AccessLogIT` and
+  `CreationLogIT` pin them,
   `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
   the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and

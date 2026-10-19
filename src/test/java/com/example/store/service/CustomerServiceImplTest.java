@@ -21,6 +21,7 @@ import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -45,12 +46,18 @@ class CustomerServiceImplTest {
     @Mock
     private CustomerRepository customerRepository;
 
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
+
     private CustomerServiceImpl service;
 
     @BeforeEach
     void setUp() {
         service = new CustomerServiceImpl(
-                customerRepository, Mappers.getMapper(CustomerMapper.class), new NestedOrdersProperties(20));
+                customerRepository,
+                Mappers.getMapper(CustomerMapper.class),
+                new NestedOrdersProperties(20),
+                eventPublisher);
     }
 
     @Test
@@ -74,9 +81,25 @@ class CustomerServiceImplTest {
     }
 
     @Test
+    void createPublishesTheNewCustomerAfterSaving() {
+        when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> {
+            Customer saved = invocation.getArgument(0);
+            saved.setId(101L);
+            return saved;
+        });
+
+        service.create(new CreateCustomerRequest("Ada Lovelace"));
+
+        verify(eventPublisher).publishEvent(new CustomerCreatedEvent(101L));
+    }
+
+    @Test
     void findByIdReturnsCustomerWithItsNewestOrdersAndTheTotal() {
         service = new CustomerServiceImpl(
-                customerRepository, Mappers.getMapper(CustomerMapper.class), new NestedOrdersProperties(2));
+                customerRepository,
+                Mappers.getMapper(CustomerMapper.class),
+                new NestedOrdersProperties(2),
+                eventPublisher);
         when(customerRepository.findRow(1L)).thenReturn(Optional.of(new CustomerRow(1L, "Ada Lovelace")));
         when(customerRepository.findOrderRows(List.of(1L), 2))
                 .thenReturn(List.of(
@@ -177,7 +200,10 @@ class CustomerServiceImplTest {
     @Test
     void findAllPassesTheConfiguredLimitAndCarriesTheOrderCountOfEachCustomer() {
         service = new CustomerServiceImpl(
-                customerRepository, Mappers.getMapper(CustomerMapper.class), new NestedOrdersProperties(2));
+                customerRepository,
+                Mappers.getMapper(CustomerMapper.class),
+                new NestedOrdersProperties(2),
+                eventPublisher);
         Pageable pageable = PageRequest.of(0, 20);
         when(customerRepository.findRows(pageable))
                 .thenReturn(new PageImpl<>(

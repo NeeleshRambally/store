@@ -14,6 +14,7 @@ import com.example.store.repository.view.ProductRow;
 import lombok.RequiredArgsConstructor;
 
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,11 +36,14 @@ public class ProductServiceImpl implements ProductService {
     private final ProductRepository productRepository;
     private final ProductMapper productMapper;
     private final NestedOrdersProperties nestedOrders;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Override
     @Transactional
     public ProductDTO create(CreateProductRequest request) {
-        return productMapper.productToProductDTO(productRepository.save(productMapper.toEntity(request)));
+        ProductDTO created = productMapper.productToProductDTO(productRepository.save(productMapper.toEntity(request)));
+        eventPublisher.publishEvent(new ProductCreatedEvent(created.id()));
+        return created;
     }
 
     @Override
