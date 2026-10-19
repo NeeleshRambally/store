@@ -40,7 +40,8 @@ delivered.
   rejected with 400 so a client that still sends `id` learns immediately instead of silently
   overwriting data (which the original code allowed), and the problem detail names the
   property (`Unknown property 'id'`, with `id` in `errors`) so the client also learns what to
-  drop.
+  drop. The three request schemas declare `additionalProperties: false`, so the specification
+  rejects such a body as the service does.
 - Request bodies are bound strictly. Jackson's defaults coerce a JSON string or a fraction into
   an id (`"customerId": "5"` or `5.7` created an order for customer 5) and a number or a
   boolean into a string (`"description": 123` was stored as `123`), so a malformed request
@@ -397,6 +398,11 @@ delivered.
   optional, so a response without them passed the check. A synthetic 200 of `GET /order/{id}`
   and a synthetic 304 of `GET /customer` without the two headers were accepted until the
   headers were marked `required`, and every captured 200 and 304 already carried both.
+- The three request schemas declare `additionalProperties: false`. The contract check could not
+  show that they lacked it, because the validator injects the rule into every schema that does
+  not declare it; a second validator that injects nothing accepted a `POST` body carrying an
+  `id` on all three paths (an empty report where an `additionalProperties` error was expected)
+  until the schemas declared the rule.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
