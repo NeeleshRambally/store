@@ -53,10 +53,13 @@ nothing in a response or a log line identified the request a client was asking a
   cannot serve a single request without its database. The service answers the same way for
   the requests that reach it meanwhile: a connection that cannot be obtained within the
   pool's 5 s `connection-timeout` (`CannotCreateTransactionException`) or that is lost inside
-  the transaction (`DataAccessResourceFailureException`) is a 503 problem detail with
-  `Retry-After: 5`, declared on every operation in `OpenAPI.yaml`, so overload and a lost
-  database are distinguishable from a bug (500) at the ingress; the readiness `db` component
-  turns DOWN only after that same 5 s, so probe timeouts must exceed it. The
+  the transaction (which surfaces as the failed rollback's `JpaSystemException`, caused by
+  Hibernate's `TransactionException`) is a 503 problem detail with `code: service_unavailable`,
+  and a cancelled statement or an expired transaction (`QueryTimeoutException`,
+  `TransactionTimedOutException`) one with `code: database_timeout`, each with
+  `Retry-After: 5` and declared on every operation in `OpenAPI.yaml`, so overload, a lost
+  database and a slow one are distinguishable from a bug (500) at the ingress; the readiness
+  `db` component turns DOWN only after that same 5 s, so probe timeouts must exceed it. The
   health endpoint itself stays detail-free; liveness stays `LivenessState` only, so a database
   outage never restarts the process.
 - **Stop grace covers the drain.** `server.shutdown: graceful` with a 20 s phase timeout is
@@ -132,9 +135,9 @@ nothing in a response or a log line identified the request a client was asking a
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
   rule, the access and creation lines, the latency buckets and the grace periods; `ActuatorIT`,
   `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`, `AccessLogIT` and
-  `CreationLogIT` pin them,
-  `GlobalExceptionHandlerTests` and `GlobalExceptionHandlerLogTest`
-  the 503 of a lost database, `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
+  `CreationLogIT` pin them, `GlobalExceptionHandlerTests`, `GlobalExceptionHandlerLogTest` and
+  `DatabaseFailureIT` the 503s of a lost and of a slow database,
+  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
   the hardening of the `migrate` and `store` containers, the address of every published port

@@ -185,8 +185,8 @@ delivered.
   of the service build (`1.0.0-SNAPSHOT` in `build.gradle`): a change that can break an
   existing client raises the major version, an addition such as a new problem `code` the minor
   version. The specification said `1.0` from the delivered version on while the API changed
-  under it; it is now `2.0.0`, and a client written against 1.0, or against the service while
-  its specification still said 1.0, has to change in these ways:
+  under it; `2.0.0` recorded those changes, and a client written against 1.0, or against the
+  service while its specification still said 1.0, has to change in these ways:
   - The three list endpoints answer with a page envelope (`content`, `page`, `size`,
     `totalElements`, `totalPages`), or with a cursor envelope (`content`, `size`, `nextCursor`)
     when `after` is sent, instead of a bare array; a page holds 20 elements by default and at
@@ -213,6 +213,11 @@ delivered.
     does not know.
   - An `Accept` header that admits neither `application/json` nor `application/problem+json` is
     a 406, decided before the request is processed.
+- `2.1.0` adds the problem code `database_timeout`, a 503 with `Retry-After` for a database
+  statement that was cancelled or a transaction past its deadline, which the service answered
+  with a 500; a connection lost during a request is now the `service_unavailable` 503 that
+  2.0.0 already declared, where the service also answered a 500. A 2.0.0 client that handles a
+  code it does not know by its status, as the contract requires, needs no change.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
@@ -426,6 +431,15 @@ delivered.
   `Object has missing required properties (["code"])` until they carried one; two synthetic
   cases pin that a problem detail without a code, or with a code the enum does not list, is
   rejected.
+- The 503 is also captured from real requests. `TableLock` holds an `ACCESS EXCLUSIVE` lock on
+  `order` from a second connection, polls `pg_stat_activity` and `pg_locks` until the backend of
+  a `GET /order?size=5` waits for that lock (`wait_event_type = 'Lock'`) and then cancels or
+  terminates the backend, so `DatabaseFailureIT`, two contract cases and two Cucumber scenarios
+  meet the exception types of a cancelled statement and of a lost connection in the shared
+  context, without a configuration change or a second context. The captured 503 of the cancelled
+  statement failed with `Instance value ("database_timeout") not found in enum` until the code
+  was listed, and both captures failed their example comparison until `ServiceUnavailable`
+  carried the two named examples.
 - Every operation declares the 406 of an `Accept` that admits no media type it produces, as the
   reusable `NotAcceptable` response: one contract case per operation sends
   `Accept: application/xml`, and all nine failed with

@@ -164,32 +164,36 @@ runs, in one task and in one JVM:
   `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
   and U+2028, are accepted by both); the 404 of an unknown order, product and customer and of
   an order for an unknown customer; the 406 of each of the nine operations for
-  `Accept: application/xml`; the 413 of an oversized body and the 415 of a `POST /order` sent
-  as `text/plain`; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
-  `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
-  be declared per operation, because the method is absent from the contract; `info.description`
-  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
-  are validated synthetically against `POST /order` and `GET /order`, because no real request
-  reaches them (there are no unique constraints and no injected failure). The specification
-  declares `X-Request-Id` as a required header on every response, `Location` on every 201,
-  `Retry-After` on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a `GET`, and
-  the validator enforces declared headers, so a response that drops one fails the check (the
-  synthetic 409 and 500 cases had to carry the id before they passed again, and a synthetic 503
-  without `Retry-After` and a synthetic 200 and 304 without `ETag` and `Cache-Control` are
-  rejected, which cases pin). The three request schemas declare `additionalProperties: false`
-  themselves: the validator injects that rule into every schema that does not declare it, so it
-  would reject a body carrying an `id` either way, while a client built from the specification
-  would not; a second validator that injects nothing checks that each `POST` schema rejects such
-  a body on its own. The bodies of the named examples (`unknownSortProperty`, `cursorWithPage`
-  and `combinedFilters` of the 400, `unknownOrder`, `unknownProduct` and `unknownCustomer` of
-  the 404 and `orderAsXml` of the 406) are compared with the responses to the requests their
-  summaries name. In each interaction a case validates, an undocumented response field, a
-  missing required field at any depth, a problem detail without a `code` or with one the
-  specification does not list (two synthetic cases pin both), a missing declared header, an
+  `Accept: application/xml`; the 413 of an oversized body and the 415 of a `POST /order` sent as
+  `text/plain`; the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+  `GET /customer/{id}` and `GET /customer` page; and the 503 of a `GET /order?size=5` whose
+  statement is cancelled, or whose database session is terminated, while it waits for a lock
+  that a second connection holds on the `order` table (`TableLock`). A 405 for a method a path
+  does not list cannot be declared per operation, because the method is absent from the
+  contract; `info.description` states it and the smoke test sends `DELETE /order/1` to check it.
+  The 409, 500 and 503 bodies are also validated synthetically against `POST /order` and
+  `GET /order`, because no real request reaches the 409 or the 500 (there are no unique
+  constraints and no injected failure) and the real 503s are captured on a `GET` only. The
+  specification declares `X-Request-Id` as a required header on every response, `Location` on
+  every 201, `Retry-After` on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a
+  `GET`, and the validator enforces declared headers, so a response that drops one fails the
+  check (the synthetic 409 and 500 cases had to carry the id before they passed again, and a
+  synthetic 503 without `Retry-After` and a synthetic 200 and 304 without `ETag` and
+  `Cache-Control` are rejected, which cases pin). The three request schemas declare
+  `additionalProperties: false` themselves: the validator injects that rule into every schema
+  that does not declare it, so it would reject a body carrying an `id` either way, while a
+  client built from the specification would not; a second validator that injects nothing checks
+  that each `POST` schema rejects such a body on its own. The bodies of the named examples
+  (`unknownSortProperty`, `cursorWithPage` and `combinedFilters` of the 400, `unknownOrder`,
+  `unknownProduct` and `unknownCustomer` of the 404, `orderAsXml` of the 406, and
+  `serviceUnavailable` and `databaseTimeout` of the 503) are compared with the responses to the
+  requests their summaries name. In each interaction a case validates, an undocumented response
+  field, a missing required field at any depth, a problem detail without a `code` or with one
+  the specification does not list (two synthetic cases pin both), a missing declared header, an
   undeclared status, or a request that the server serves and the specification would reject
-  fails the build. What the check proves is bounded by those interactions: a status, a header
-  or a field that only another request would produce can still differ from the specification,
-  which is why each new response arrives with a contract case of its own.
+  fails the build. What the check proves is bounded by those interactions: a status, a header or
+  a field that only another request would produce can still differ from the specification, which
+  is why each new response arrives with a contract case of its own.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
@@ -407,7 +411,7 @@ the substring search, and each whitelisted sort column together with `id`
 (`idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id`).
 
 ## API
-The contract is documented in `OpenAPI.yaml`, version 2.0.0; the version is the contract's own,
+The contract is documented in `OpenAPI.yaml`, version 2.1.0; the version is the contract's own,
 not the build's, and `docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what
 a client written against the delivered 1.0 has to change.
 
@@ -488,7 +492,8 @@ the wording of `detail`:
 | `payload_too_large` | 413 | A body over `REQUEST_MAX_BODY_BYTES` |
 | `unsupported_media_type` | 415 | A body that is not `application/json` |
 | `internal_error` | 500 | An unexpected failure (no `detail`) |
-| `service_unavailable` | 503 | A database connection that cannot be obtained (with `Retry-After`) |
+| `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request (with `Retry-After`) |
+| `database_timeout` | 503 | A database statement that was cancelled, or a transaction past its deadline (with `Retry-After`) |
 
 `GlobalExceptionHandler` sets the code in each of its own handlers. The problem details that
 Spring MVC's `ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler,
@@ -667,20 +672,45 @@ probes and metrics are reachable from inside the cluster but never from the publ
   lines and that a creation whose insert fails at commit logs nothing (it calls each service
   directly with a 256-character text, which the request validation would have refused, so
   that only the column rejects it)
-* A database that cannot be reached is a 503, not a 500. A request that cannot obtain a
-  connection within the pool's 5 s `connection-timeout` (the pool exhausted, or the database
-  down) reaches the handler as `CannotCreateTransactionException`, and a connection lost after
-  the transaction began as `DataAccessResourceFailureException`; both are answered with a 503
-  problem detail (`The service cannot obtain a database connection`) and `Retry-After: 5`,
-  logged at WARN by the cause's class name only (the driver message can carry hosts or SQL;
-  the full cause is at DEBUG). The ingress therefore sees a 503 with `Retry-After` for each
-  timed-out acquisition, and readiness reports `db` DOWN while no connection can be obtained,
-  but only after the same 5 s `connection-timeout`, so probe timeouts must exceed it; a replica
-  is then also taken out of rotation. Both recover without a restart once the database answers.
-  A 503 on a `POST` does not guarantee the write was not applied: the `POST`s are not
-  idempotent (`docs/ASSUMPTIONS.md`, "API contract"). `GlobalExceptionHandlerTests` and
-  `GlobalExceptionHandlerLogTest` pin the status, the header and the log line, and
-  `OpenApiContractIT` the declaration on every operation
+* A database that cannot be reached, loses the connection or does not answer in time is a 503
+  with `Retry-After: 5`, not a 500, and the problem's `code` tells the cases apart. A request
+  that cannot obtain a connection within the pool's 5 s `connection-timeout` (the pool
+  exhausted, or the database down) reaches the handler as `CannotCreateTransactionException`
+  and is answered `service_unavailable` (`The service cannot obtain a database connection`). A
+  cancelled statement reaches it as `QueryTimeoutException`, and a transaction whose deadline
+  passed before a query as `TransactionTimedOutException`; both are answered
+  `database_timeout` (`The database did not answer in time`). A connection lost inside the
+  transaction (the backend terminated, the server restarted) arrives differently: HikariCP
+  marks the connection broken, the rollback then fails on it, and Spring throws the rollback's
+  exception in place of the original, a `JpaSystemException` caused by Hibernate's
+  `TransactionException` (`Unable to rollback against JDBC Connection`), which is answered
+  `service_unavailable` as well. Before that, Spring's `TransactionInterceptor` logs the
+  original exception at ERROR as `Application exception overridden by rollback exception`,
+  with the statement's SQL (bind values appear as `?`) and the driver message; the line stays,
+  because silencing that logger would also hide a failed rollback that replaces a genuine
+  application error. The handler tests the cause's type, never its message, so a transaction
+  deadline that passed before one of Hibernate's own statements (a by-id read, the flush of a
+  `POST`), which surfaces as the same type (`transaction timeout expired`), is answered
+  `service_unavailable` too, and every other `JpaSystemException` stays a 500. The advice
+  imports two Hibernate types for this reason: Spring's exceptions expose neither the name of
+  a violated constraint (`ConstraintViolationException`, which the 409's log line needs) nor
+  whether a `JpaSystemException` came from a failed rollback (`TransactionException`). The
+  handler logs each 503 at WARN by the class name of its most specific cause only (the driver
+  message can carry hosts or SQL; the full cause is at DEBUG), while Hibernate's
+  `SqlExceptionHelper` still logs the SQL state of a failed statement at WARN and the driver
+  message at ERROR (`ERROR: canceling statement due to user request`). The ingress therefore
+  sees a 503 with `Retry-After` for each timed-out acquisition, and readiness reports `db` DOWN
+  while no connection can be obtained, but only after the same 5 s `connection-timeout`, so
+  probe timeouts must exceed it; a replica is then also taken out of rotation. All of them
+  recover without a restart once the database answers. A 503 on a `POST` does not guarantee
+  the write was not applied: the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`, "API
+  contract"). `DatabaseFailureIT` produces two of them on a real request: it holds a lock on
+  `order` from a second connection, waits until the backend of a `GET /order?size=5` waits for
+  it, and cancels it (`database_timeout`, with nothing logged by the transaction interceptor)
+  or terminates it (`service_unavailable`, with the ERROR line). `GlobalExceptionHandlerTests`
+  pins each type's status, code and header, `GlobalExceptionHandlerLogTest` the WARN lines of an
+  unobtainable connection and of a timeout, and `OpenApiContractIT` the declaration on every
+  operation and the two real responses against the `ServiceUnavailable` examples
 * Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
   stop grace for it, and a Kubernetes deployment needs the same margin in
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`

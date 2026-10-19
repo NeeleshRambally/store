@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
+import org.hibernate.TransactionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -13,11 +14,14 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -100,12 +104,52 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
-    void aConnectionLostInsideTheTransactionIsAServiceUnavailableProblemDetail() throws Exception {
-        mockMvc.perform(get("/lost"))
+    void aDatabaseResourceFailureIsAServiceUnavailableProblemDetail() throws Exception {
+        mockMvc.perform(get("/resource-failure"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(header().string("Retry-After", "5"))
                 .andExpect(jsonPath("$.detail").value("The service cannot obtain a database connection"))
                 .andExpect(content().string(not(containsString("Connection reset"))));
+    }
+
+    @Test
+    void aConnectionLostInsideTheTransactionIsAServiceUnavailableProblemDetail() throws Exception {
+        mockMvc.perform(get("/rollback-failed"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.detail").value("The service cannot obtain a database connection"))
+                .andExpect(jsonPath("$.code").value("service_unavailable"))
+                .andExpect(content().string(not(containsString("JDBC"))));
+    }
+
+    @Test
+    void aDatabaseTimeoutIsARetryableServiceUnavailableProblemDetail() throws Exception {
+        mockMvc.perform(get("/statement-timeout"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.detail").value("The database did not answer in time"))
+                .andExpect(jsonPath("$.code").value("database_timeout"))
+                .andExpect(jsonPath("$.instance").value("/statement-timeout"));
+    }
+
+    @Test
+    void anExpiredTransactionIsARetryableServiceUnavailableProblemDetail() throws Exception {
+        mockMvc.perform(get("/transaction-timeout"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(header().string("Retry-After", "5"))
+                .andExpect(jsonPath("$.detail").value("The database did not answer in time"))
+                .andExpect(jsonPath("$.code").value("database_timeout"));
+    }
+
+    @Test
+    void anotherJpaSystemFailureIsStillAnInternalError() throws Exception {
+        mockMvc.perform(get("/jpa-failure"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(header().doesNotExist("Retry-After"))
+                .andExpect(jsonPath("$.code").value("internal_error"))
+                .andExpect(jsonPath("$.detail").doesNotExist());
     }
 
     @ParameterizedTest(name = "{0}: {2} {3}")
@@ -172,6 +216,11 @@ class GlobalExceptionHandlerTests {
                 arguments("an unexpected failure", get("/boom"), 500, "internal_error"),
                 arguments("an unwritable response", get("/unwritable"), 500, "internal_error"),
                 arguments("an unobtainable connection", get("/unavailable"), 503, "service_unavailable"),
+                arguments("a database resource failure", get("/resource-failure"), 503, "service_unavailable"),
+                arguments("a failed rollback", get("/rollback-failed"), 503, "service_unavailable"),
+                arguments("a cancelled statement", get("/statement-timeout"), 503, "database_timeout"),
+                arguments("an expired transaction", get("/transaction-timeout"), 503, "database_timeout"),
+                arguments("another JPA system failure", get("/jpa-failure"), 500, "internal_error"),
                 arguments("an expired async request", get("/timeout"), 503, "service_unavailable"));
     }
 
@@ -192,9 +241,29 @@ class GlobalExceptionHandlerTests {
                             "HikariPool-1 - Connection is not available, request timed out after 5000ms."));
         }
 
-        @GetMapping("/lost")
-        String lost() {
+        @GetMapping("/resource-failure")
+        String resourceFailure() {
             throw new DataAccessResourceFailureException("Connection reset by peer");
+        }
+
+        @GetMapping("/rollback-failed")
+        String rollbackFailed() {
+            throw new JpaSystemException(new TransactionException("Unable to rollback against JDBC Connection"));
+        }
+
+        @GetMapping("/statement-timeout")
+        String statementTimeout() {
+            throw new QueryTimeoutException("x");
+        }
+
+        @GetMapping("/transaction-timeout")
+        String transactionTimeout() {
+            throw new TransactionTimedOutException("x");
+        }
+
+        @GetMapping("/jpa-failure")
+        String jpaFailure() {
+            throw new JpaSystemException(new IllegalStateException("x"));
         }
 
         @GetMapping("/missing")
