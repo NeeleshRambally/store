@@ -28,6 +28,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -105,6 +106,20 @@ class ProductControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("description"))
                 .andExpect(jsonPath("$.errors[0].message").value("must be a string"));
+        verify(productService, never()).create(any());
+    }
+
+    @Test
+    void createWithANonJsonAcceptHeaderIsNotAcceptableBeforeTheProductIsCreated() throws Exception {
+        when(productService.create(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_XML)
+                        .content("{\"description\":\"Rustic Chair\"}"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("not_acceptable"));
         verify(productService, never()).create(any());
     }
 

@@ -42,6 +42,7 @@ public class StoreApiSteps {
     private long createdProductId;
     private long createdOrderId;
     private List<Long> matchingCustomerIds;
+    private long countedOrders;
 
     @When("I create a customer named {string}")
     public void createCustomerNamed(String name) throws Exception {
@@ -65,6 +66,23 @@ public class StoreApiSteps {
                         customerId,
                         "productIds",
                         List.of(firstProduct, secondProduct))));
+    }
+
+    @When("I create an order {string} for customer {int} with products {int} and {int} accepting {string}")
+    public void createOrderAccepting(
+            String description, int customerId, int firstProduct, int secondProduct, String accept) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.parseMediaType(accept)));
+        post(
+                "/order",
+                objectMapper.writeValueAsString(Map.of(
+                        "description",
+                        description,
+                        "customerId",
+                        customerId,
+                        "productIds",
+                        List.of(firstProduct, secondProduct))),
+                headers);
     }
 
     @When("I create an order {string} for customer {int} with {int} products")
@@ -175,6 +193,11 @@ public class StoreApiSteps {
                 .queryParam("name", name)
                 .build()
                 .toUriString());
+    }
+
+    @Given("the orders described as {string} are counted")
+    public void ordersDescribedAsAreCounted(String description) {
+        countedOrders = ordersDescribed(description);
     }
 
     @Given("the database lists the customers whose name contains {string}")
@@ -436,6 +459,11 @@ public class StoreApiSteps {
         assertThat(body.path("code").asText()).isEqualTo(code);
     }
 
+    @Then("the number of orders described as {string} is unchanged")
+    public void numberOfOrdersDescribedAsIsUnchanged(String description) {
+        assertThat(ordersDescribed(description)).isEqualTo(countedOrders);
+    }
+
     @Then("customer {int} is still named {string}")
     public void customerIsStillNamed(int id, String name) throws Exception {
         get("/customer?size=100");
@@ -536,8 +564,16 @@ public class StoreApiSteps {
         assertThat(body.get("content").get(0).get("id").asInt()).isEqualTo(firstId);
     }
 
+    private long ordersDescribed(String description) {
+        return jdbcTemplate.queryForObject(
+                "select count(*) from \"order\" where description = ?", Long.class, description);
+    }
+
     private void post(String path, String json) throws Exception {
-        HttpHeaders headers = new HttpHeaders();
+        post(path, json, new HttpHeaders());
+    }
+
+    private void post(String path, String json, HttpHeaders headers) throws Exception {
         headers.setContentType(MediaType.APPLICATION_JSON);
         capture(restTemplate.postForEntity(path, new HttpEntity<>(json, headers), String.class));
     }

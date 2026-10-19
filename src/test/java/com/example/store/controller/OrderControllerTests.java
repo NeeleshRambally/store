@@ -36,6 +36,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -388,6 +389,30 @@ class OrderControllerTests {
     }
 
     @Test
+    void createWithANonJsonAcceptHeaderIsNotAcceptableBeforeTheOrderIsCreated() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_XML)
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("not_acceptable"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void aNonJsonAcceptHeaderIsReportedBeforeTheBodyIsRead() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_XML)
+                        .content("{\"broken\":"))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(jsonPath("$.code").value("not_acceptable"));
+    }
+
+    @Test
     void unexpectedErrorsDoNotLeakDetails() throws Exception {
         when(orderService.findAll(any(), any())).thenThrow(new IllegalStateException("secret internal detail"));
 
@@ -434,6 +459,26 @@ class OrderControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: 'abc'"));
         verify(orderService, never()).findById(any());
+    }
+
+    @Test
+    void getByIdWithANonJsonAcceptHeaderIsNotAcceptableBeforeTheLookup() throws Exception {
+        when(orderService.findById(1L)).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/1").accept(MediaType.APPLICATION_XML))
+                .andExpect(status().isNotAcceptable())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON));
+        verify(orderService, never()).findById(any());
+    }
+
+    @Test
+    void getByIdAcceptingOnlyAProblemDetailStillReachesTheHandler() throws Exception {
+        when(orderService.findById(99L)).thenThrow(new ResourceNotFoundException("Order", 99L));
+
+        mockMvc.perform(get("/order/99").accept(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("not_found"));
     }
 
     @Test

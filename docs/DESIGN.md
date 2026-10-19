@@ -160,15 +160,16 @@ runs, in one task and in one JVM:
   and `/products`, of a cursor combined with a page, of a negative `after`, of a negative or
   hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of
   `customerId` combined with `productId` on `/order`, and of a multi-word `name` and of a
-  `name` containing a
-  NUL on `/customer` (while a no-break space, and a word containing U+0085 and U+2028, are
-  accepted by both); the 404 of an unknown order, product and customer and of an order for an
-  unknown customer; the 413 of an oversized body and the 415 of a `POST /order` sent as
-  `text/plain`; and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
-  `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
-  be declared per operation, because the method is absent from the contract; `info.description`
-  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
-  are validated synthetically against `POST /order` and `GET /order`, because no real request
+  `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
+  and U+2028, are accepted by both); the 404 of an unknown order, product and customer and of
+  an order for an unknown customer; the 406 of each of the nine operations for
+  `Accept: application/xml` (the body of `GET /order/1` also equals the documented `orderAsXml`
+  example); the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
+  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`, `GET /customer/{id}`
+  and `GET /customer` page. A 405 for a method a path does not list cannot be declared per
+  operation, because the method is absent from the contract; `info.description` states it and
+  the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies are validated
+  synthetically against `POST /order` and `GET /order`, because no real request
   reaches them (there are no unique constraints and no injected failure). The specification
   declares `X-Request-Id` as a required header on every response, `Location` on every 201 and
   `Retry-After` on every 503, and the validator enforces declared headers, so a response that
@@ -536,6 +537,15 @@ Request input is strict rather than coerced (ADR 0002):
   handler mapping and before the arguments are bound, so a repetition is reported even when a
   value is also invalid. `sort` may be repeated to sort by several properties, and a comma
   inside a single `name` stays part of the word.
+
+Every operation answers in `application/json`, a problem detail in `application/problem+json`,
+and the three controllers declare both media types as `produces`. An `Accept` header that admits
+neither is a 406 problem detail (`not_acceptable`, with the detail `Acceptable representations:
+[application/json, application/problem+json].`), decided when the request is mapped, before the
+parameters are validated or the body is read. Spring used to run the handler first and fail
+only when it wrote the response: a `POST /order` sent with `Accept: application/xml` created the
+order and then answered 406, and a `GET` of an unknown id or with an invalid parameter answered
+404 or 400. An `Accept` that also admits `*/*`, as a browser's and curl's do, is served JSON.
 
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
