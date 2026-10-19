@@ -249,7 +249,10 @@ delivered.
   that made it fail.
 - One PostgreSQL container per test run. All integration tests and the Cucumber scenarios share
   a single Spring context; tests therefore never assert on absolute seed counts after writes
-  and never truncate tables.
+  and never truncate tables. A test that writes outside the API rolls its transaction back: the
+  sequence checks in `MigrationIT` (a `nextval` is never rolled back, so the returned id still
+  shows the sequence position) and the batching check in `InsertBatchingIT`. The rows the suite
+  commits are therefore the ones its API requests create.
 - The context also shares one cache. A test never assumes a cold or a warm cache for an id it
   did not populate itself: `QueryCountIT` clears every cache before each test so its statement
   counts are the cold case, and the cache-related tests create the product or order they read.

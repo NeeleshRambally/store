@@ -19,19 +19,19 @@ class MigrationIT extends AbstractIntegrationTest {
 
     @Test
     void customerSequenceContinuesAfterSeededIds() {
-        Long id = jdbcTemplate.queryForObject(
-                "INSERT INTO customer (name) VALUES ('Sequence Check') RETURNING id", Long.class);
+        Long id = insertAndRollBack("INSERT INTO customer (name) VALUES ('Sequence Check') RETURNING id");
 
         assertThat(id).isGreaterThan(100L);
+        assertThat(rowCount("customer", id)).isZero();
     }
 
     @Test
     void orderSequenceContinuesAfterSeededIds() {
-        Long id = jdbcTemplate.queryForObject(
-                "INSERT INTO \"order\" (description, customer_id) VALUES ('Sequence Check', 1) RETURNING id",
-                Long.class);
+        Long id = insertAndRollBack(
+                "INSERT INTO \"order\" (description, customer_id) VALUES ('Sequence Check', 1) RETURNING id");
 
         assertThat(id).isGreaterThan(10000L);
+        assertThat(rowCount("\"order\"", id)).isZero();
     }
 
     @Test
@@ -132,10 +132,21 @@ class MigrationIT extends AbstractIntegrationTest {
 
     @Test
     void productSequenceContinuesAfterSeededIds() {
-        Long id = jdbcTemplate.queryForObject(
-                "INSERT INTO product (description) VALUES ('Sequence Check') RETURNING id", Long.class);
+        Long id = insertAndRollBack("INSERT INTO product (description) VALUES ('Sequence Check') RETURNING id");
 
         assertThat(id).isGreaterThan(100L);
+        assertThat(rowCount("product", id)).isZero();
+    }
+
+    private Long insertAndRollBack(String insert) {
+        return transactionTemplate.execute(status -> {
+            status.setRollbackOnly();
+            return jdbcTemplate.queryForObject(insert, Long.class);
+        });
+    }
+
+    private Long rowCount(String table, Long id) {
+        return jdbcTemplate.queryForObject("SELECT count(*) FROM " + table + " WHERE id = ?", Long.class, id);
     }
 
     @Test
