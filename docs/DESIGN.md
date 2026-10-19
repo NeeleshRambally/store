@@ -222,6 +222,15 @@ them. Reports land in `build/reports`.
    versions) and the tested jar is the `build` job's, so the artifact identity is the commit,
    not the jar bytes.
 
+The image build warms its Gradle cache with `./gradlew resolveDependencies`, a task in
+`build.gradle` that downloads every jar of the compile, annotation-processor and runtime
+classpaths (96 jars, about 71 MB) in a layer keyed on the build files alone. A change under
+`src` reuses that layer, and the bootJar step then compiles without a download (it succeeds
+with `--offline`). A library that cannot be resolved, because it does not exist or its
+repository cannot be reached, fails the warm-up with `Could not resolve all files for
+configuration ...`; Gradle's `dependencies` report would not serve here, because it resolves
+metadata only and exits 0 when a library is missing, printing `FAILED` in the report.
+
 Both jobs carry a `timeout-minutes`: 20 for `build` and 30 for `docker`. Measured runs take
 2.0 to 2.5 minutes for `build` and 2.7 to 5.5 minutes for `docker`, and a `docker` run with a
 cold build cache can reach about 10 minutes, so the limits leave a wide margin over a normal

@@ -84,6 +84,13 @@ tasks.named('bootJar') {
     exclude 'application-local.yaml'
 }
 
+tasks.register('resolveDependencies') {
+    def classpaths = [configurations.compileClasspath, configurations.annotationProcessor, configurations.runtimeClasspath]
+    doLast {
+        classpaths.each { it.files }
+    }
+}
+
 def coverageExclusions = ['**/mapper/**', '**/StoreApplication.class']
 
 tasks.named('test') {
