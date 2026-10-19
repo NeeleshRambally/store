@@ -416,8 +416,9 @@ too, and the hash is what makes the 304 possible. The cache keeps DTOs, which ar
 id, bounded to 10,000 entries and 60 s (`CACHE_TTL`); `CACHE_TYPE=none` disables it.
 The hit rate is visible as
 `cache_gets_total{cache="orders"|"products",result="hit"|"miss"}` in `/actuator/prometheus`;
-the TTL should only be raised on that evidence, because a product read on another replica, or
-after a write that bypasses the service, can be stale for up to the TTL.
+the TTL should only be raised on that evidence, because a product can be stale for up to the
+TTL: when it is read on another replica, after a write that bypasses the service, or when a read
+that missed the cache before an order's commit stores the old value after the eviction.
 
 ## Write path
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch, and

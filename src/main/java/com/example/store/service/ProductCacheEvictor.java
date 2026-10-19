@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-// Runs after the creating transaction commits, so a concurrent read never re-caches the pre-commit state.
+// Evicts after commit; a read that missed before the commit can still re-cache the old value for up to CACHE_TTL.
 @Component
 @RequiredArgsConstructor
 public class ProductCacheEvictor {
