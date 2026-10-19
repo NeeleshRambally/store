@@ -93,6 +93,28 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsMissingProductIds() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"No product list\",\"customerId\":2}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be empty"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsANullProductId() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Null product id\",\"customerId\":2,\"productIds\":[null]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds[0]"))
+                .andExpect(jsonPath("$.errors[0].message").value("must not be null"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createRejectsRepeatedProductIds() throws Exception {
         mockMvc.perform(post("/order")
                         .contentType(MediaType.APPLICATION_JSON)
