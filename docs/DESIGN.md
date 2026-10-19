@@ -340,7 +340,7 @@ the 100% line figure quoted in the history is measured under them. Reports land 
    it to GitHub Container Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`,
    so the digest delivered is
    the digest that was scanned and smoke-tested, not a rebuild. The jar inside the image is
-   compiled from the same commit by the image build (wrapper-pinned Gradle, BOM-locked
+   compiled from the same commit by the image build (wrapper-pinned Gradle, BOM-managed
    versions) and the tested jar is the `build` job's, so the artifact identity is the commit,
    not the jar bytes.
 
