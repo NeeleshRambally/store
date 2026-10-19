@@ -52,7 +52,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | `GET /products/{id}`: the product row plus the bounded order-id window below | 2 statements, no entity loaded |
 | `GET /customer/{id}`: the customer row plus the bounded order window below | 2 statements, no entity loaded; 1 on a miss; deliberately not cached in the service because `orderCount` changes on every `POST /order` |
 | Nested collections bounded: a customer carries its newest `NESTED_ORDERS_LIMIT` orders (default 20) and a product the ids of its newest `NESTED_ORDERS_LIMIT` orders, each with `orderCount`; one native window query per page (`row_number() over (partition by customer_id order by id desc)` with `count(*) over (partition by customer_id)`, the same over `order_product`) returns the newest rows and the total of every parent on the page | Statement counts unchanged (3 per page, 2 per cursor page); the orders per customer and the ids per product no longer grow with the table, `orderCount` carries the total and `GET /order?customerId=` / `?productId=` the full list (ADR 0003, "Nested collections") |
-| `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements for a full page, 2 for a short first page; the predicate is `lower(name) LIKE lower('%...%')`, which the index serves once the table is large enough and never for a pattern shorter than three characters (see "Substring search" below) |
+| `GET /customer?name=`: same two-query shape plus a trigram GIN index on `lower(name)` | 3 statements for a full page, 2 for a short first page; the predicate is `lower(name) LIKE lower('%...%')`, which the index serves on a large table for the count, rare words and deep pages, but cannot narrow when the pattern is shorter than three characters (see "Substring search" below) |
 | `sort` is checked against a per-endpoint list of properties (orders and products: `id`, `description`; customers: `id`, `name`) before any query runs, and `id` is appended as a tie-break in the direction of the last property unless the client already sorts by it | A nested path such as `customer.name`, which the JPQL queries would otherwise turn into an unindexed join, or an unknown property is a 400 problem detail instead of a 500 (ADR 0006); equal values no longer leave the page boundary to the planner, so pages 0 and 1 of a sorted walk never share or skip a row (`OrderApiIT.sortedPagesHaveDeterministicBoundaries`, `CustomerApiIT`, the Cucumber scenario) |
 | Index on `order.customer_id` | Lookups of a customer's orders are index scans |
 | B-tree indexes on the whitelisted sort columns with `id` as the trailing column: `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` (changeset 7) | A shallow sorted offset page is a backward index scan over the entries it returns instead of a top-N sort of the whole table; a deep sorted offset page still pays the offset (see "Sorted pages" below); `MigrationIT` pins the three plans |
@@ -265,8 +265,10 @@ trigram index).
 `idx_customer_name_trgm`, a GIN index with `gin_trgm_ops` on the same expression, `lower(name)`.
 Whether the planner uses it depends on the table and the statement: on the 100-row seed a
 sequential scan of one page is cheaper than a GIN lookup, so the seed never shows the index.
-Every plan below was measured by hand on 2026-10-19 with the jar of `f0b1595` on a throwaway
-PostgreSQL 16.2, with `EXPLAIN (ANALYZE, BUFFERS)`, warm, the times as the range over five runs.
+Every plan below was measured by hand on 2026-10-19 (the words `zq`, `xw`, `7`, `a`, `q` and `z`
+on 2026-10-20, on the 200,000-row table rebuilt the same way) with the jar of `f0b1595` on a
+throwaway PostgreSQL 16.2, with `EXPLAIN (ANALYZE, BUFFERS)`, warm, the times as the range over
+five runs.
 
 The 100 seeded customers, unaided, and then with `SET LOCAL enable_seqscan = off`, which is
 what `MigrationIT.customerNameSearchPredicateIsServedByTheTrigramIndex` pins: it `EXPLAIN`s a
@@ -316,8 +318,8 @@ FROM generate_series(1, 200000) AS g;
 ```
 
 The table holds 600 distinct names (20 first names by 30 surnames): 6,666 rows contain `onne`,
-13,333 contain `on` and none contains `zqxw`. A search runs two statements, which Hibernate
-renders as
+13,333 contain `on` and none contains `zqxw` or `zq`. A search runs two statements, which
+Hibernate renders as
 
 ```sql
 select c1_0.id,c1_0.name from customer c1_0 where lower(c1_0.name) like lower(('%'||?||'%')) escape '!' order by c1_0.id fetch first ? rows only
@@ -339,12 +341,15 @@ same plans.
 | Page 0 of `zqxw` (no match, so no count) | `Limit → Sort → Bitmap Heap Scan → Bitmap Index Scan on idx_customer_name_trgm` | 3 | 0.005 to 0.008 ms |
 | Page 1 and count of `zqxw` | the same trigram lookup | 3 | 0.006 to 0.021 ms |
 | Page 0 of `on` (two letters) | the walk of `customer_pkey`, 273 rows removed | 5 | 0.07 to 0.09 ms |
-| Count of `on` | `Parallel Seq Scan on customer`: `pg_trgm` extracts no trigram from a pattern shorter than three characters, so the index cannot be consulted | 1,334 | 19.5 to 20.0 ms |
+| Count of `on` | `Parallel Seq Scan on customer`: `pg_trgm` extracts no trigram from a pattern shorter than three characters, so a trigram scan would have to read the whole index, and for a word this common the planner prefers the parallel sequential scan | 1,334 | 19.5 to 20.0 ms |
+| Page 0 of `zq` (two letters, no match, so no count) | `Limit → Sort → Bitmap Heap Scan → Bitmap Index Scan on idx_customer_name_trgm`, but, with no trigram to look up, the index scan reads the whole index (651 of the buffers) and returns all 200,000 rows, every one removed by the recheck | 1,985 | 50.4 to 50.6 ms |
+| Page 1 and count of `zq` | the same scan of the whole index on each statement | 1,985 | 48.0 to 51.3 ms |
 
-So the index serves the count, rare words and deep pages of a common word, while a shallow page
-of a common word walks the primary key and stops after `size` matches, which costs little while
-the matches are dense; a word that matches nothing costs three buffers on either statement.
-The page and the count of `onne`:
+So for words of three or more characters the index serves the count, rare words and deep pages
+of a common word, while a shallow page of a common word walks the primary key and stops after
+`size` matches, which costs little while the matches are dense, and a word that matches nothing
+costs three buffers on either statement (a shorter one costs a scan of the whole index and a
+recheck of every row, as the `zq` rows show). The page and the count of `onne`:
 
 ```
 Limit  (cost=0.42..11.26 rows=20 width=23) (actual time=0.015..0.179 rows=20 loops=1)
@@ -380,10 +385,16 @@ instead: the generic page plan walks `customer_pkey` for `zqxw` and filters out 
 therefore stay at their defaults, which let PostgreSQL choose per statement.
 
 So the index is right for the production table and irrelevant for the seed. A one- or
-two-character search (which the API accepts) cannot use it: its count reads every row, as a
-sequential scan or, on a generic plan, through the whole trigram index, and its page walks the
-primary key until `size` rows match, which is quick for common letters and a full walk for rare
-ones; the page limit still bounds what is returned. If such searches turn out to be common the
+two-character search (which the API accepts) gets no help from it, because `pg_trgm` extracts no
+trigram from such a pattern and a trigram scan then reads the whole index and rechecks every row.
+Its count reads every row, as a parallel sequential scan for a common word or through the whole
+trigram index for a word the planner expects to be rare (and on a generic plan for any such word).
+Its page walks the primary key until `size` rows past the offset match for a common word, while
+for a rare word it reads the whole trigram index and rechecks every row: about 50 ms for each
+statement, more than twice the parallel sequential scan of a common word's count. The `zq` rows
+show the rare case; `xw` and the single character `7`, which match nothing either, take the same
+plans, and the single letters `a`, `q` and `z` (165,971, 6,667 and 9,990 matches) the common-word
+ones. The page limit still bounds what is returned. If such searches turn out to be common the
 remedy is a minimum word length in the API, not another index.
 
 ## Caching
