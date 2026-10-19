@@ -113,7 +113,7 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
-    void aConnectionLostInsideTheTransactionIsAServiceUnavailableProblemDetail() throws Exception {
+    void aFailedRollbackIsAServiceUnavailableProblemDetail() throws Exception {
         mockMvc.perform(get("/rollback-failed"))
                 .andExpect(status().isServiceUnavailable())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))

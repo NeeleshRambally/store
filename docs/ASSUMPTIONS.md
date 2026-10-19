@@ -214,10 +214,12 @@ delivered.
   - An `Accept` header that admits neither `application/json` nor `application/problem+json` is
     a 406, decided before the request is processed.
 - `2.1.0` adds the problem code `database_timeout`, a 503 with `Retry-After` for a database
-  statement that was cancelled or a transaction past its deadline, which the service answered
-  with a 500; a connection lost during a request is now the `service_unavailable` 503 that
-  2.0.0 already declared, where the service also answered a 500. A 2.0.0 client that handles a
-  code it does not know by its status, as the contract requires, needs no change.
+  statement that was cancelled, which the service answered with a 500, or a query issued after
+  the transaction's deadline (`TX_TIMEOUT`, new with it); a connection lost during a request is
+  now the `service_unavailable` 503 that 2.0.0 already declared, where the service also answered
+  a 500, except a session that the database terminates while a `POST`'s insert is committed (as
+  a restart does), which is still a 500 (`docs/DESIGN.md`, Operations). A 2.0.0 client that
+  handles a code it does not know by its status, as the contract requires, needs no change.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a

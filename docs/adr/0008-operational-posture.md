@@ -52,16 +52,19 @@ nothing in a response or a log line identified the request a client was asking a
   unready at once and the ingress returns 503, which is the honest signal for a service that
   cannot serve a single request without its database. The service answers the same way for
   the requests that reach it meanwhile: a connection that cannot be obtained within the
-  pool's 5 s `connection-timeout` (`CannotCreateTransactionException`) or that is lost inside
-  the transaction (which surfaces as the failed rollback's `JpaSystemException`, caused by
-  Hibernate's `TransactionException`) is a 503 problem detail with `code: service_unavailable`,
-  and a cancelled statement or an expired transaction (`QueryTimeoutException`,
-  `TransactionTimedOutException`) one with `code: database_timeout`, each with
-  `Retry-After: 5` and declared on every operation in `OpenAPI.yaml`, so overload, a lost
-  database and a slow one are distinguishable from a bug (500) at the ingress; the readiness
-  `db` component turns DOWN only after that same 5 s, so probe timeouts must exceed it. The
-  health endpoint itself stays detail-free; liveness stays `LivenessState` only, so a database
-  outage never restarts the process.
+  pool's 5 s `connection-timeout` (`CannotCreateTransactionException`), that is lost during one
+  of the request's reads (which surfaces as the failed rollback's `JpaSystemException`, caused
+  by Hibernate's `TransactionException`) or that the socket timeout cuts while a `POST`'s insert
+  is flushed at commit (`DataAccessResourceFailureException`) is a 503 problem detail with
+  `code: service_unavailable`, and a cancelled statement or an expired transaction
+  (`QueryTimeoutException`, `TransactionTimedOutException`) one with `code: database_timeout`,
+  each with `Retry-After: 5` and declared on every operation in `OpenAPI.yaml`, so overload, a
+  lost database and a slow one are distinguishable from a bug (500) at the ingress. One loss
+  still answers a 500: a session that the database terminates during that flush (`57P01`, as a
+  restart does) fails the commit with a `JpaSystemException` that no failed rollback caused
+  (`docs/DESIGN.md`, Operations). The readiness `db` component turns DOWN only after that same
+  5 s, so probe timeouts must exceed it. The health endpoint itself stays detail-free; liveness
+  stays `LivenessState` only, so a database outage never restarts the process.
 - **Database calls are bounded in time.** The database sits behind a high-latency link
   (README, task 3), and PgJDBC waits for an answer forever by default (`socketTimeout` 0), so a
   stalled or silently dropped connection used to hold its pool slot and its request thread
@@ -151,7 +154,8 @@ nothing in a response or a log line identified the request a client was asking a
   rule, the access and creation lines, the latency buckets and the grace periods; `ActuatorIT`,
   `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`, `AccessLogIT` and
   `CreationLogIT` pin them, `GlobalExceptionHandlerTests`, `GlobalExceptionHandlerLogTest` and
-  `DatabaseFailureIT` the 503s of a lost and of a slow database,
+  `DatabaseFailureIT` the 503s of a lost and of a slow database and the 500 of a session
+  terminated at a `POST`'s commit,
   `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
   `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
   `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
