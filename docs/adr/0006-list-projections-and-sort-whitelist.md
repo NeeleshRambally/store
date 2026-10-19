@@ -10,8 +10,9 @@ The list endpoints paged entities: `GET /order` loaded the orders with their cus
 an entity graph and then fetch-joined the products of the page, `GET /customer` and
 `GET /products` paged the root entities and fetch-joined their children. The statement count was
 already fixed at 3, but every row became a managed entity with a collection wrapper, hydrated
-columns the response never used and an entry in the persistence context (a 100-row order page
-loaded 263 entities, a 50-row customer page 4,999).
+columns the response never used and an entry in the persistence context (on a fresh seed a
+100-row order page loaded 263 entities and a 50-row customer page 4,996; `docs/PERFORMANCE.md`,
+"Hydration").
 
 The paged queries were also the only place where a client-supplied `sort` reached Hibernate
 unchecked. Spring Data validates sort properties against the entity for derived queries, which
