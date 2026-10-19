@@ -65,6 +65,7 @@ smoke:
   needs: [package]
   variables:
     STORE_IMAGE: store:ci
+    STORE_BIND_ADDRESS: "0.0.0.0"
   script:
     - apk add --no-cache curl
     - docker load -i image.tar

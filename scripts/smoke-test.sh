@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening and runtime role.
+# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening, port bindings and runtime role.
 set -eu
 
 app=$1
@@ -98,6 +98,20 @@ if [ "$mode" = compose ]; then
     expect_setting "$service" "$id" MemorySwap '^536870912$' 'memory plus swap limit is not 512 MiB, so the container can swap'
     echo "ok   $service hardening -> read-only root, tmpfs /tmp, no capabilities, no-new-privileges, 512 MiB without swap"
   done
+
+  bind_address=${STORE_BIND_ADDRESS:-127.0.0.1}
+  published=0
+  for service in postgres store; do
+    docker inspect -f '{{range $port, $list := .HostConfig.PortBindings}}{{range $list}}{{$port}}={{.HostIp}} {{end}}{{end}}' \
+      "$(docker compose ps -q "$service")" > "$body" 2>&1 || fail "$service: docker inspect failed"
+    for binding in $(cat "$body"); do
+      address=${binding#*=}
+      [ "$address" = "$bind_address" ] || fail "$service: port ${binding%%=*} is published on ${address:-all interfaces}, expected $bind_address"
+      published=$((published + 1))
+    done
+  done
+  [ "$published" -gt 0 ] || fail "published ports: none found on postgres or store"
+  echo "ok   published ports -> $published, all on $bind_address"
 
   as_store_app 'select count(*) from customer' || fail "store_app select: psql failed"
   grep -qE '^[0-9]+$' "$body" || fail "store_app select: no count in the output"

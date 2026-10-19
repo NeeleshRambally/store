@@ -42,11 +42,15 @@ initialised) and runs no Liquibase (`SPRING_LIQUIBASE_ENABLED=false`):
 docker compose up --build
 ```
 The API is then available on http://localhost:8080, the actuator on http://localhost:8081 and
-the database on localhost:5434. The service starts only once `migrate` has exited 0, so a
-failed migration stops the stack before the API comes up. After upgrading from a stack started
-before the migration job existed, run `docker compose down -v` once: the role and its default
-privileges are created only when the data directory is empty, and without them `store` fails
-closed at its first connection.
+the database on localhost:5434, all three published on 127.0.0.1 only: the API has no
+authentication (ADR 0002) and the database role is the `admin:admin` superuser, so none of
+them is published on the machine's network interfaces. `STORE_BIND_ADDRESS` publishes them on
+another address instead, for example `STORE_BIND_ADDRESS=0.0.0.0 docker compose up` on every
+interface, which exposes all three to every network the machine is on. The service starts only
+once `migrate` has exited 0, so a failed migration stops the stack before the API comes up.
+After upgrading from a stack started before the migration job existed, run
+`docker compose down -v` once: the role and its default privileges are created only when the
+data directory is empty, and without them `store` fails closed at its first connection.
 
 To run the service from Gradle against that database instead:
 ```shell
@@ -210,7 +214,8 @@ them. Reports land in `build/reports`.
    container's exit code must be 0, `docker inspect` must show the `migrate` and `store`
    containers with a read-only root filesystem, a tmpfs on `/tmp`, `CapDrop` `ALL`,
    `no-new-privileges:true` and `Memory` and `MemorySwap` both 536870912 (512 MiB without
-   swap), `store_app` must be able to `select count(*) from customer`
+   swap) and every port `postgres` and `store` publish bound to `STORE_BIND_ADDRESS`
+   (127.0.0.1 when unset), `store_app` must be able to `select count(*) from customer`
    through `psql` in the database container, and `create table` and `update customer` as
    `store_app` must fail with `permission denied for schema public` and `permission denied for
    table customer`, and `DELETE /order/1` sent with `X-Request-Id: smoke-<pid>` must be a 405
@@ -257,9 +262,9 @@ docker run --rm --network store_default -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081
 ```
 The Compose network works on every engine; `host.docker.internal` is Docker Desktop's name for
 the host, and a Linux engine has it only through `--add-host host.docker.internal:host-gateway`,
-which resolves to the bridge gateway rather than to the host's loopback. Run alone like this,
-the image migrates in-process as the user it is given; the Compose stack splits that into the
-`migrate` job and the `store_app` runtime (see Running locally), and
+which resolves to the bridge gateway, where the database port, published on 127.0.0.1, does not
+listen. Run alone like this, the image migrates in-process as the user it is given; the Compose
+stack splits that into the `migrate` job and the `store_app` runtime (see Running locally), and
 `STORE_IMAGE=ghcr.io/neeleshambally/store:latest docker compose up -d --no-build` runs the
 pulled image that way.
 
@@ -273,8 +278,10 @@ The same smoke test runs locally against the Compose stack:
 docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
 ```
 The script is POSIX `sh` and needs only `curl`; the optional third argument `compose` adds the
-migration-job, hardening and role checks, which use `docker compose` and `docker inspect` and
-must run from the repository root. A local run leaves the `Smoke Test` customer it creates in
+migration-job, hardening, port-binding and role checks, which use `docker compose` and
+`docker inspect` and must run from the repository root. The port-binding check expects every
+published port on `STORE_BIND_ADDRESS` (127.0.0.1 when unset), so the script must run with the
+value the stack was started with. A local run leaves the `Smoke Test` customer it creates in
 the Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
@@ -308,8 +315,8 @@ no GitLab project for this repository. It follows the same stages: `build` runs
 `generator-test`, in the same stage on `node:22-alpine`, runs `npm ci && npm test` in `utils`
 (the GitLab `build` image has no Node), `package` builds the
 image once as the local tag `store:ci` and saves it as the `image.tar` artifact, `smoke`
-loads that tarball, starts the stack with Compose inside `docker:27-dind` and runs the same
-script against `http://docker:8080` and
+loads that tarball, starts the stack with Compose inside `docker:27-dind` with
+`STORE_BIND_ADDRESS: "0.0.0.0"` and runs the same script against `http://docker:8080` and
 `http://docker:8081`, `scan` runs Trivy 0.70.0 (the version `aquasecurity/trivy-action@v0.36.0`
 installs by default on GitHub) on the tarball with the same severity, `--ignore-unfixed` and
 `.trivyignore` settings, and `publish`, on the default branch only, loads the same tarball,
@@ -317,7 +324,7 @@ retags it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both afte
 `smoke` and `scan` have passed; as on GitHub, the registry name is touched only by the publish
 step, so a merge-request pipeline of a project without a container registry still builds, smokes
 and scans.
-Seven details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
+Eight details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
 pipeline runs for merge requests and for the default branch, so a push to a feature branch
 without a merge request runs no pipeline on either platform. The published tag is
 `<short sha>` where GitHub's `docker/metadata-action` writes `sha-<short sha>`. The SBOM is
@@ -331,6 +338,14 @@ where GitHub also uploads `build/test-results/`. The GitLab job images
 (`eclipse-temurin:17-jdk-jammy`, `node:22-alpine`, `docker:27`, `aquasec/trivy:0.70.0`) are
 tag-pinned with no Dependabot path, where every GitHub action is SHA-pinned and moved weekly.
 GitLab tears the smoke stack down with `docker compose down -v` without `--remove-orphans`.
+The `smoke` job sets `STORE_BIND_ADDRESS: "0.0.0.0"`, where GitHub keeps the loopback default:
+on the Docker executor `docker:27-dind` is a separate container that the job reaches as
+`docker`, and a port that daemon publishes on its own 127.0.0.1 refuses the job container's
+connections, so the variable is required there; the script reads the same variable and expects
+`0.0.0.0`. The binding opens the ports on the dind container's interfaces, not on the runner
+host's. On a Kubernetes executor the job and its services share the pod's network namespace,
+so loopback would work and the variable is optional; `0.0.0.0` there also opens the ports on
+the pod IP for the length of the job, which is acceptable for an ephemeral job.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or

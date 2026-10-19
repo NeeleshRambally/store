@@ -32,6 +32,9 @@ web test and provide no actual protection.
   exposed through the public ingress. Management traffic is absent from `http.server.requests`.
 
 ## Consequences
-- Until that phase the service must not be reachable from untrusted networks.
+- Until that phase the service must not be reachable from untrusted networks. The Compose stack
+  publishes the API, the actuator and the database on 127.0.0.1 unless `STORE_BIND_ADDRESS`
+  names another address, and its smoke test fails when a published port is bound to any
+  address other than that one.
 - Tests remain free of security fixtures, which keeps the slice and acceptance tests focused on
   behaviour; they will gain a JWT fixture when authentication lands.
