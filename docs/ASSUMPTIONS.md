@@ -153,6 +153,15 @@ delivered.
   contract and `OpenAPI.yaml` lists them as an enum: a client must accept a code it does not
   know and handle it by its status, adding a code is a minor version of the specification, and
   removing or renaming one is a major version.
+- A request whose `Accept` admits neither `application/json` nor `application/problem+json` is
+  a 406 before any work: the controllers declare both media types as `produces`, so Spring
+  decides the 406 when it maps the request. Without the declaration Spring ran the handler and
+  failed only when it came to write the response, after a `POST` had committed its row.
+  `application/problem+json` is in the list because a client that reads problem details may
+  accept only that type (Spring's `RestTemplate` sends exactly that for a `ProblemDetail`
+  response), and leaving it out would turn every error such a client receives into a 406. A
+  client that sends only `Accept: application/problem+json` to an operation that succeeds
+  receives the success body under that content type, as it did before the declaration.
 - Request strings are single-line text: a control character (U+0000 to U+001F or U+007F, so also
   a tab or a line break) in `description` or `name` is a 400 naming the field
   (`must not contain control characters`). Before the rule a NUL reached the insert, which
@@ -378,6 +387,12 @@ delivered.
   `Object has missing required properties (["code"])` until they carried one; two synthetic
   cases pin that a problem detail without a code, or with a code the enum does not list, is
   rejected.
+- Every operation declares the 406 of an `Accept` that admits no media type it produces, as the
+  reusable `NotAcceptable` response: one contract case per operation sends
+  `Accept: application/xml`, and all nine failed with
+  `Response status 406 not defined for path '/order'` (and the eight other paths) until the
+  response was declared. The service answered 406 before as well, but only after the handler had
+  run.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

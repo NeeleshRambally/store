@@ -100,6 +100,13 @@ Feature: Order management
     Then the response status is 400
     And the response problem detail is "Failed to read request"
 
+  Scenario: An order requested as XML is rejected before it is created
+    Given the orders described as "Requested as XML" are counted
+    When I create an order "Requested as XML" for customer 5 with products 2 and 8 accepting "application/xml"
+    Then the response status is 406
+    And the response problem code is "not_acceptable"
+    And the number of orders described as "Requested as XML" is unchanged
+
   Scenario: An order body that repeats a property is rejected
     When I create an order with payload:
       """

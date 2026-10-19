@@ -15,6 +15,9 @@ import lombok.SneakyThrows;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
@@ -29,8 +32,10 @@ import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 // Proves that the checked-in OpenAPI.yaml and the running application agree, for requests and responses.
 class OpenApiContractIT extends AbstractIntegrationTest {
@@ -487,6 +492,49 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json()).isEqualTo(example("BadRequest", "cursorWithPage"));
+    }
+
+    @ParameterizedTest(name = "{0} {1}")
+    @MethodSource("everyOperation")
+    void nonJsonAcceptIsTheDeclaredNotAcceptableOnEveryOperation(HttpMethod method, String path, String body) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.APPLICATION_XML));
+        if (body != null) {
+            headers.setContentType(MediaType.APPLICATION_JSON);
+        }
+
+        Interaction interaction = exchange(method, path, Map.of(), headers, body);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
+        assertThat(interaction.json().get("code").asText()).isEqualTo("not_acceptable");
+        assertResponseConforms(interaction);
+    }
+
+    static Stream<Arguments> everyOperation() {
+        return Stream.of(
+                arguments(HttpMethod.GET, "/order", null),
+                arguments(
+                        HttpMethod.POST,
+                        "/order",
+                        toJson(Map.of("description", "Contract XML order", "customerId", 5, "productIds", List.of(1)))),
+                arguments(HttpMethod.GET, "/order/1", null),
+                arguments(HttpMethod.GET, "/customer", null),
+                arguments(HttpMethod.POST, "/customer", toJson(Map.of("name", "Contract Xml Customer"))),
+                arguments(HttpMethod.GET, "/customer/1", null),
+                arguments(HttpMethod.GET, "/products", null),
+                arguments(HttpMethod.POST, "/products", toJson(Map.of("description", "Contract XML product"))),
+                arguments(HttpMethod.GET, "/products/2", null));
+    }
+
+    @Test
+    void notAcceptableResponseEqualsTheDocumentedExample() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(List.of(MediaType.APPLICATION_XML));
+
+        Interaction interaction = exchange(HttpMethod.GET, "/order/1", Map.of(), headers, null);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
+        assertThat(interaction.json()).isEqualTo(example("NotAcceptable", "orderAsXml"));
     }
 
     @Test
