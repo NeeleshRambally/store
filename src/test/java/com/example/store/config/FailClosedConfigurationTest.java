@@ -32,15 +32,24 @@ class FailClosedConfigurationTest {
 
     @Test
     void localProfileIsTheReadmePath() {
-        StandardEnvironment environment = new StandardEnvironment();
-        environment.setActiveProfiles("local");
-        ConfigDataEnvironmentPostProcessor.applyTo(environment);
+        StandardEnvironment environment = localProfileEnvironment();
 
         assertThat(environment.getProperty("spring.datasource.username")).isEqualTo("admin");
         assertThat(environment.getProperty("spring.datasource.password")).isEqualTo("admin");
         assertThat(environment.getProperty("spring.datasource.url"))
                 .isEqualTo("jdbc:postgresql://localhost:5433/store");
         assertThat(environment.getProperty("spring.liquibase.contexts")).isEqualTo("seed");
+    }
+
+    @Test
+    void localProfileLogsFormattedSql() {
+        StandardEnvironment environment = localProfileEnvironment();
+
+        assertThat(environment.getProperty("logging.level.org.hibernate.SQL")).isEqualTo("debug");
+        assertThat(environment.getProperty("spring.jpa.properties.hibernate.format_sql"))
+                .isEqualTo("true");
+        assertThat(environment.getProperty("spring.jpa.properties.hibernate.use_sql_comments"))
+                .isEqualTo("true");
     }
 
     @Test
@@ -93,6 +102,13 @@ class FailClosedConfigurationTest {
         StandardEnvironment environment = environmentWith(Map.of("TOMCAT_THREADS_MAX", "50"));
 
         assertThat(environment.getProperty("server.tomcat.threads.max")).isEqualTo("50");
+    }
+
+    private static StandardEnvironment localProfileEnvironment() {
+        StandardEnvironment environment = new StandardEnvironment();
+        environment.setActiveProfiles("local");
+        ConfigDataEnvironmentPostProcessor.applyTo(environment);
+        return environment;
     }
 
     private static StandardEnvironment environmentWith(Map<String, Object> properties) {

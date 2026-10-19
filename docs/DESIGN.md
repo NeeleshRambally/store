@@ -21,14 +21,15 @@ decision.
 The README's instructions still work: start PostgreSQL 16.2 on port 5433 with `admin:admin` and
 a `store` database, then `./gradlew bootRun`. `bootRun` sets `spring.profiles.default=local`, and
 the `local` profile (`application-local.yaml`) is the README path: the 5433 URL, `admin:admin`
-and the `seed` Liquibase context as defaults, plus formatted SQL in the logs. An explicit
-`SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces the default profile. The file
-stays in `src/main/resources`, so `bootRun`, `FailClosedConfigurationTest` and an IDE run that
-activates `local` find it, but the bootJar, and with it the container image, leaves it out:
-`SPRING_PROFILES_ACTIVE=local` on the jar or the image adds no defaults, and the process fails
-closed at its first connection like any environment without credentials (see Configuration).
-`verifyBootJarContents`, part of `check`, fails the build if the bootJar ever contains the
-file. CI sets every variable explicitly.
+and the `seed` Liquibase context as defaults, plus `org.hibernate.SQL` at DEBUG, so the console
+shows every statement Hibernate sends, formatted, with the JPQL as a comment for queries and
+bind values as `?`. An explicit `SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces
+the default profile. The file stays in `src/main/resources`, so `bootRun`,
+`FailClosedConfigurationTest` and an IDE run that activates `local` find it, but the bootJar,
+and with it the container image, leaves it out: `SPRING_PROFILES_ACTIVE=local` on the jar or
+the image adds no defaults, and the process fails closed at its first connection like any
+environment without credentials (see Configuration). `verifyBootJarContents`, part of `check`,
+fails the build if the bootJar ever contains the file. CI sets every variable explicitly.
 
 The alternative is Docker Compose, the production-shaped layout: it starts PostgreSQL 16.2 on
 port 5434 (so that the README's own 5433 instance can stay up alongside the stack), runs the
