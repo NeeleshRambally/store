@@ -220,6 +220,18 @@ class CustomerApiIT extends AbstractIntegrationTest {
                 .allSatisfy(name -> assertThat(name).contains("_"));
     }
 
+    @Test
+    void searchTreatsTheEscapeCharacterLiterally() {
+        restTemplate.postForEntity("/customer", Map.of("name", "Wow!Factor"), CustomerDTO.class);
+        restTemplate.postForEntity("/customer", Map.of("name", "WowFactor"), CustomerDTO.class);
+
+        assertThat(search("w!F"))
+                .contains("Wow!Factor")
+                .doesNotContain("WowFactor")
+                .allSatisfy(name -> assertThat(name).contains("!"));
+        assertThat(search("w%21F")).isEqualTo(search("w!F"));
+    }
+
     private List<String> search(String word) {
         URI uri = URI.create(restTemplate.getRootUri() + "/customer?name=" + word + "&size=100");
         ResponseEntity<PageResponse<CustomerDTO>> response =

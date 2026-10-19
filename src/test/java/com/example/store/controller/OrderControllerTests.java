@@ -180,7 +180,10 @@ class OrderControllerTests {
 
     @Test
     void getByIdRejectsNonNumericId() throws Exception {
-        mockMvc.perform(get("/order/abc")).andExpect(status().isBadRequest());
+        mockMvc.perform(get("/order/abc"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: 'abc'"));
+        verify(orderService, never()).findById(any());
     }
 
     @Test
