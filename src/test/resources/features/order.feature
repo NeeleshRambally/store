@@ -135,6 +135,11 @@ Feature: Order management
     And the response order is "Handcrafted Soft Chair" for customer "Vicki Kutch" with id 1
     And the response order contains products 2 and 8
 
+  Scenario: An order's products are listed in ascending id order
+    When I request order 15
+    Then the response status is 200
+    And the response order contains products 6 and 16
+
   Scenario: Fetching an unknown order is a not found
     When I request order 999999
     Then the response status is 404
