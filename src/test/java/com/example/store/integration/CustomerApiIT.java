@@ -187,6 +187,28 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void searchTotalsAndTheSecondPageMatchTheDatabase() {
+        List<Long> matches = jdbcTemplate.queryForList(
+                "select id from customer where strpos(lower(name), 'a') > 0 order by id", Long.class);
+        assertThat(matches).hasSizeGreaterThan(10);
+
+        for (int page = 0; page < 2; page++) {
+            ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
+                    "/customer?name=a&size=5&page=" + page,
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<>() {});
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(response.getBody().totalElements()).isEqualTo(matches.size());
+            assertThat(response.getBody().totalPages()).isEqualTo((matches.size() + 4) / 5);
+            assertThat(response.getBody().content())
+                    .extracting(CustomerDTO::id)
+                    .containsExactlyElementsOf(matches.subList(page * 5, page * 5 + 5));
+        }
+    }
+
+    @Test
     void searchTreatsWildcardsLiterally() {
         restTemplate.postForEntity("/customer", Map.of("name", "Hundred%Percent"), CustomerDTO.class);
         URI uri = URI.create(restTemplate.getRootUri() + "/customer?name=%25&size=100");
