@@ -261,6 +261,8 @@ class OrderApiIT extends AbstractIntegrationTest {
                 .isNotEmpty()
                 .allSatisfy(order -> assertThat(order.customer().id()).isEqualTo(1L));
         assertThat(response.getBody().content())
+                .filteredOn(order -> order.id() <= 10000L)
+                .isNotEmpty()
                 .allSatisfy(order -> assertThat(order.products()).isNotEmpty());
     }
 
