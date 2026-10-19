@@ -62,6 +62,21 @@ nothing in a response or a log line identified the request a client was asking a
   `db` component turns DOWN only after that same 5 s, so probe timeouts must exceed it. The
   health endpoint itself stays detail-free; liveness stays `LivenessState` only, so a database
   outage never restarts the process.
+- **Database calls are bounded in time.** The database sits behind a high-latency link
+  (README, task 3), and PgJDBC waits for an answer forever by default (`socketTimeout` 0), so a
+  stalled or silently dropped connection used to hold its pool slot and its request thread
+  with no limit. Every connection now carries a server-side `statement_timeout` of 10 s
+  (`DB_STATEMENT_TIMEOUT`), sent in the startup `options` so that it is the session's reset
+  value for whichever role connects, a `socketTimeout` of 15 s (`DB_SOCKET_TIMEOUT`) for a
+  database that stops answering, a `cancelSignalTimeout` of 3 s so that a cancel sent to a
+  stalled server delays the request by 3 s rather than the driver's 10, and `tcpKeepAlive`;
+  every transaction has a default timeout of 15 s (`TX_TIMEOUT`). The server cancels a slow
+  statement cleanly (a 503 `database_timeout`), while the socket timeout is the only bound on
+  a stall and drops the connection (a 503 `service_unavailable`), so it stays above the
+  statement timeout. `docs/DESIGN.md`, Configuration, gives the measured bounds. Liquibase runs
+  on the same pool, so the `migrate` job sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` to
+  `0`, and a Kubernetes `Job` needs the same: an index build or a data migration on a large
+  table may outlast any request limit, and a cancelled changeset stops the rollout.
 - **Stop grace covers the drain.** `server.shutdown: graceful` with a 20 s phase timeout is
   matched by `stop_grace_period: 30s` on the Compose service, and a Kubernetes deployment
   needs `terminationGracePeriodSeconds` of at least the same (its default is 30 s). Readiness
@@ -168,6 +183,11 @@ nothing in a response or a log line identified the request a client was asking a
   and the `service` name and version, in the `store` container's output. A data-integrity
   conflict is logged at WARN by SQL state and constraint name only, never with the driver
   message that quotes the request's values; the full cause is at DEBUG.
+- A deployment that changes a database timeout keeps their order: the socket timeout above the
+  statement timeout and above the slowest legitimate statement, or a slow statement loses its
+  connection instead of being cancelled. `DatabaseTimeoutsIT` reads the values back from the
+  application's pool, a pooled connection and the transaction manager, and
+  `FailClosedConfigurationTest` pins their variables.
 - Readiness and the database are coupled: a planned database maintenance window takes the
   service out of rotation for its duration, which is the intended behaviour and must be
   communicated as such.

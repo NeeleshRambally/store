@@ -104,6 +104,19 @@ class FailClosedConfigurationTest {
         assertThat(environment.getProperty("server.tomcat.threads.max")).isEqualTo("50");
     }
 
+    @Test
+    void databaseTimeoutsFollowTheirVariables() {
+        StandardEnvironment environment =
+                environmentWith(Map.of("DB_STATEMENT_TIMEOUT", "0", "DB_SOCKET_TIMEOUT", "0", "TX_TIMEOUT", "30s"));
+
+        assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.options"))
+                .isEqualTo("-c statement_timeout=0");
+        assertThat(environment.getProperty("spring.datasource.hikari.data-source-properties.socketTimeout"))
+                .isEqualTo("0");
+        assertThat(environment.getProperty("spring.transaction.default-timeout"))
+                .isEqualTo("30s");
+    }
+
     private static StandardEnvironment localProfileEnvironment() {
         StandardEnvironment environment = new StandardEnvironment();
         environment.setActiveProfiles("local");

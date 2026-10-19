@@ -27,6 +27,8 @@ services:
       DB_PASSWORD: admin
       LIQUIBASE_CONTEXTS: seed
       SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      DB_STATEMENT_TIMEOUT: "0"
+      DB_SOCKET_TIMEOUT: "0"
     read_only: true
     tmpfs:
       - /tmp
