@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
+import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
@@ -40,6 +41,7 @@ public class StoreApiSteps {
     private JsonNode body;
     private long createdProductId;
     private long createdOrderId;
+    private List<Long> matchingCustomerIds;
 
     @When("I create a customer named {string}")
     public void createCustomerNamed(String name) throws Exception {
@@ -171,6 +173,22 @@ public class StoreApiSteps {
     public void searchCustomersByName(String name) throws Exception {
         get(UriComponentsBuilder.fromPath("/customer")
                 .queryParam("name", name)
+                .build()
+                .toUriString());
+    }
+
+    @Given("the database lists the customers whose name contains {string}")
+    public void databaseListsCustomersWhoseNameContains(String fragment) {
+        matchingCustomerIds = jdbcTemplate.queryForList(
+                "select id from customer where strpos(lower(name), lower(?)) > 0 order by id", Long.class, fragment);
+    }
+
+    @When("I search customers by name {string} on page {int} with size {int}")
+    public void searchCustomersByNameOnPage(String name, int page, int size) throws Exception {
+        get(UriComponentsBuilder.fromPath("/customer")
+                .queryParam("name", name)
+                .queryParam("page", page)
+                .queryParam("size", size)
                 .build()
                 .toUriString());
     }
@@ -441,6 +459,20 @@ public class StoreApiSteps {
         assertThat(body.get("page").asInt()).isEqualTo(page);
         assertThat(body.get("size").asInt()).isEqualTo(size);
         assertThat(body.get("totalElements").asLong()).isGreaterThanOrEqualTo(totalElements);
+    }
+
+    @Then("the page reports as many matches as the database lists")
+    public void pageReportsAsManyMatchesAsListed() {
+        int size = body.get("size").asInt();
+        assertThat(body.get("totalElements").asLong()).isEqualTo(matchingCustomerIds.size());
+        assertThat(body.get("totalPages").asInt()).isEqualTo((matchingCustomerIds.size() + size - 1) / size);
+    }
+
+    @Then("the page holds the listed customers {int} to {int}")
+    public void pageHoldsTheListedCustomers(int first, int last) {
+        List<Long> ids = new java.util.ArrayList<>();
+        body.get("content").forEach(customer -> ids.add(customer.get("id").asLong()));
+        assertThat(ids).containsExactlyElementsOf(matchingCustomerIds.subList(first - 1, last));
     }
 
     @Then("the next cursor is {int}")

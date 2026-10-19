@@ -107,6 +107,13 @@ Feature: Customer management
     And the page has 3 customers starting at id 2
     And the next cursor is 4
 
+  Scenario: The second page of a name search reports the total of every match
+    Given the database lists the customers whose name contains "a"
+    When I search customers by name "a" on page 1 with size 5
+    Then the response status is 200
+    And the page reports as many matches as the database lists
+    And the page holds the listed customers 6 to 10
+
   Scenario: Fetch a single customer by id
     When I request customer 1
     Then the response status is 200
