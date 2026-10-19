@@ -263,8 +263,9 @@ delivered.
   planner prefers a sequential scan. On 200,000 rows the index serves the count, the page of a
   rare word and a deep page of a common one, while a shallow page of a common word walks the
   primary key and stops after `size` matches; a pattern shorter than three characters yields no
-  trigram, so its count reads every row (`docs/PERFORMANCE.md`, "Substring search", has the
-  plans and timings; `MigrationIT` pins that the predicate shape is served by the index).
+  trigram, so its count reads every row, and so does its page when the word is rare
+  (`docs/PERFORMANCE.md`, "Substring search", has the plans and timings; `MigrationIT` pins that
+  the predicate shape is served by the index).
   Creating the extension needs a privileged role on first migration, which the Compose
   `migrate` job has (`admin`); in production the DBA installs it once and the changeset is a
   no-op thereafter (ADR 0008 records the migration job, the runtime role and what each may do).
