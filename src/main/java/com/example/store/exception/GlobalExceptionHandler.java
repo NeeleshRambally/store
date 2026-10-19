@@ -1,5 +1,6 @@
 package com.example.store.exception;
 
+import com.fasterxml.jackson.core.exc.InputCoercionException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
@@ -135,6 +136,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 && !mismatch.getPath().isEmpty()) {
             return fieldProblem(
                     status, "Invalid request content.", path(mismatch), expectation(mismatch.getTargetType()));
+        }
+        if (cause instanceof JsonMappingException mapping && mapping.getCause() instanceof InputCoercionException) {
+            return fieldProblem(status, "Invalid request content.", path(mapping), "must be a 64-bit integer");
         }
         return ProblemDetail.forStatusAndDetail(status, "Failed to read request");
     }
