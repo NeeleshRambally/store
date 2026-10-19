@@ -203,8 +203,41 @@ class CustomerControllerTests {
         mockMvc.perform(get("/customer").param("name", "Muriel Donnelly"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("name"))
-                .andExpect(jsonPath("$.errors[0].message").value("must match \"\\S+\""));
+                .andExpect(jsonPath("$.errors[0].message")
+                        .value("must be a single word without whitespace or control characters"));
         verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllRejectsANulCharacterInTheName() throws Exception {
+        when(customerService.search(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("name", "a\u0000b"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message")
+                        .value("must be a single word without whitespace or control characters"));
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllRejectsADeleteCharacterInTheName() throws Exception {
+        when(customerService.search(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("name", "a\u007fb"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("name"));
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllTreatsAC1ControlCharacterAsPartOfTheWord() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(customerService.search("a\u0085b", pageable)).thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+        mockMvc.perform(get("/customer").param("name", "a\u0085b")).andExpect(status().isOk());
+
+        verify(customerService).search("a\u0085b", pageable);
     }
 
     @Test

@@ -154,11 +154,11 @@ runs, in one task and in one JVM:
   non-numeric id on the three by-id paths, of an unknown sort property on `/order` and
   `/products`, of a cursor combined with a page, of a negative `after`, of a negative `page`, of
   a `size` beyond the 32-bit range, of a `customerId` of 0 and of `customerId` combined with
-  `productId` on `/order`, and of a multi-word `name` on
-  `/customer` (while a no-break space in `name` is accepted by both); the 404 of an unknown
-  order, product and customer and of an order for an unknown customer; the 413 of an oversized
-  body and the 415 of a `POST /order` sent as `text/plain`; and the 304 of a conditional
-  `GET /order/{id}`, `GET /products/{id}`,
+  `productId` on `/order`, and of a multi-word `name` and of a `name` containing a NUL on
+  `/customer` (while a no-break space, and a word containing U+0085 and U+2028, are accepted by
+  both); the 404 of an unknown order, product and customer and of an order for an unknown
+  customer; the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
+  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
   `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
   be declared per operation, because the method is absent from the contract; `info.description`
   states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
@@ -392,6 +392,11 @@ Request input is strict rather than coerced (ADR 0002):
   `spring.jackson.mapper.allow-coercion-of-scalars` are off, and `JacksonConfig` fails the
   number-to-text and boolean-to-text coercions those two leave on. Jackson stops at the first
   field it cannot bind, so `errors` lists one type failure even when several fields are wrong.
+- `name` on `GET /customer` is a single word: ASCII whitespace, a C0 control character or DEL
+  (U+0000 to U+001F, U+007F) is a 400 naming `name`
+  (`must be a single word without whitespace or control characters`); a NUL used to reach
+  PostgreSQL, which rejects it in text, and came back as a 409. A no-break space, a C1 control
+  such as U+0085 and U+2028 are part of the word, in the server and the specification alike.
 - `page` below 0 and `size` below 1 are 400s naming the parameter
   (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
   resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default

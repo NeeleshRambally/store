@@ -16,6 +16,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
+import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -192,6 +193,11 @@ public class StoreApiSteps {
                 .queryParam("size", size)
                 .build()
                 .toUriString());
+    }
+
+    @When("I request customers with the query {string}")
+    public void requestCustomersWithQuery(String query) throws Exception {
+        capture(restTemplate.getForEntity(URI.create(restTemplate.getRootUri() + "/customer?" + query), String.class));
     }
 
     @When("I request orders after {int} with size {int}")
