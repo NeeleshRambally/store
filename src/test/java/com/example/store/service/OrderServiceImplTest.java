@@ -38,6 +38,7 @@ import org.springframework.data.domain.Sort;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.store.entity.EntityIds.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -76,14 +77,11 @@ class OrderServiceImplTest {
                 productRepository,
                 Mappers.getMapper(OrderMapper.class),
                 eventPublisher);
-        customer = new Customer();
-        customer.setId(1L);
+        customer = withId(new Customer(), 1L);
         customer.setName("Ada Lovelace");
-        chair = new Product();
-        chair.setId(2L);
+        chair = withId(new Product(), 2L);
         chair.setDescription("Rustic Chair");
-        table = new Product();
-        table.setId(8L);
+        table = withId(new Product(), 8L);
         table.setDescription("Oak Table");
     }
 
@@ -94,8 +92,7 @@ class OrderServiceImplTest {
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order saved = invocation.getArgument(0);
             assertThat(saved.getId()).isNull();
-            saved.setId(10001L);
-            return saved;
+            return withId(saved, 10001L);
         });
 
         OrderDTO result = service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(8L, 2L)));
@@ -117,8 +114,7 @@ class OrderServiceImplTest {
         when(productRepository.findAllById(List.of(8L, 2L))).thenReturn(List.of(chair, table));
         when(orderRepository.save(any(Order.class))).thenAnswer(invocation -> {
             Order saved = invocation.getArgument(0);
-            saved.setId(10001L);
-            return saved;
+            return withId(saved, 10001L);
         });
 
         service.create(new CreateOrderRequest("Analytical Engine", 1L, List.of(8L, 2L)));
@@ -163,8 +159,7 @@ class OrderServiceImplTest {
 
     @Test
     void findByIdReturnsOrderWithCustomer() {
-        Order order = new Order();
-        order.setId(5L);
+        Order order = withId(new Order(), 5L);
         order.setDescription("Analytical Engine");
         order.setCustomer(customer);
         order.getProducts().add(table);
