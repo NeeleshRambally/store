@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: store
-  version: '1.0'
+  version: '2.0.0'
   description: >-
     A simple store. Every error handled by the service's Spring MVC layer on the API port is an
     RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
@@ -12,7 +12,10 @@ info:
     (the values are listed in the ProblemDetail schema; type stays about:blank): branch on the
     code, never on the detail text, which may change. A client must accept a code it does not
     know and handle it by the status, because adding a code is a minor version of this contract;
-    removing or renaming one is a major version.
+    removing or renaming one is a major version. The version is that of the contract itself,
+    independent of the version of the service that implements it; 2.0.0 is incompatible with
+    the delivered 1.0, and docs/ASSUMPTIONS.md ("Contract version and client migration") lists
+    what a 1.0 client has to change.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
@@ -333,9 +336,9 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProducts
       description: >-
-        Get a page of products, each with the ids of the orders that contain it. Without after the
-        page is addressed by page and size; with after the page is the products whose id is greater
-        than after, in ascending id order.
+        Get a page of products, each with the ids of its newest orders (bounded, see
+        Product.orders) and orderCount. Without after the page is addressed by page and size; with
+        after the page is the products whose id is greater than after, in ascending id order.
     post:
       summary: Create Product
       tags:
@@ -415,7 +418,9 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProduct
-      description: Get a single product with the ids of the orders that contain it
+      description: >-
+        Get a single product with the ids of its newest orders (bounded, see Product.orders) and
+        orderCount
 components:
   parameters:
     ifNoneMatch:
@@ -991,7 +996,11 @@ components:
               type: string
         products:
           type: array
-          description: The products contained in the order, ascending by id
+          description: >-
+            The products contained in the order, ascending by id. Every order created through
+            this API has at least one. An order that predates changeset 5, which added products,
+            has none in a database migrated without the sample data and is returned with an
+            empty list, which is why the schema declares no minItems.
           items:
             type: object
             required:
