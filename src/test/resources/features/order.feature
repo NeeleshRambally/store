@@ -50,6 +50,14 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "customerId"
 
+  Scenario: An order description containing a NUL character is rejected
+    When I create an order with payload:
+      """
+      {"description": "Nul\u0000order", "customerId": 5, "productIds": [2]}
+      """
+    Then the response status is 400
+    And the response problem lists a validation error for "description"
+
   Scenario: A customer id sent as a string is rejected
     When I create an order with payload:
       """

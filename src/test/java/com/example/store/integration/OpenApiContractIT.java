@@ -323,6 +323,18 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void controlCharacterInAnOrderDescriptionMatchesTheContract() {
+        Interaction interaction =
+                post("/order", Map.of("description", "Contract\u0000order", "customerId", 5, "productIds", List.of(1)));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("description");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void fractionalCustomerIdMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "Contract fraction", "customerId", 5.5, "productIds", List.of(1)));
@@ -473,6 +485,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void controlCharacterInACustomerNameMatchesTheContract() {
+        Interaction interaction = post("/customer", Map.of("name", "Contract\u0000customer"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("name");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void whitespaceOnlyCustomerMatchesTheContract() {
         Interaction interaction = post("/customer", Map.of("name", "   "));
 
@@ -615,6 +638,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void controlCharacterInAProductDescriptionMatchesTheContract() {
+        Interaction interaction = post("/products", Map.of("description", "Contract\u0000product"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("description");
         assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
         assertResponseConforms(interaction);
     }

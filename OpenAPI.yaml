@@ -763,7 +763,10 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          description: >-
+            Single-line text that is not blank: no control character (U+0000 to U+001F or
+            U+007F, so no tab or line break) and at least one character that is not whitespace
+          pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
         customerId:
           type: integer
           format: int64
@@ -788,7 +791,10 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          description: >-
+            Single-line text that is not blank: no control character (U+0000 to U+001F or
+            U+007F, so no tab or line break) and at least one character that is not whitespace
+          pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
     Product:
       title: Product
       type: object
@@ -846,7 +852,10 @@ components:
           type: string
           minLength: 1
           maxLength: 255
-          pattern: '\S'
+          description: >-
+            Single-line text that is not blank: no control character (U+0000 to U+001F or
+            U+007F, so no tab or line break) and at least one character that is not whitespace
+          pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
     Order:
       title: Order
       type: object

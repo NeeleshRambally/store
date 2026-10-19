@@ -101,6 +101,23 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aLineBreakInTheDescriptionIsRejectedWithoutCreatingAnOrder() {
+        Long before = ordersDescribed("Line one\nLine two");
+
+        ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
+                "/order",
+                Map.of("description", "Line one\nLine two", "customerId", 5, "productIds", List.of(2)),
+                ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("description");
+        assertThat(ordersDescribed("Line one\nLine two")).isEqualTo(before);
+    }
+
+    @Test
     void returnsNotFoundForUnknownCustomer() {
         ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
                 "/order",
