@@ -244,6 +244,28 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getAllRejectsANegativePage() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 0"));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsAZeroSize() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("size"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 1"));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
     void getAllForwardsPagingAndSortParameters() throws Exception {
         when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
 

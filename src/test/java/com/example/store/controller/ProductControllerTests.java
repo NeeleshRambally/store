@@ -129,6 +129,28 @@ class ProductControllerTests {
     }
 
     @Test
+    void getAllRejectsANegativePage() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("page", "-1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 0"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsAZeroSize() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("size", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("size"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be greater than or equal to 1"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
     void getAllWithAfterReturnsACursorPage() throws Exception {
         when(productService.findAfter(new CursorRequest(1L, 20)))
                 .thenReturn(new CursorPageResponse<>(List.of(PRODUCT), 20, 2L));

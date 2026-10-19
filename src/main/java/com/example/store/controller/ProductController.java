@@ -35,6 +35,8 @@ public class ProductController {
     @GetMapping
     public ListResponse<ProductDTO> getAllProducts(
             @RequestParam(required = false) @Min(0) Long after,
+            @RequestParam(required = false) @Min(0) Integer page,
+            @RequestParam(required = false) @Min(1) Integer size,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         if (after == null) {
             return PageResponse.from(productService.findAll(pageable));
