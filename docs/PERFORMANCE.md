@@ -309,8 +309,9 @@ saves the round trip. The filter also buffers the whole response body in memory 
 before the first byte is written, on every `GET` it covers, whether or not the client sent
 `If-None-Match`: one extra copy of the body per request, at most the 106 KB of
 `GET /customer?size=100`. That is accepted because the pages are bounded (above), so the copy is
-too, and the hash is what makes the 304 possible. The cache keeps DTOs, which are immutable,
-keyed by id, bounded to 10,000 entries and 60 s (`CACHE_TTL`); `CACHE_TYPE=none` disables it.
+too, and the hash is what makes the 304 possible. The cache keeps DTOs, which are immutable
+(each record copies its lists when it is built, so every hit can share one instance), keyed by
+id, bounded to 10,000 entries and 60 s (`CACHE_TTL`); `CACHE_TYPE=none` disables it.
 The hit rate is visible as
 `cache_gets_total{cache="orders"|"products",result="hit"|"miss"}` in `/actuator/prometheus`;
 the TTL should only be raised on that evidence, because a product read on another replica, or

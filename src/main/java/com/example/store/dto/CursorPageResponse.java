@@ -5,6 +5,10 @@ import java.util.function.Function;
 
 public record CursorPageResponse<T>(List<T> content, int size, Long nextCursor) implements ListResponse<T> {
 
+    public CursorPageResponse {
+        content = List.copyOf(content);
+    }
+
     public static <R, T> CursorPageResponse<T> from(
             List<R> fetched, int size, Function<R, Long> id, Function<List<R>, List<T>> mapper) {
         boolean hasMore = fetched.size() > size;
