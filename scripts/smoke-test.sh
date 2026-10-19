@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job and runtime role.
+# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening and runtime role.
 set -eu
 
 app=$1
@@ -47,6 +47,11 @@ expect_denied() {
   echo "ok   $name -> denied"
 }
 
+expect_setting() {
+  docker inspect -f "{{json .HostConfig.$3}}" "$2" > "$body" 2>&1 || fail "$1: docker inspect failed"
+  grep -q -- "$4" "$body" || fail "$1: $5"
+}
+
 echo "Waiting for $mgmt/actuator/health/readiness"
 deadline=$(( $(date +%s) + 120 ))
 until [ "$(request "$mgmt/actuator/health/readiness")" = 200 ] && grep -q '"status":"UP"' "$body"; do
@@ -82,6 +87,17 @@ if [ "$mode" = compose ]; then
   code=$(docker inspect -f '{{.State.ExitCode}}' "$migrate")
   [ "$code" = 0 ] || fail "migrate: exit code $code"
   echo "ok   migrate -> exit 0"
+
+  for service in migrate store; do
+    id=$(docker compose ps -aq "$service")
+    expect_setting "$service" "$id" ReadonlyRootfs '^true$' 'root filesystem is not read-only'
+    expect_setting "$service" "$id" Tmpfs '"/tmp"' '/tmp is not a tmpfs'
+    expect_setting "$service" "$id" CapDrop '"ALL"' 'capabilities are not all dropped'
+    expect_setting "$service" "$id" SecurityOpt '"no-new-privileges:true"' 'no-new-privileges is not set'
+    expect_setting "$service" "$id" Memory '^536870912$' 'memory limit is not 512 MiB'
+    expect_setting "$service" "$id" MemorySwap '^536870912$' 'memory plus swap limit is not 512 MiB, so the container can swap'
+    echo "ok   $service hardening -> read-only root, tmpfs /tmp, no capabilities, no-new-privileges, 512 MiB without swap"
+  done
 
   as_store_app 'select count(*) from customer' || fail "store_app select: psql failed"
   grep -qE '^[0-9]+$' "$body" || fail "store_app select: no count in the output"

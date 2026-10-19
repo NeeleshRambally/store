@@ -207,7 +207,10 @@ them. Reports land in `build/reports`.
    component in the body, serve `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor
    page on 8080 and reject a 70,000 byte body with a 413, answer 404 for `/actuator/health` on
    8080 and 200 for the liveness probe on 8081; then, in `compose` mode, the `migrate`
-   container's exit code must be 0, `store_app` must be able to `select count(*) from customer`
+   container's exit code must be 0, `docker inspect` must show the `migrate` and `store`
+   containers with a read-only root filesystem, a tmpfs on `/tmp`, `CapDrop` `ALL`,
+   `no-new-privileges:true` and `Memory` and `MemorySwap` both 536870912 (512 MiB without
+   swap), `store_app` must be able to `select count(*) from customer`
    through `psql` in the database container, and `create table` and `update customer` as
    `store_app` must fail with `permission denied for schema public` and `permission denied for
    table customer`, and `DELETE /order/1` sent with `X-Request-Id: smoke-<pid>` must be a 405
@@ -262,9 +265,9 @@ The same smoke test runs locally against the Compose stack:
 docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
 ```
 The script is POSIX `sh` and needs only `curl`; the optional third argument `compose` adds the
-migration-job and role checks, which use `docker compose` and `docker inspect` and must run
-from the repository root. A local run leaves the `Smoke Test` customer it creates in the
-Compose volume; `docker compose down -v` clears it.
+migration-job, hardening and role checks, which use `docker compose` and `docker inspect` and
+must run from the repository root. A local run leaves the `Smoke Test` customer it creates in
+the Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
 Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
@@ -523,7 +526,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its
   own user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
   (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0. ADR 0008
-  records the settings; `docker inspect` on the started stack shows them
+  records the settings. The smoke test's `compose` mode reads each of them back with
+  `docker inspect` on both containers, so a pipeline run fails when one is removed, and a new
+  limit needs the asserted 536870912 changed with it
 
 ## Further reading
 * `docs/ASSUMPTIONS.md`: the judgement calls behind each task and how they can be defended.
