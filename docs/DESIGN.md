@@ -21,7 +21,8 @@ and the `seed` Liquibase context as defaults, plus formatted SQL in the logs. An
 container image and CI set every variable explicitly and never use `local`.
 
 The alternative is Docker Compose, the production-shaped layout: it starts PostgreSQL 16.2 on
-port 5434, runs the migrations as a one-shot `migrate` job (the same image with
+port 5434 (so that the README's own 5433 instance can stay up alongside the stack), runs the
+migrations as a one-shot `migrate` job (the same image with
 `SPRING_MAIN_WEB_APPLICATION_TYPE=none`, the schema owner `admin` and the `seed` context),
 and then starts the service image as the runtime role `store_app`, which can only connect,
 read and insert (`scripts/postgres-init/01-roles.sql` creates it when the volume is first
@@ -99,7 +100,10 @@ signalled; ADR 0008 says the same.
 ## Development workflow
 Every change goes through a pull request. The pipeline must be green and the change reviewed
 before it is squash-merged into `main`. New behaviour starts with a failing test (unit, slice or
-integration) and, for API behaviour, a Cucumber scenario.
+integration) and, for API behaviour, a Cucumber scenario. In this single-author project the
+review step is exercised by a second account, so that the branch workflow and the approval
+gate stay real instead of being switched off; the substantive review is the audit-driven
+follow-up work recorded in the ADRs and in the pull requests that closed each audit.
 
 ## Testing
 ```shell
@@ -124,8 +128,9 @@ runs, in one task and in one JVM:
   and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
   `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
   be declared per operation, because the method is absent from the contract; `info.description`
-  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies are validated
-  synthetically against `POST /order` and `GET /order`, because no real request reaches them
+  states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
+  are validated synthetically against `POST /order` and `GET /order`, because no real request
+  reaches them
   (there are no unique constraints and no injected failure). The specification declares
   `X-Request-Id` as a required header on every response, `Location` on every 201 and
   `Retry-After` on every 503, and the validator enforces declared headers, so a response that
@@ -144,9 +149,11 @@ name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the 
 single letter apart.
 
 `build` also checks formatting (`spotlessCheck`) and fails below 80% line coverage. Two
-exclusions apply to the report and the gate alike: `**/mapper/**` (the MapStruct-generated
-implementations) and `StoreApplication` (the launcher); the 100% line figure quoted in the
-history is measured under them. Reports land in `build/reports`.
+exclusions apply to the report and the gate alike: `**/mapper/**` (the whole `mapper` package:
+the MapStruct-generated implementations and the hand-written default method
+`ProductMapper.orderIds`, which `ProductMapperTest` covers but the gate does not count) and
+`StoreApplication` (the launcher); the 100% line figure quoted in the history is measured under
+them. Reports land in `build/reports`.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
@@ -254,7 +261,7 @@ retags it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both afte
 `smoke` and `scan` have passed; as on GitHub, the registry name is touched only by the publish
 step, so a merge-request pipeline of a project without a container registry still builds, smokes
 and scans.
-Four details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
+Seven details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
 pipeline runs for merge requests and for the default branch, so a push to a feature branch
 without a merge request runs no pipeline on either platform. The published tag is
 `<short sha>` where GitHub's `docker/metadata-action` writes `sha-<short sha>`. The SBOM is
@@ -262,7 +269,12 @@ CycloneDX produced by Trivy rather than SPDX produced by Syft; both scans print 
 table to the job log and neither stores a report. The order of the checks: GitHub runs the
 scan, the SBOM and the smoke test one after the other in the single `docker` job, while on
 GitLab `smoke` and `scan` both `needs: [package]` and run in parallel after it; `publish` needs
-all three, so the gate before a push is the same.
+all three, so the gate before a push is the same. The GitLab `build` job keeps only
+`build/reports/` as a path artifact (the JUnit XML reaches GitLab through `reports: junit`)
+where GitHub also uploads `build/test-results/`. The GitLab job images
+(`eclipse-temurin:17-jdk-jammy`, `node:22-alpine`, `docker:27`, `aquasec/trivy:0.70.0`) are
+tag-pinned with no Dependabot path, where every GitHub action is SHA-pinned and moved weekly.
+GitLab tears the smoke stack down with `docker compose down -v` without `--remove-orphans`.
 
 ## Data model
 An order has an id, a description, belongs to the customer that placed it, and contains one or
@@ -314,8 +326,11 @@ with the same `sort` whitelist, an id that matches nothing yields an empty page 
 `NESTED_ORDERS_LIMIT` orders (20 by default; the highest ids, returned in ascending id order) and
 `orderCount`, the total; a product on the list and by-id responses carries the ids of the newest
 orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collections").
-Errors are RFC 7807 problem details; validation failures, whether of a request body or of a
-query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
+Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
+request that never reaches the `DispatcherServlet` (one Tomcat rejects at the connector, such
+as an oversized header) and a 404 on the management connector get Boot's default error body
+(`{"timestamp","status","error","path"}`) instead. Validation failures, whether of a request
+body or of a query parameter such as `name`, `after`, `customerId` or `productId`, include an `errors` array with the offending field
 names and the constraint messages. A non-numeric path id is a 400 problem detail. Requests
 never carry an id; unknown properties are rejected with 400. A request body over
 `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds

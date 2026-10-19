@@ -9,7 +9,9 @@ delivered.
 - The project is treated as a production service: every change ships with tests at the unit,
   integration (real PostgreSQL via Testcontainers) and acceptance (Cucumber) level, and CI fails
   on any failing test, formatting violation or coverage below 80% of lines, measured outside the
-  generated MapStruct implementations and the launcher class (`docs/DESIGN.md`, Testing).
+  whole `mapper` package (the generated MapStruct implementations and the hand-written
+  `ProductMapper.orderIds`, which is tested but not counted) and the launcher class
+  (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
@@ -84,7 +86,9 @@ delivered.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
-- Errors are RFC 7807 problem details. Validation failures list the offending fields, for a
+- Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
+  request that never reaches the `DispatcherServlet`, and a 404 on the management connector,
+  get Boot's default error body instead. Validation failures list the offending fields, for a
   request body and for a query parameter alike (`name`, `after`); nothing else about the
   failure is exposed. A whitespace-only `name` or `description` is a validation failure, and the
   specification says so (`pattern: '\S'`) so that a client built from it rejects the same

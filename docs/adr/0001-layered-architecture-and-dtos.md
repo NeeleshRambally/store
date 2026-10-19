@@ -1,7 +1,11 @@
 # ADR 0001: Layered architecture with request and response DTOs
 
 ## Status
-Accepted
+Accepted. Since ADR 0006 every list and by-id read except `GET /order/{id}` builds its DTOs
+from projection rows rather than through MapStruct; the entity mappers serve the create
+responses and that one entity-graph read only. The `orders` mapping of `CustomerMapper` and
+`ProductMapper` must never be applied to a persistent entity, whose lazy collection is
+unbounded (ADR 0003, "Nested collections"); on the create path the collection is empty.
 
 ## Context
 The original service wired controllers directly to Spring Data repositories and bound JPA
