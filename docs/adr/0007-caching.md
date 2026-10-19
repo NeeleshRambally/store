@@ -7,8 +7,9 @@ Accepted
 Every `GET` response was sent in full on every request, and every `GET /order/{id}` and
 `GET /products/{id}` opened a Hibernate session and ran its single statement even when the same
 id had just been read. The database is remote, so a by-id read costs one network round trip
-however small the row, and the by-id endpoints are the ones a client polls or re-reads. ADR 0003
-rejected caching while the read patterns were paged scans; the by-id reads are different: the
+however small the row, and the by-id endpoints are the ones a client polls or re-reads.
+`docs/PERFORMANCE.md` ("Deliberately not done") had rejected caching while the read patterns
+were paged scans, and still rejects it for the list pages; the by-id reads are different: the
 key is the id, the value is small, and the API has no `PUT` or `DELETE`.
 
 ## Decision
