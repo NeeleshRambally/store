@@ -211,7 +211,9 @@ delivered.
   holds for the sample data.
 - An order carries at most 100 products (`@Size(max = 100)` on `productIds`, `maxItems: 100`
   in the specification). The bound keeps a single request to one `IN` clause of at most 100
-  ids and one insert batch of at most 100 join rows.
+  ids and to two insert batches of at most 50 join rows (`jdbc.batch_size: 50`) on one prepared
+  statement, so an order of 100 products costs the 4 prepared statements of an order of three,
+  5 on the request that allocates the next block of ids (`QueryCountIT`).
 - Until this release no server-side bound on a JSON body existed, and an earlier revision of
   this document wrongly cited Tomcat's 2 MB default, which applies to form-parameter parsing
   only (`server.tomcat.max-http-form-post-size`); an oversized `description` was parsed into
