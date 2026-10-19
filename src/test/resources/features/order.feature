@@ -27,6 +27,22 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "productIds"
 
+  Scenario: An order without a product list is rejected
+    When I create an order with payload:
+      """
+      {"description": "No product list", "customerId": 2}
+      """
+    Then the response status is 400
+    And the response problem lists a validation error for "productIds"
+
+  Scenario: An order with a null product id is rejected
+    When I create an order with payload:
+      """
+      {"description": "Null product id", "customerId": 2, "productIds": [null]}
+      """
+    Then the response status is 400
+    And the response problem lists a validation error for "productIds[0]"
+
   Scenario: An oversized order body is rejected
     When I create an order with a body of 65537 bytes
     Then the response status is 413
