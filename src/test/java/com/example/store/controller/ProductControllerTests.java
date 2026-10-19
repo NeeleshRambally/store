@@ -72,7 +72,10 @@ class ProductControllerTests {
         mockMvc.perform(post("/products")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":5,\"description\":\"Rustic Chair\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Unknown property 'id'"))
+                .andExpect(jsonPath("$.errors[0].field").value("id"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a known property"));
         verify(productService, never()).create(any());
     }
 
