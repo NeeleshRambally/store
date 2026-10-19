@@ -185,6 +185,14 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void getsOrderByIdWithItsProductsInAscendingIdOrder() {
+        ResponseEntity<OrderDTO> response = restTemplate.getForEntity("/order/15", OrderDTO.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().products()).extracting(p -> p.id()).containsExactly(6L, 16L);
+    }
+
+    @Test
     void returnsNotFoundForUnknownOrder() {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/order/999999", ProblemDetail.class);
 
