@@ -69,18 +69,26 @@ nothing in a response or a log line identified the request a client was asking a
   start-up, by contrast, is observed by `FailClosedStartupIT`.
 - **The Compose services are hardened.** `store` and `migrate` run with `read_only: true`
   and `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` are the only
-  writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]` and
-  `deploy.resources.limits.memory: 512m`, which Compose v2 honours without Swarm. The memory
-  limit gives the image's `-XX:MaxRAMPercentage=75` a bound (`MaxHeapSize` 384 MiB inside the
-  container) and is measured, not guessed: the service holds about 256 MiB of RSS (255.9 and
-  256.2 MiB in two readings) after the smoke run under the default 200 request threads, so
-  the limit must rise with `TOMCAT_THREADS_MAX` and `DB_POOL_SIZE`. `postgres` is left
-  unhardened because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data
-  directory to its own user; a production database is a managed service or its own hardening
-  exercise, not this stack's. The tmpfs is not decoration: with it removed the `migrate` job
-  still exits 0 (no web server, so the JVM only loses its `hsperfdata` file), but `store`
-  fails with `Unable to start web server`, because Tomcat creates its base directory under
-  `java.io.tmpdir` and the read-only root refuses it, and readiness is never reached.
+  writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`,
+  `deploy.resources.limits.memory: 512m`, which Compose v2 honours without Swarm, and
+  `memswap_limit: 512m`, so that an overrun fails instead of swapping (without it Docker
+  allows as much swap again as the limit). The image's entrypoint gives the heap
+  `-XX:MaxRAMPercentage=30` of that limit (`MaxHeapSize` 154 MiB) under `-XX:+UseSerialGC`,
+  and the share is measured under load, not guessed: with the heap fully resident and 200
+  busy clients for 300 s the container peaked at 477.4 MiB, while 75% (384 MiB of heap)
+  needed 636.8 MiB and was killed once swap was off, 40% reached the limit and 35% came
+  within 1.1 MiB of it (`docs/DESIGN.md`, Operations, gives the method, the environment and
+  the GC cost). SerialGC is explicit because G1, whose own native structures take 59 to 63
+  MiB, overran the limit at a 35% heap under the same load, and the JVM picks G1 by itself
+  once a deployment grants 1792 MiB or more and two CPUs. The limit must be raised, and the
+  share re-measured, when `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or the cache grows.
+  `postgres` is left unhardened because `initdb` runs as root and needs `CHOWN` and `SETUID`
+  to hand the data directory to its own user; a production database is a managed service or
+  its own hardening exercise, not this stack's. The tmpfs is not decoration: with it removed
+  the `migrate` job still exits 0 (no web server, so the JVM only loses its `hsperfdata`
+  file), but `store` fails with `Unable to start web server`, because Tomcat creates its
+  base directory under `java.io.tmpdir` and the read-only root refuses it, and readiness is
+  never reached.
 - **Request size.** `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API
   connector only) wraps every request so that a declared `Content-Length` over
   `REQUEST_MAX_BODY_BYTES` (64 KiB by default) fails before a byte is read and a chunked body
@@ -108,9 +116,10 @@ nothing in a response or a log line identified the request a client was asking a
   and the runtime role's grants on the started stack, plus the structured log line of a 405.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
-  capabilities, no privilege escalation and a memory limit sized to the measured footprint
-  plus the thread and pool settings. `docker inspect` on the started stack shows
-  `ReadonlyRootfs`, `CapDrop`, `SecurityOpt`, `Memory` and `Tmpfs` for both services.
+  capabilities, no privilege escalation and a memory limit without swap, sized to the
+  footprint measured under load for the shipped thread, pool and cache settings. `docker
+  inspect` on the started stack shows `ReadonlyRootfs`, `CapDrop`, `SecurityOpt`, `Memory`,
+  `MemorySwap` (equal to `Memory`, so no swap) and `Tmpfs` for both services.
 - The runtime role no longer owns the schema in the Compose stack and the pipelines; the
   `migrate` job owns the rollout order, so a failed migration stops the stack before the
   service starts. The role split is Compose-specific wiring: any other environment needs the
