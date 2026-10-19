@@ -6,6 +6,7 @@ import com.example.store.entity.Product;
 
 import org.junit.jupiter.api.Test;
 
+import static com.example.store.entity.EntityIds.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ProductMapperTest {
@@ -14,8 +15,7 @@ class ProductMapperTest {
 
     @Test
     void orderCountFollowsTheOrdersCollection() {
-        Product product = new Product();
-        product.setId(3L);
+        Product product = withId(new Product(), 3L);
         product.setDescription("Rustic Chair");
         product.getOrders().add(order(7L));
         product.getOrders().add(order(5L));
@@ -28,8 +28,7 @@ class ProductMapperTest {
 
     @Test
     void aNewProductHasNoOrders() {
-        Product product = new Product();
-        product.setId(101L);
+        Product product = withId(new Product(), 101L);
         product.setDescription("Lamp");
 
         ProductDTO dto = mapper.productToProductDTO(product);
@@ -39,8 +38,6 @@ class ProductMapperTest {
     }
 
     private static Order order(long id) {
-        Order order = new Order();
-        order.setId(id);
-        return order;
+        return withId(new Order(), id);
     }
 }

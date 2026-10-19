@@ -32,6 +32,7 @@ import org.springframework.data.domain.Sort;
 import java.util.List;
 import java.util.Optional;
 
+import static com.example.store.entity.EntityIds.withId;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -65,8 +66,7 @@ class CustomerServiceImplTest {
         when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> {
             Customer saved = invocation.getArgument(0);
             assertThat(saved.getId()).isNull();
-            saved.setId(101L);
-            return saved;
+            return withId(saved, 101L);
         });
 
         CustomerDTO result = service.create(new CreateCustomerRequest("Ada Lovelace"));
@@ -84,8 +84,7 @@ class CustomerServiceImplTest {
     void createPublishesTheNewCustomerAfterSaving() {
         when(customerRepository.save(any(Customer.class))).thenAnswer(invocation -> {
             Customer saved = invocation.getArgument(0);
-            saved.setId(101L);
-            return saved;
+            return withId(saved, 101L);
         });
 
         service.create(new CreateCustomerRequest("Ada Lovelace"));
