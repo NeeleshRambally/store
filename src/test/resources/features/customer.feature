@@ -57,6 +57,11 @@ Feature: Customer management
     Then the response status is 400
     And the response problem lists a validation error for "name"
 
+  Scenario: A name search containing a NUL character is rejected
+    When I request customers with the query "name=a%00b"
+    Then the response status is 400
+    And the response problem lists a validation error for "name"
+
   Scenario: Name search with no match returns an empty page
     When I search customers by name "zzzzzzzz"
     Then the response status is 200

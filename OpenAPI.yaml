@@ -158,11 +158,12 @@ paths:
           description: >-
             Case-insensitive substring of one word of the customer's name. Must be a single word:
             no ASCII whitespace (space, tab, line feed, vertical tab, form feed, carriage
-            return); any other character, a no-break space included, is part of the word and
-            matched literally. When omitted, all customers are returned.
+            return) and no C0 control character or DEL (U+0000 to U+001F, U+007F); any other
+            character, including a no-break space, a C1 control such as U+0085 and U+2028, is
+            part of the word and matched literally. When omitted, all customers are returned.
           schema:
             type: string
-            pattern: '^[^ \t\r\n\f\u000B]+$'
+            pattern: '^[^ \t\r\n\f\u000B\u0000-\u001F\u007F]+$'
             example: onne
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'

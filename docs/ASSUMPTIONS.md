@@ -133,16 +133,23 @@ delivered.
 
 ## Customer name search (README task 2)
 - "A substring of one of the words in their name" is read literally: the query must be a single
-  word (no whitespace; otherwise 400) and matches case-insensitively anywhere inside the name.
-  Because the query contains no whitespace, any match necessarily lies within one word.
-- A "word" is defined as a whitespace-delimited token, as Java's `\S+` (ASCII whitespace)
-  defines it: a hyphenated name such as `Jean-Pierre` is one word, so `n-P` matches it, and a
-  non-ASCII whitespace character such as U+00A0 is not a separator, so it is accepted in the
-  query and matched literally. The specification spells the same class out as
-  `^[^ \t\r\n\f\u000B]+$` rather than `^\S+$`, because the ECMA-262 dialect the OpenAPI
-  pattern is written in counts a no-break space as whitespace and a client built from the old
-  pattern would have rejected a query the server accepts; a contract case sends `a\u00a0b` and
-  both sides accept it. The empty query (`?name=`) is a 400, not an unfiltered list.
+  word (no whitespace and no control character; otherwise 400) and matches case-insensitively
+  anywhere inside the name. Because the query contains no whitespace, any match necessarily
+  lies within one word.
+- A "word" is a run of characters that are neither ASCII whitespace nor C0 controls or DEL,
+  `[^\s\p{Cntrl}]+` in Java, where both classes are ASCII-only: a hyphenated name such as
+  `Jean-Pierre` is one word, so `n-P` matches it, and a non-ASCII whitespace character such as
+  U+00A0 is not a separator, so it is accepted in the query and matched literally. C0 controls
+  (U+0000 to U+001F) and DEL (U+007F) are rejected with the same 400 as whitespace: a NUL used
+  to reach PostgreSQL, which rejects it in text, and came back as a 409. C1 controls such as
+  U+0085 and the line separator U+2028 are part of a word. The 400 says
+  `must be a single word without whitespace or control characters` rather than quoting the
+  regular expression. The specification spells the same class out as
+  `^[^ \t\r\n\f\u000B\u0000-\u001F\u007F]+$` rather than `^\S+$`, because the ECMA-262
+  dialect the OpenAPI pattern is written in counts a no-break space and U+2028 as whitespace and
+  a client built from `^\S+$` would reject a query the server accepts; contract cases send
+  `a\u00a0b` and a word with U+0085 and U+2028 (both sides accept them) and a word with a NUL
+  (both reject it). The empty query (`?name=`) is a 400, not an unfiltered list.
 - LIKE wildcards in the query (`%`, `_`) are escaped and matched literally. `CustomerApiIT` pins
   the word-boundary and wildcard claims against PostgreSQL rather than against a mock: `n-P`
   and `O'N` find `Jean-Pierre O'Neil`, `%` finds `Hundred%Percent`, and `r_S` finds

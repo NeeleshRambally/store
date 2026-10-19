@@ -252,6 +252,18 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsANulCharacterInTheNameQuery() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/customer?name=a%00b"), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("name");
+    }
+
+    @Test
     void capsPageSizeAtOneHundred() {
         ResponseEntity<PageResponse<CustomerDTO>> response = restTemplate.exchange(
                 "/customer?size=1000", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});

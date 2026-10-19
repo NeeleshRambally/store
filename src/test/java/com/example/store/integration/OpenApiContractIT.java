@@ -444,6 +444,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void nulCharacterCustomerSearchMatchesTheContract() {
+        Interaction interaction = get("/customer", Map.of("name", "a\u0000b"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("name");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void createCustomerMatchesTheContract() {
         Interaction interaction = post("/customer", Map.of("name", "Contract Customer"));
 
@@ -474,6 +485,14 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     @Test
     void nonBreakingSpaceCustomerSearchMatchesTheContract() {
         Interaction interaction = get("/customer", Map.of("name", "a\u00a0b"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertConforms(interaction);
+    }
+
+    @Test
+    void c1ControlAndLineSeparatorCustomerSearchMatchesTheContract() {
+        Interaction interaction = get("/customer", Map.of("name", "a\u0085b\u2028c"));
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
         assertConforms(interaction);
