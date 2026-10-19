@@ -71,7 +71,7 @@ included (see Configuration). More data can be generated with the script describ
 ## Configuration
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL |
+| `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL, including the driver's TLS settings; a database across a network needs `sslmode=verify-full` (see below) |
 | `DB_USERNAME` | none (`admin` under the `local` profile) | Database user, from the variable or the file `/run/secrets/DB_USERNAME` (see below); without either the first connection fails and the process exits |
 | `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password, from the variable or the file `/run/secrets/DB_PASSWORD`; without either the first connection fails and the process exits |
 | `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
@@ -164,6 +164,19 @@ secrets:
 Name the files after the variables, never after the properties: a file named
 `spring.datasource.password` replaces the property itself, so it silently overrides
 `DB_PASSWORD`, and only `SPRING_DATASOURCE_PASSWORD` would still beat it.
+
+`DB_URL` also carries the driver's TLS settings. The default URL names a local database and sets
+none, so PgJDBC uses `sslmode=prefer`: TLS when the server offers it, without checking the
+certificate, and plain text when it does not (against a server without TLS the connection
+succeeds unencrypted), which neither prevents a downgrade nor detects an impostor. A database
+reached across a network, as the README's is, takes `sslmode=verify-full` and the CA that signed
+the server's certificate:
+```shell
+DB_URL='jdbc:postgresql://db.example.internal:5432/store?sslmode=verify-full&sslrootcert=/etc/store/db-ca.crt'
+```
+The connection is then encrypted, the certificate must chain to that CA and name the host, and
+a server without TLS is refused (`The server does not support SSL.`). Mount the CA file
+read-only outside `/run/secrets/`, where the configtree import would turn it into a property.
 
 A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
 binds the unresolved placeholder as a literal, so the process fails at Liquibase's first
