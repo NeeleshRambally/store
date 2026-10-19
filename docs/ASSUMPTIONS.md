@@ -393,6 +393,10 @@ delivered.
   `Response status 406 not defined for path '/order'` (and the eight other paths) until the
   response was declared. The service answered 406 before as well, but only after the handler had
   run.
+- `ETag` and `Cache-Control` are declared as required on every 200 and 304 of a `GET`; they were
+  optional, so a response without them passed the check. A synthetic 200 of `GET /order/{id}`
+  and a synthetic 304 of `GET /customer` without the two headers were accepted until the
+  headers were marked `required`, and every captured 200 and 304 already carried both.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
