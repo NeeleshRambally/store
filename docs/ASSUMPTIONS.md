@@ -23,8 +23,8 @@ delivered.
   is refused (`password authentication failed for user "${DB_USERNAME}"`, or `Connection
   refused` when nothing answers) and the process exits before serving a request;
   `FailClosedStartupIT` observes exactly that against a real database. The original
-  code hard-coded `admin:admin`; an earlier revision kept the pair as the fallback, which is
-  the same defect with an opt-out. The README path (`admin:admin`, port 5433, sample data) lives
+  code hard-coded `admin:admin`, and a fallback to that pair would be the same defect with an
+  opt-out, so there is none. The README path (`admin:admin`, port 5433, sample data) lives
   in the `local` profile, which `./gradlew bootRun` selects as the default profile and which the
   bootJar, and so the image, does not contain, so `SPRING_PROFILES_ACTIVE=local` cannot bring
   the sample credentials or the seed into a deployment; the tests take their credentials from
@@ -276,10 +276,10 @@ delivered.
   ids and to two insert batches of at most 50 join rows (`jdbc.batch_size: 50`) on one prepared
   statement, so an order of 100 products costs the 4 prepared statements of an order of three,
   5 on the request that allocates the next block of ids (`QueryCountIT`).
-- Until this release no server-side bound on a JSON body existed, and an earlier revision of
-  this document wrongly cited Tomcat's 2 MB default, which applies to form-parameter parsing
-  only (`server.tomcat.max-http-form-post-size`); an oversized `description` was parsed into
-  memory before `@Size` rejected it. `RequestBodyLimitFilter` now rejects any body over
+- Neither Spring Boot nor Tomcat bounds a JSON body by default: Tomcat's 2 MB
+  `server.tomcat.max-http-form-post-size` applies to form-parameter parsing only, so an
+  oversized `description` used to be parsed into memory before `@Size` rejected it.
+  `RequestBodyLimitFilter` now rejects any body over
   `REQUEST_MAX_BODY_BYTES` (64 KiB by default, at least 1 KiB) with a 413 problem detail
   (`Request body exceeds 65536 bytes`) before it is parsed: by the declared `Content-Length`
   when there is one, otherwise by counting the bytes of a chunked body as they are read. The
