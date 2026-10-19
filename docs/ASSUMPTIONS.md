@@ -507,6 +507,27 @@ delivered.
   database on 127.0.0.1 only, because the API has no authentication and the database role is
   the `admin` superuser (ADR 0002); `STORE_BIND_ADDRESS` names another address, and the GitLab
   smoke job sets `0.0.0.0` because it reaches its dind daemon over the network.
+- `build`, which both pipelines run, includes SpotBugs 4.10.5 (Gradle plugin 6.5.13) over the
+  main classes with `ignoreFailures = false`, at its default effort and medium confidence
+  threshold, so a non-zero exit fails the build: 1 means findings, 4 an analysis error.
+  `spotbugsMain` took 3.4 to 3.6 s inside a full build of about 30 s on an arm64 Mac, and its
+  reports land in `build/reports/spotbugs/`, which both pipelines keep with the other reports.
+  Lombok marks the methods it writes `@lombok.Generated`, which SpotBugs skips, and the MapStruct
+  mappers are analysed and clean, so there is no exclusion filter. The first run reported 16
+  findings, an `EI_EXPOSE_REP` and `EI_EXPOSE_REP2` pair on each of the eight records that held
+  the caller's list or set; each now keeps an unmodifiable copy, so a cached DTO that every hit
+  shares cannot change, and `CreateOrderRequest` copies without `List.copyOf`, which rejects
+  nulls, so that validation still names a missing `productIds` or a null id in it. Two settings
+  are deliberate. The test classes are not analysed (`spotbugsTest` is disabled): when the gate
+  was added all 35 findings there were `NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE` on a value
+  Spring declares nullable (25 on `ResponseEntity.getBody()`, 8 on `HttpHeaders.getETag()`, one
+  each on `JdbcTemplate.queryForObject` and `CacheManager.getCache`), where a null fails the
+  test anyway. And the `spotbugs` configuration resolves the versions SpotBugs requests: Spring
+  Boot's dependency management applies to every configuration and would downgrade commons-lang3
+  there from 3.21.0 to 3.17.0, after which BCEL throws
+  `NoClassDefFoundError: org/apache/commons/lang3/Strings`, SpotBugs exits 4 and its report
+  lists no bugs. The rule applies to that configuration alone; the application's classpaths are
+  unchanged.
 - The image is scanned on every pull request and a critical or high fixable vulnerability
   blocks the merge; findings without a fix are excluded from the gate (`--ignore-unfixed`) and
   are not listed, because there is nothing a code change can do about them; the SBOM is the
@@ -545,8 +566,9 @@ delivered.
 
 ## Things the pipeline should verify before promotion (README note)
 Formatting, compilation, unit and slice tests, integration tests against a real PostgreSQL,
-acceptance scenarios, the OpenAPI contract check, line coverage, a successful image build, an
-image vulnerability scan, an SBOM and a smoke test of the started stack. The smoke test runs on
+acceptance scenarios, the OpenAPI contract check, line coverage, static analysis of the main
+classes (SpotBugs), a successful image build, an image vulnerability scan, an SBOM and a smoke
+test of the started stack. The smoke test runs on
 every build: the image that was just built migrates a fresh PostgreSQL as the `migrate` job,
 is started with Compose as the restricted runtime role and must become ready
 (`/actuator/health/readiness` reports `UP` with the `db` component within 120 seconds), answer
