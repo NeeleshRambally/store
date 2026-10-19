@@ -50,9 +50,13 @@ delivered.
   `must be an integer` rather than `must not be null`; and Jackson stops at the first field it
   cannot bind, so `errors` lists one type failure even when several fields are wrong (a body
   that binds still has every Bean Validation failure listed).
-- A request body is exactly one JSON object: anything but whitespace after it is a 400
+- A request body is exactly one JSON object in which no property appears twice: anything but
+  whitespace after the object and a repeated property are both a 400
   (`Failed to read request`). Jackson stops reading after the first JSON value by default, so an
-  order body followed by a stray `x` used to create the order.
+  order body followed by a stray `x` used to create the order, and it keeps the last value of a
+  repeated property, so `{"customerId":5,"customerId":6}` created an order for customer 6. A
+  gateway in front of the service (ADR 0002) whose parser keeps the first value would have read
+  customer 5 from that body, so whatever it checked was not what the service acted on.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
@@ -125,11 +129,11 @@ delivered.
   request body and for a query parameter alike (`name`, `after`, `page`, `size`), and so does a
   body that does not bind: an unknown property, a value of the wrong JSON type or an integer
   outside the 64-bit range is named by its path (`productIds[0]`), while a body Jackson cannot
-  parse (malformed JSON, content after the object, a number of more than 1,000 digits) is
-  `Failed to read request` without `errors`; nothing else about the failure is exposed. A
-  whitespace-only `name` or `description` is a validation failure, and the specification says
-  so (its `pattern` requires a character that is not whitespace) so that a client built from it
-  rejects the same value.
+  parse (malformed JSON, a repeated property, content after the object, a number of more than
+  1,000 digits) is `Failed to read request` without `errors`; nothing else about the failure is
+  exposed. A whitespace-only `name` or `description` is a validation failure, and the
+  specification says so (its `pattern` requires a character that is not whitespace) so that a
+  client built from it rejects the same value.
 - Request strings are single-line text: a control character (U+0000 to U+001F or U+007F, so also
   a tab or a line break) in `description` or `name` is a 400 naming the field
   (`must not contain control characters`). Before the rule a NUL reached the insert, which

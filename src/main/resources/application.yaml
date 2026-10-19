@@ -40,6 +40,8 @@ spring:
       accept-float-as-int: false
     mapper:
       allow-coercion-of-scalars: false
+    parser:
+      strict-duplicate-detection: true
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     contexts: ${LIQUIBASE_CONTEXTS:prod}
