@@ -1,5 +1,6 @@
 package com.example.store.controller;
 
+import com.example.store.config.JacksonConfig;
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
@@ -10,6 +11,7 @@ import com.example.store.service.ProductService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -31,6 +33,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(ProductController.class)
+@Import(JacksonConfig.class)
 class ProductControllerTests {
 
     private static final ProductDTO PRODUCT = new ProductDTO(2L, "Rustic Chair", List.of(1L, 43L), 2);
@@ -76,6 +79,19 @@ class ProductControllerTests {
                 .andExpect(jsonPath("$.detail").value("Unknown property 'id'"))
                 .andExpect(jsonPath("$.errors[0].field").value("id"))
                 .andExpect(jsonPath("$.errors[0].message").value("is not a known property"));
+        verify(productService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAFractionalDescription() throws Exception {
+        when(productService.create(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":1.5}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a string"));
         verify(productService, never()).create(any());
     }
 

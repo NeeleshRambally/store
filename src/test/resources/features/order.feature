@@ -50,6 +50,14 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "customerId"
 
+  Scenario: A customer id sent as a string is rejected
+    When I create an order with payload:
+      """
+      {"description": "Quoted customer id", "customerId": "5", "productIds": [2]}
+      """
+    Then the response status is 400
+    And the response problem lists a validation error for "customerId"
+
   Scenario: Browse orders with their customer
     When I request orders with page 0 and size 20
     Then the response status is 200

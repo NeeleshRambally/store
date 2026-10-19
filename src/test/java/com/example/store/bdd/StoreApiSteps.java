@@ -83,6 +83,11 @@ public class StoreApiSteps {
         createdProductId = body.path("id").asLong();
     }
 
+    @When("I create a product with payload:")
+    public void createProductWithPayload(String payload) throws Exception {
+        post("/products", payload);
+    }
+
     @When("I request product {int}")
     public void requestProduct(int id) throws Exception {
         get("/products/" + id);
