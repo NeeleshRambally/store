@@ -332,6 +332,15 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsAPageWhosePlusSignDecodesToASpace() {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity("/order?page=+2&size=1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'page' with value: ' 2'");
+    }
+
+    @Test
     void filtersOrdersByCustomer() {
         Long expected = jdbcTemplate.queryForObject("select count(*) from \"order\" where customer_id = 1", Long.class);
 

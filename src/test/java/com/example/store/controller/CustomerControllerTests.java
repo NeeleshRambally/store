@@ -346,6 +346,38 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getAllRejectsAPageWithAHashPrefix() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("page", "#3"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: '#3'"));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsASizeWithAnInnerSpace() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("size", "1 0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'size' with value: '1 0'"));
+        verify(customerService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllTreatsABlankPageAndSizeAsAbsent() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("page", "").param("size", " ")).andExpect(status().isOk());
+
+        ArgumentCaptor<Pageable> captor = ArgumentCaptor.forClass(Pageable.class);
+        verify(customerService).findAll(captor.capture());
+        assertThat(captor.getValue().getPageNumber()).isZero();
+        assertThat(captor.getValue().getPageSize()).isEqualTo(20);
+    }
+
+    @Test
     void getAllForwardsPagingAndSortParameters() throws Exception {
         when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
 

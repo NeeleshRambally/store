@@ -35,6 +35,16 @@ Feature: Customer management
     Then the response status is 200
     And the page reports size 100
 
+  Scenario: A page number written in hexadecimal is rejected
+    When I request customers with the query "page=0x2"
+    Then the response status is 400
+    And the response problem detail is "Failed to convert 'page' with value: '0x2'"
+
+  Scenario: A page number whose plus sign decodes to a space is rejected
+    When I request customers with the query "page=+1&size=5"
+    Then the response status is 400
+    And the response problem detail is "Failed to convert 'page' with value: ' 1'"
+
   Scenario: Sorting by an unknown property is rejected
     When I request customers sorted by "nope"
     Then the response status is 400

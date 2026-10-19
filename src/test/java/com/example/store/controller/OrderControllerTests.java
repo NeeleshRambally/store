@@ -511,6 +511,36 @@ class OrderControllerTests {
     }
 
     @Test
+    void getAllRejectsAPageWithALeadingSpace() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("page", " 2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: ' 2'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAHexadecimalPage() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("page", "0x2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: '0x2'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAHexadecimalSize() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("size", "0x10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'size' with value: '0x10'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
     void getAllRejectsAZeroCustomerId() throws Exception {
         mockMvc.perform(get("/order").param("customerId", "0"))
                 .andExpect(status().isBadRequest())

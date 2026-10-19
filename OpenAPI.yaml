@@ -409,8 +409,9 @@ components:
       name: page
       in: query
       description: >-
-        Zero-based page index. A value below 0 is rejected with 400 naming page; a non-numeric
-        value or one outside the 32-bit range is rejected with 400 as well.
+        Zero-based page index. A value below 0 is rejected with 400 naming page; a value that is
+        not a decimal integer (such as 0x2) or one outside the 32-bit range is rejected with 400
+        as well.
       schema:
         type: integer
         format: int32
@@ -422,8 +423,8 @@ components:
       description: >-
         Page size. Values above 100 are accepted and capped at 100 rather than rejected, so the
         schema carries no maximum; the size echoed in the response is the effective one. A value
-        below 1 is rejected with 400 naming size; a non-numeric value or one outside the 32-bit
-        range is rejected with 400 as well.
+        below 1 is rejected with 400 naming size; a value that is not a decimal integer or one
+        outside the 32-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int32
