@@ -83,6 +83,7 @@ included (see Configuration). More data can be generated with the script describ
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
 | `REQUEST_MAX_BODY_BYTES` | `65536` | Largest request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail |
+| `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (the logger inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
 threads at most 10 requests touch the database concurrently; the rest wait up to 5 s for a
@@ -234,10 +235,11 @@ them. Reports land in `build/reports`.
    (127.0.0.1 when unset), `store_app` must be able to `select count(*) from customer`
    through `psql` in the database container, and `create table` and `update customer` as
    `store_app` must fail with `permission denied for schema public` and `permission denied for
-   table customer`, and `DELETE /order/1` sent with `X-Request-Id: smoke-<pid>` must be a 405
-   problem detail whose log line the `store` container's output carries as ECS JSON with
-   `"requestId":"smoke-<pid>"` and the `service` name and version (see Operations), and that
-   output must not contain a `Picked up JAVA_TOOL_OPTIONS` line. A failing
+   table customer`, `DELETE /order/1` must be a 405 problem detail, `GET /order/1` sent with
+   `X-Request-Id: smoke-<pid>` must leave its access line in the `store` container's output as
+   ECS JSON with the `com.example.store.access` logger, `"requestId":"smoke-<pid>"`, the route
+   `/order/{id}` and the `service` name and version (see Operations), and that output must not
+   contain a `Picked up JAVA_TOOL_OPTIONS` line. A failing
    step prints the `migrate` and `store` logs and fails the job; the
    stack is always torn down. On `main` the job then tags that same `store:ci` image and pushes
    it to GitHub Container Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`,
@@ -592,7 +594,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   The filter runs
   before every other filter, so 304, 400, 404 and 500 responses carry it too, and the id is in
   the MDC as `requestId` for the duration of the request, so every log line of a request can be
-  found from the id a client quotes. There is no tracing library: no collector is in scope, and
+  found from the id a client quotes, and every request on the API port writes at least its
+  access line (below). There is no tracing library: no collector is in scope, and
   the header is where a gateway's or a later tracer's id attaches.
 * `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
   interceptor are registered for the API paths only
@@ -603,16 +606,42 @@ probes and metrics are reachable from inside the cluster but never from the publ
   one object per line with nested members, `"log":{"level":...,"logger":...}`,
   `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (the service name and version come
   from `spring.application.name` and the build version), `"message"`,
-  `"ecs":{"version":"8.11"}`, and every MDC entry as a top-level member, so
-  `"requestId":"<id>"` is on every line written while a request is handled. The smoke test's
-  `compose` mode proves the shape on the started image rather than asserting it: no 2xx, 400,
-  404, 413 or 415 request logs at the shipped levels, so the step sends `DELETE /order/1` with
-  `X-Request-Id: smoke-<pid>` (an unsupported method is logged at WARN by
-  `org.springframework.web.servlet.PageNotFound` while the id is in the MDC), expects the 405
-  problem detail and then requires a `store` log line carrying `"requestId":"smoke-<pid>"` and
-  `"service":{"name":"store","version":"`. A data-integrity conflict is logged at WARN by SQL
-  state and constraint name, never with the driver message that quotes the request's values
-  (the full cause is at DEBUG)
+  `"ecs":{"version":"8.11"}`, and every MDC entry and every key-value pair of the event as a
+  top-level member, so `"requestId":"<id>"` is on every line written while a request is
+  handled. The smoke test's `compose` mode checks the shape on the started image: it sends
+  `GET /order/1` with `X-Request-Id: smoke-<pid>` and requires that request's access line in
+  the `store` output with `"logger":"com.example.store.access"`, `"requestId":"smoke-<pid>"`,
+  `"route":"/order/{id}"` and `"service":{"name":"store","version":"`, looking up to five times
+  a second apart, because the ETag filter flushes the response before the line is written. A
+  data-integrity conflict is logged at WARN by SQL state and constraint name, never with the
+  driver message that quotes the request's values (the full cause is at DEBUG)
+* Every request on the API port writes one INFO line on the logger `com.example.store.access`
+  when it completes, for example `GET /order/{id} 200 3 ms`: the method, the route, the status
+  and the duration in whole milliseconds, so a cache hit usually logs 0 ms. In the ECS output
+  `route`, `status` (a number) and `durationMs` are also top-level members beside `message` and
+  `requestId`, so a log pipeline can filter and aggregate on them without parsing the message.
+  The route is the pattern Spring MVC matched (`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`),
+  the value of the `uri` tag of `http_server_requests_seconds` for the same request: a 304, a
+  400, a 404 from the service, a 413 and a 415 carry their endpoint's pattern, a path that no
+  controller maps is served by the static-resource mapping and logs `/**`, and a 405, which
+  matches no handler, logs `UNKNOWN`. The raw path, the query string and the body are never
+  logged, so search words stay out of the log and the set of routes stays bounded.
+  `AccessLogFilter` is ordered right after `RequestIdFilter` and `RequestBodyLimitFilter` and
+  outside the ETag filter, so a 304 is logged as 304; like them it is registered on the API
+  connector only, so probes and scrapes on the management port write nothing. `AccessLogIT`
+  pins the line and its members, the 304, the `/**` and `UNKNOWN` routes, the missing query
+  string and the silent management port. A line is about 395 B on stdout (the mean of 1,008
+  lines left by the smoke test and a 1,000-request mix on the Compose stack, 370 to 403 B),
+  roughly 400 MB per million requests per replica. Its cost was measured on the server, as the
+  mean of the request timer, which encloses the filter, over 50,000 cached `GET /order/1` from
+  one keep-alive client (`ab -k -c 1`, Docker Desktop on arm64): 46.4 and 48.6 µs in two runs
+  with the line, 29.4 and 30.3 µs in two runs with `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF`,
+  so formatting and writing the line takes about 17 µs. For a 3-statement `GET /order?size=20`
+  the difference was within the spread between runs (766 and 785 µs with the line, 738 and
+  777 µs without), the client's throughput did not change (about 3,100 and 930 requests per
+  second) and no statement is added (`QueryCountIT` is unchanged). An ingress usually logs
+  every request as well; where it does, `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns this
+  line off without touching any other logger
 * A database that cannot be reached is a 503, not a 500. A request that cannot obtain a
   connection within the pool's 5 s `connection-timeout` (the pool exhausted, or the database
   down) reaches the handler as `CannotCreateTransactionException`, and a connection lost after

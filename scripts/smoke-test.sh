@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening, port bindings and runtime role.
+# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening, port bindings, runtime role and access log.
 set -eu
 
 app=$1
@@ -120,13 +120,22 @@ if [ "$mode" = compose ]; then
   expect_denied "store_app create table" 'permission denied for schema public' 'create table smoke_probe(id int)'
   expect_denied "store_app update customer" 'permission denied for table customer' 'update customer set name = name where id = 1'
 
-  expect "DELETE /order/1" 405 -X DELETE -H "X-Request-Id: smoke-$$" "$app/order/1"
+  expect "DELETE /order/1" 405 -X DELETE "$app/order/1"
   contains "DELETE /order/1" '"status":405'
-  if ! docker compose logs --no-log-prefix store | grep -F "\"requestId\":\"smoke-$$\"" | grep -Fq '"service":{"name":"store","version":"'; then
-    docker compose logs --no-log-prefix --tail 20 store > "$body" 2>&1
-    fail "store logs: no ECS JSON line carrying requestId smoke-$$ with service name and version"
-  fi
-  echo "ok   store logs -> ECS JSON line with requestId smoke-$$"
+
+  expect "GET /order/1 with X-Request-Id smoke-$$" 200 -H "X-Request-Id: smoke-$$" "$app/order/1"
+  attempts=0
+  until docker compose logs --no-log-prefix store | grep -F '"logger":"com.example.store.access"' \
+      | grep -F "\"requestId\":\"smoke-$$\"" | grep -F '"route":"/order/{id}"' \
+      | grep -Fq '"service":{"name":"store","version":"'; do
+    attempts=$((attempts + 1))
+    if [ "$attempts" -ge 5 ]; then
+      docker compose logs --no-log-prefix --tail 20 store > "$body" 2>&1
+      fail "store logs: no ECS JSON access line for GET /order/1 with requestId smoke-$$, its route and the service name and version"
+    fi
+    sleep 1
+  done
+  echo "ok   store logs -> ECS JSON access line for GET /order/1 with requestId smoke-$$"
 
   if docker compose logs --no-log-prefix store 2>&1 | grep -F 'Picked up JAVA_TOOL_OPTIONS' > "$body"; then
     fail "store logs: the JVM printed a Picked up JAVA_TOOL_OPTIONS line"
