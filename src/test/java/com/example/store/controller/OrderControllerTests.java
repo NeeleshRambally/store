@@ -114,6 +114,39 @@ class OrderControllerTests {
     }
 
     @Test
+    void createRejectsAProductListThatIsNotAnArray() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Not a list\",\"customerId\":1,\"productIds\":3}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("productIds"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an array"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAProductIdThatIsNotANumber() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Not a number\",\"customerId\":1,\"productIds\":[\"x\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("productIds[0]"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsABodyThatIsNotAnObjectWithoutNamingAField() throws Exception {
+        mockMvc.perform(post("/order").contentType(MediaType.APPLICATION_JSON).content("[]"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to read request"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
     void createReturnsNotFoundForUnknownCustomer() throws Exception {
         when(orderService.create(new CreateOrderRequest("Test Order", 99L, List.of(2L))))
                 .thenThrow(new ResourceNotFoundException("Customer", 99L));

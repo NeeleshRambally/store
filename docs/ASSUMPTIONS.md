@@ -38,7 +38,9 @@ delivered.
 ## API contract
 - Clients can never supply an id. Request bodies are explicit records; unknown properties are
   rejected with 400 so a client that still sends `id` learns immediately instead of silently
-  overwriting data (which the original code allowed).
+  overwriting data (which the original code allowed), and the problem detail names the
+  property (`Unknown property 'id'`, with `id` in `errors`) so the client also learns what to
+  drop.
 - The list endpoints are paged (default 20, maximum 100, sorted by id). This is a breaking
   change relative to the original "return everything" behaviour and is the correct trade for a
   table of 10,000 rows that only grows. See ADR 0003.
@@ -91,10 +93,12 @@ delivered.
 - Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
   request that never reaches the `DispatcherServlet`, and a 404 on the management connector,
   get Boot's default error body instead. Validation failures list the offending fields, for a
-  request body and for a query parameter alike (`name`, `after`); nothing else about the
-  failure is exposed. A whitespace-only `name` or `description` is a validation failure, and the
-  specification says so (`pattern: '\S'`) so that a client built from it rejects the same
-  value.
+  request body and for a query parameter alike (`name`, `after`), and so does a body that does
+  not bind: an unknown property or a value of the wrong JSON type is named by its path
+  (`productIds[0]`), while malformed JSON stays `Failed to read request` without `errors`;
+  nothing else about the failure is exposed. A whitespace-only `name` or `description` is a
+  validation failure, and the specification says so (`pattern: '\S'`) so that a client built
+  from it rejects the same value.
 - The three `POST`s are not idempotent: each inserts unconditionally, there are no unique
   constraints, and no `Idempotency-Key` header is supported, so a gateway or client that
   retries after a timeout (or after the 503 of a lost database, which does not say whether the

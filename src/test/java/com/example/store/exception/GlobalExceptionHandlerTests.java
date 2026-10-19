@@ -52,6 +52,16 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void aTypeFailureInsideANestedObjectNamesThePathToTheField() throws Exception {
+        mockMvc.perform(post("/nested")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"outer\":{\"inner\":\"x\"}}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("outer.inner"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+    }
+
+    @Test
     void aConnectionThatCannotBeObtainedIsAServiceUnavailableProblemDetail() throws Exception {
         mockMvc.perform(get("/unavailable"))
                 .andExpect(status().isServiceUnavailable())
@@ -90,6 +100,11 @@ class GlobalExceptionHandlerTests {
 
         @PostMapping("/named")
         String named(@RequestBody Map<String, String> body) {
+            return "ok";
+        }
+
+        @PostMapping("/nested")
+        String nested(@RequestBody Map<String, Map<String, Long>> body) {
             return "ok";
         }
 

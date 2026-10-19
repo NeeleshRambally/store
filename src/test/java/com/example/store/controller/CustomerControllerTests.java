@@ -75,7 +75,22 @@ class CustomerControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"id\":5,\"name\":\"John Doe\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.status").value(400));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Unknown property 'id'"))
+                .andExpect(jsonPath("$.errors[0].field").value("id"))
+                .andExpect(jsonPath("$.errors[0].message").value("is not a known property"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsANameThatIsNotAString() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":[\"John Doe\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a string"));
         verify(customerService, never()).create(any());
     }
 
