@@ -140,6 +140,19 @@ delivered.
   exposed. A whitespace-only `name` or `description` is a validation failure, and the
   specification says so (its `pattern` requires a character that is not whitespace) so that a
   client built from it rejects the same value.
+- A problem detail is identified by its `code` extension member (`validation_failed`,
+  `invalid_sort`, `not_found` and the others listed in `docs/DESIGN.md`, API), while `type`
+  stays `about:blank` and `title` the status phrase. Without the code, a client could tell apart the
+  400s of a field that fails validation, an unknown property, a malformed body, an unknown sort
+  property, a cursor combined with a page and the two order filters combined only by parsing
+  their English `detail` or `errors` messages. RFC 7807's own mechanism is a `type` URI per
+  problem, which the RFC encourages to resolve to documentation of the problem type; it was not
+  chosen because the service publishes no such pages and a URI is a clumsier key to branch on
+  than a short code. The cost is that a client that knows only RFC 7807 reads `about:blank`
+  problems as defined by their status alone and ignores `code`. The codes are part of the
+  contract and `OpenAPI.yaml` lists them as an enum: a client must accept a code it does not
+  know and handle it by its status, adding a code is a minor version of the specification, and
+  removing or renaming one is a major version.
 - Request strings are single-line text: a control character (U+0000 to U+001F or U+007F, so also
   a tab or a line break) in `description` or `name` is a 400 naming the field
   (`must not contain control characters`). Before the rule a NUL reached the insert, which
@@ -357,6 +370,14 @@ delivered.
   contract: `info.description` says so and the smoke test checks `DELETE /order/1`; the
   `servers` entry says that the public base URL is set by the gateway (ADR 0002) rather than
   listing a placeholder.
+- Every problem detail declares `code` as a required string enum. Once the service emitted the
+  member, the 31 captured error cases failed with
+  `Object instance has properties which are not allowed by the schema: ["code"]` until the
+  schema declared it, the four example comparisons failed until the examples carried their
+  codes, and the synthetic 409, 500 and 503 bodies failed with
+  `Object has missing required properties (["code"])` until they carried one; two synthetic
+  cases pin that a problem detail without a code, or with a code the enum does not list, is
+  rejected.
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is

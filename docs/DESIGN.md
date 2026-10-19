@@ -174,9 +174,10 @@ runs, in one task and in one JVM:
   `Retry-After` on every 503, and the validator enforces declared headers, so a response that
   drops one fails the check (the synthetic 409 and 500 cases had to carry the id before they
   passed again, and a synthetic 503 without `Retry-After` is rejected, which a case pins). An
-  undocumented response field, a missing required field at any depth, a missing declared header,
-  an undeclared status or a request the specification would reject fails the build, so the
-  specification cannot drift from the implementation.
+  undocumented response field, a missing required field at any depth, a problem detail without a
+  `code` or with one the specification does not list (two synthetic cases pin both), a missing
+  declared header, an undeclared status or a request the specification would reject fails the
+  build, so the specification cannot drift from the implementation.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
@@ -447,6 +448,39 @@ products, each id at most once: a repeated id is a 400 naming `productIds`, not 
 de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
 the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
 so that a gateway rewriting the host stays correct, which RFC 9110 permits.
+
+Every problem detail carries `code`, the stable identity of the problem, next to the status
+phrase in `title` and the human-readable `detail`; `type` stays `about:blank`
+(`docs/ASSUMPTIONS.md`, "API contract", gives the reason). A client branches on `code`, never on
+the wording of `detail`:
+
+| `code` | Status | Raised for |
+|---|---|---|
+| `validation_failed` | 400 | A body field or a query parameter that breaks a constraint, or a body value of the wrong JSON type or beyond the 64-bit range; `errors` names each |
+| `invalid_parameter` | 400 | A path or query parameter that does not convert (`GET /order/abc`, `page=abc`), or a repeated single-valued query parameter (named in `errors`) |
+| `unknown_property` | 400 | A body property the request does not define (named in `errors`) |
+| `malformed_body` | 400 | A body that is not one readable JSON object (malformed JSON, another JSON value, a repeated property, content after the object) |
+| `invalid_sort` | 400 | A `sort` property outside the endpoint's list |
+| `invalid_cursor` | 400 | `after` combined with a `page` other than 0 or a `sort` whose first property is not `id` ascending |
+| `conflicting_filters` | 400 | `customerId` combined with `productId` |
+| `not_found` | 404 | An unknown id in the path, an unknown customer or product in a `POST /order` body, or a path without a handler |
+| `method_not_allowed` | 405 | A method the path does not support |
+| `not_acceptable` | 406 | An `Accept` header naming no media type the endpoint produces |
+| `conflict` | 409 | A write that a database constraint rejects |
+| `payload_too_large` | 413 | A body over `REQUEST_MAX_BODY_BYTES` |
+| `unsupported_media_type` | 415 | A body that is not `application/json` |
+| `internal_error` | 500 | An unexpected failure (no `detail`) |
+| `service_unavailable` | 503 | A database connection that cannot be obtained (with `Retry-After`) |
+
+`GlobalExceptionHandler` sets the code in each of its own handlers. The problem details that
+Spring MVC's `ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler,
+405, 406 and 415) all return through `handleExceptionInternal`, whose override takes the code
+from the status: 400 `invalid_parameter`, 404 `not_found`, 405, 406, 413, 415 and 503 by the
+names above, and `internal_error` for any other status. `OpenAPI.yaml` declares `code` as a
+required enum, so the contract check fails on a problem detail without a code or with one the
+specification does not list. Clients must accept a code they do not know and handle it by its
+status: adding a code is a minor version of the contract, while removing or renaming one is a
+major version.
 
 Request input is strict rather than coerced (ADR 0002):
 - A body that does not bind names the field. An unknown property is a 400 with the detail
