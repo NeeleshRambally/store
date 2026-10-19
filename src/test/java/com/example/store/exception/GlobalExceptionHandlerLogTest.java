@@ -6,7 +6,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -14,6 +17,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 import java.sql.SQLException;
+import java.sql.SQLTransientConnectionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -70,6 +74,24 @@ class GlobalExceptionHandlerLogTest {
                 .contains("java.sql.SQLException")
                 .doesNotContain("Key (name)=(x)");
         assertThat(event(Level.DEBUG).getThrowableProxy().getMessage()).contains("Key (name)=(x)");
+    }
+
+    @Test
+    void anUnobtainableConnectionIsLoggedByItsCauseClassWithoutTheDriverMessage() {
+        CannotCreateTransactionException ex = new CannotCreateTransactionException(
+                "Could not open JPA EntityManager for transaction",
+                new SQLTransientConnectionException(
+                        "HikariPool-1 - Connection is not available, request timed out after 5000ms."));
+
+        ResponseEntity<ProblemDetail> response = handler.handleDatabaseUnavailable(ex);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("5");
+        assertThat(response.getBody().getDetail()).isEqualTo("The service cannot obtain a database connection");
+        assertThat(event(Level.WARN).getFormattedMessage())
+                .contains("java.sql.SQLTransientConnectionException")
+                .doesNotContain("HikariPool");
+        assertThat(event(Level.DEBUG).getThrowableProxy().getMessage()).contains("EntityManager");
     }
 
     private ILoggingEvent event(Level level) {

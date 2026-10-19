@@ -4,6 +4,8 @@ import lombok.extern.slf4j.Slf4j;
 
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.core.MethodParameter;
+import org.springframework.core.NestedRuntimeException;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -11,6 +13,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -53,6 +56,17 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         }
         log.debug("Data integrity violation", cause);
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, "The request conflicts with existing data");
+    }
+
+    @ExceptionHandler({CannotCreateTransactionException.class, DataAccessResourceFailureException.class})
+    ResponseEntity<ProblemDetail> handleDatabaseUnavailable(NestedRuntimeException ex) {
+        log.warn(
+                "Database unavailable: {}", ex.getMostSpecificCause().getClass().getName());
+        log.debug("Database unavailable", ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(ProblemDetail.forStatusAndDetail(
+                        HttpStatus.SERVICE_UNAVAILABLE, "The service cannot obtain a database connection"));
     }
 
     @ExceptionHandler(Exception.class)

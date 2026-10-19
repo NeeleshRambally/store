@@ -26,8 +26,10 @@ delivered.
   take their credentials from Testcontainers and `compose.yaml` sets every variable explicitly.
 - Sample data is loaded only when the `seed` Liquibase context is active: under the `local`
   profile, in the tests and in the `migrate` job of `compose.yaml`. The seed changesets are
-  the only ones with a context, so `prod` (or any value other than `seed`) applies the schema
-  and nothing else.
+  the only ones with a context, so `prod` (or any non-blank value other than `seed`) applies
+  the schema and nothing else; a blank value is rejected at start-up
+  (`LiquibaseContextsGuard`, `FailClosedConfigurationTest`, `FailClosedStartupIT`) because an
+  empty context set would apply every changeset, seed included.
 
 ## API contract
 - Clients can never supply an id. Request bodies are explicit records; unknown properties are
@@ -74,9 +76,11 @@ delivered.
 - The nested `orders` of a customer and of a product are bounded: the newest
   `NESTED_ORDERS_LIMIT` (20 by default, 1 to 100) by highest id, returned in ascending id order,
   next to `orderCount`, the total. The README's "0 or more orders" and the task's "list of the
-  order IDs" are still met: the list is there, with its total, and the complete list is one
-  request away (`GET /order?customerId=`, `GET /order?productId=`). Originally the DTOs carried
-  every order; see ADR 0003, "Nested collections", for why that could not stay.
+  order IDs" are delivered in bounded form: the newest `NESTED_ORDERS_LIMIT` ids (raisable to
+  100) plus `orderCount`, which deviates from the literal wording for performance reasons; the
+  complete list is `GET /order?productId={id}` (and `GET /order?customerId={id}` for a
+  customer), one request away. Originally the DTOs carried every order; see ADR 0003, "Nested
+  collections", for why that could not stay.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
@@ -85,13 +89,21 @@ delivered.
   failure is exposed. A whitespace-only `name` or `description` is a validation failure, and the
   specification says so (`pattern: '\S'`) so that a client built from it rejects the same
   value.
+- The three `POST`s are not idempotent: each inserts unconditionally, there are no unique
+  constraints, and no `Idempotency-Key` header is supported, so a gateway or client that
+  retries after a timeout (or after the 503 of a lost database, which does not say whether the
+  write was applied) creates a duplicate. That is recorded as a deferral, not an oversight: no
+  retrying client is in scope, a correct implementation needs a key store with a TTL and the
+  original response to replay, and it is the next API change after authentication (ADR 0002).
 - `/customer` and `/order` stay singular to match the original README; `/products` will be
   plural because the task names it so. The inconsistency is acknowledged rather than silently
   changed.
 
 ## Order by id (README task 1)
-- `GET /order/{id}` returns the order with its customer in a single statement (entity graph on
-  `findById`), or a 404 problem detail. A non-numeric id is a 400.
+- `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
+  single statement (entity graph on `findById`), cached for `CACHE_TTL` since an order never
+  changes; or a 404 problem detail (`Order with id 999999 was not found`, the `unknownOrder`
+  example of the contract). A non-numeric id is a 400.
 
 ## Customer name search (README task 2)
 - "A substring of one of the words in their name" is read literally: the query must be a single
@@ -129,8 +141,9 @@ delivered.
   directions of the relationship are index scans.
 - "An order contains 1 or more products" is enforced at creation: `POST /order` requires a
   non-empty `productIds` list without repetition (a repeated id is a 400) and every id must
-  exist (otherwise 404 naming the first missing id). Seeded orders are linked to one or two
-  sample products by the seed changeset so the invariant also holds for the sample data.
+  exist (otherwise 404 naming the lowest missing id, whatever the request order). Seeded
+  orders are linked to one or two sample products by the seed changeset so the invariant also
+  holds for the sample data.
 - An order carries at most 100 products (`@Size(max = 100)` on `productIds`, `maxItems: 100`
   in the specification). The bound keeps a single request to one `IN` clause of at most 100
   ids and one insert batch of at most 100 join rows.
@@ -146,7 +159,7 @@ delivered.
   up to Tomcat's 2 MB swallow limit (`server.tomcat.max-swallow-size`): Tomcat appends
   `Connection: close` and discards the unread remainder; beyond 2 MB it closes the connection
   without reading the rest and the client may see a reset instead of the problem detail.
-  `RequestBodyLimitFilterTests`, `RequestBodyLimitIT` (declared and chunked), the contract
+  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitIT` (declared and chunked), the contract
   case, the Cucumber scenario and the container smoke test pin it; there is no 411, because a
   chunked body is legal HTTP/1.1 and is what the test client sends.
 - The invariant is enforced for orders created through the API from this release. The seed
@@ -262,7 +275,10 @@ delivered.
   every response (the synthetic 409 and 500 cases failed with `Header 'X-Request-Id' is
   expected ... but not found` until they carried it, proof that the validator checks declared
   headers) and `Location` on every 201 (the three `POST` captures failed the same way until the
-  controllers sent it).
+  controllers sent it). The 503 of a lost database is declared on every operation with
+  `Retry-After` required (the synthetic case failed with `Response status 503 not defined for
+  path '/order'` until it was, and a second case pins that a 503 without `Retry-After` is
+  rejected).
 
 ## Delivery
 - Every change arrives on a branch, goes through a pull request with a review, and is
@@ -291,12 +307,17 @@ delivered.
   for GitLab but is provided for portability and has not been executed in this project.
 - The image is scanned on every pull request and a critical or high fixable vulnerability
   blocks the merge; unfixable findings are reported but do not block, because there is nothing
-  a code change can do about them. Spring Boot 3.5.16 is the last BOM of a line that left
-  open-source support on 2026-06-30, so a fixable finding in a Boot-managed library is closed
-  by a per-library version override in `build.gradle` until the upgrade to Spring Boot 4.1.x,
-  due in the next dependency window and before the 2027-01-31 expiry of the accepted
-  exceptions (ADR 0004). An SBOM is produced for every build so the deployed dependency set
-  is auditable. The image published from `main` is the one that was scanned and smoke-tested:
+  a code change can do about them. The delivered image runs on Spring Boot 3.5.16, the last
+  BOM of a line that left open-source support on 2026-06-30: an unsupported line, stated
+  plainly. Until the upgrade every fixable finding in a Boot-managed library is closed by a
+  per-library version override in `build.gradle` (one `ext` line per library, two today:
+  `jackson-bom.version` and `postgresql.version`, pinned by `DependencyOverridesTest`),
+  reviewed weekly through the Dependabot pull requests and removed at the upgrade; the two
+  Framework 6 advisories without a 6.x fix are time-boxed exceptions (ADR 0004). The upgrade to
+  Spring Boot 4.1.x is tracked as
+  [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
+  expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
+  set is auditable. The image published from `main` is the one that was scanned and smoke-tested:
   GitHub retags and pushes the loaded `store:ci` image, GitLab pushes the saved `image.tar`.
 - Dependency updates arrive as weekly pull requests through the same gate as any other change.
   Gradle majors and the Java base-image major are excluded from automation and planned
