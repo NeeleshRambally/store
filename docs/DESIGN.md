@@ -242,18 +242,26 @@ run while a hung Testcontainers pull, Gradle daemon or image pull releases the r
 half an hour instead of GitHub's six-hour default.
 
 Pulling the delivered image: the package is private because the repository is, so log in with
-a token that carries `read:packages`, then pull and run it against a database the container
-can reach (`host.docker.internal` on Docker Desktop):
+a token that carries `read:packages`, then pull it and run it on the network of the Compose
+stack's database, where PostgreSQL answers as `postgres`. The network is `<project>_default`,
+and the project name is the checkout's directory name unless `COMPOSE_PROJECT_NAME` sets
+another, so a clone named `store` gives `store_default`:
 ```shell
 docker login ghcr.io
 docker pull ghcr.io/neeleshambally/store:latest
-docker run --rm -p 8080:8080 -p 8081:8081 \
-  -e DB_URL=jdbc:postgresql://host.docker.internal:5434/store \
+docker compose up -d postgres
+docker run --rm --network store_default -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
+  -e DB_URL=jdbc:postgresql://postgres:5432/store \
   -e DB_USERNAME=admin -e DB_PASSWORD=admin -e LIQUIBASE_CONTEXTS=seed \
   ghcr.io/neeleshambally/store:latest
 ```
-Run alone like this, the image migrates in-process as the user it is given; the Compose stack
-splits that into the `migrate` job and the `store_app` runtime (see Running locally).
+The Compose network works on every engine; `host.docker.internal` is Docker Desktop's name for
+the host, and a Linux engine has it only through `--add-host host.docker.internal:host-gateway`,
+which resolves to the bridge gateway rather than to the host's loopback. Run alone like this,
+the image migrates in-process as the user it is given; the Compose stack splits that into the
+`migrate` job and the `store_app` runtime (see Running locally), and
+`STORE_IMAGE=ghcr.io/neeleshambally/store:latest docker compose up -d --no-build` runs the
+pulled image that way.
 
 Both jobs must be green and the change reviewed before a merge; GitHub cannot enforce required
 checks on a private free-plan repository, so that is a procedural gate. Permissions are scoped
