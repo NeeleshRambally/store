@@ -3,9 +3,23 @@
 ## Status
 Accepted. Since ADR 0006 every list and by-id read except `GET /order/{id}` builds its DTOs
 from projection rows rather than through MapStruct; the entity mappers serve the create
-responses and that one entity-graph read only. The `orders` mapping of `CustomerMapper` and
-`ProductMapper` must never be applied to a persistent entity, whose lazy collection is
-unbounded (ADR 0003, "Nested collections"); on the create path the collection is empty.
+responses and that one entity-graph read only. Entities are built by their constructors, which
+take the required fields (`Customer(name)`, `Product(description)` and
+`Order(description, customer)`); the no-argument constructor is protected and exists for JPA,
+no entity has a setter, and Hibernate assigns the id. MapStruct maps entity → DTO only.
+
+The `orders` mapping of `CustomerMapper` and `ProductMapper` must never be applied to a
+persistent entity, whose lazy collection is unbounded (ADR 0003, "Nested collections"). The
+call sites hold that rule, not the type system: a new entity and a loaded one have the same
+type, and a separate type for unsaved entities would model the same table twice for two call
+sites. Each of the two mappings has one caller, the create method of its service, which maps
+the entity it has just saved, whose collection is still the empty one its constructor made.
+`OrderMapper` runs on `POST /order` and on `GET /order/{id}`, whose entity graph fetches the
+customer and the products; it maps the customer's id and name and each product's id and
+description, and reads no collection of orders. Every other read builds its DTOs from rows.
+`QueryCountIT` pins zero entity loads on every list and cursor page and on the by-id reads of
+a customer and a product, so a read that started mapping a loaded entity fails the build, and
+one statement on `GET /order/{id}`, so its mapping cannot reach a lazy collection unnoticed.
 
 ## Context
 The original service wired controllers directly to Spring Data repositories and bound JPA
