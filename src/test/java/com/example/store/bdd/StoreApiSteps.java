@@ -431,6 +431,11 @@ public class StoreApiSteps {
         assertThat(body.get("detail").asText()).isEqualTo(detail);
     }
 
+    @Then("the response problem code is {string}")
+    public void responseProblemCodeIs(String code) {
+        assertThat(body.path("code").asText()).isEqualTo(code);
+    }
+
     @Then("customer {int} is still named {string}")
     public void customerIsStillNamed(int id, String name) throws Exception {
         get("/customer?size=100");

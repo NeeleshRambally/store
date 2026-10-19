@@ -13,6 +13,7 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import lombok.SneakyThrows;
 
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -241,7 +242,8 @@ class OpenApiContractIT extends AbstractIntegrationTest {
                         "title", "Conflict",
                         "status", 409,
                         "detail", "The request conflicts with existing data",
-                        "instance", "/order")))
+                        "instance", "/order",
+                        "code", "conflict")))
                 .build();
 
         assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.POST, conflict));
@@ -253,7 +255,11 @@ class OpenApiContractIT extends AbstractIntegrationTest {
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
                 .withHeader("X-Request-Id", "synthetic")
                 .withBody(toJson(Map.of(
-                        "type", "about:blank", "title", "Internal Server Error", "status", 500, "instance", "/order")))
+                        "type", "about:blank",
+                        "title", "Internal Server Error",
+                        "status", 500,
+                        "instance", "/order",
+                        "code", "internal_error")))
                 .build();
 
         assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.GET, failure));
@@ -270,7 +276,8 @@ class OpenApiContractIT extends AbstractIntegrationTest {
                         "title", "Service Unavailable",
                         "status", 503,
                         "detail", "The service cannot obtain a database connection",
-                        "instance", "/order")))
+                        "instance", "/order",
+                        "code", "service_unavailable")))
                 .build();
 
         assertNoErrors(VALIDATOR.validateResponse("/order", Request.Method.GET, unavailable));
@@ -282,14 +289,60 @@ class OpenApiContractIT extends AbstractIntegrationTest {
         Response unavailable = SimpleResponse.Builder.status(HttpStatus.SERVICE_UNAVAILABLE.value())
                 .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
                 .withHeader("X-Request-Id", "synthetic")
-                .withBody(toJson(Map.of("type", "about:blank", "title", "Service Unavailable", "status", 503)))
+                .withBody(toJson(Map.of(
+                        "type", "about:blank",
+                        "title", "Service Unavailable",
+                        "status", 503,
+                        "code", "service_unavailable")))
                 .build();
 
         ValidationReport report = VALIDATOR.validateResponse("/products/2", Request.Method.GET, unavailable);
 
         assertThat(report.getMessages())
                 .extracting(ValidationReport.Message::getMessage)
-                .anySatisfy(message -> assertThat(message).contains("Retry-After"));
+                .singleElement(InstanceOfAssertFactories.STRING)
+                .contains("Retry-After");
+    }
+
+    @Test
+    void problemWithoutACodeIsRejectedByTheContract() {
+        Response notFound = SimpleResponse.Builder.status(HttpStatus.NOT_FOUND.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
+                .withBody(toJson(Map.of(
+                        "type", "about:blank",
+                        "title", "Not Found",
+                        "status", 404,
+                        "detail", "Order with id 999999 was not found",
+                        "instance", "/order/999999")))
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/order/999999", Request.Method.GET, notFound);
+
+        assertThat(report.getMessages())
+                .extracting(ValidationReport.Message::getKey)
+                .containsExactly("validation.response.body.schema.required");
+    }
+
+    @Test
+    void undocumentedProblemCodeIsRejectedByTheContract() {
+        Response notFound = SimpleResponse.Builder.status(HttpStatus.NOT_FOUND.value())
+                .withContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE)
+                .withHeader("X-Request-Id", "synthetic")
+                .withBody(toJson(Map.of(
+                        "type", "about:blank",
+                        "title", "Not Found",
+                        "status", 404,
+                        "detail", "Order with id 999999 was not found",
+                        "instance", "/order/999999",
+                        "code", "order_not_found")))
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/order/999999", Request.Method.GET, notFound);
+
+        assertThat(report.getMessages())
+                .extracting(ValidationReport.Message::getKey)
+                .containsExactly("validation.response.body.schema.enum");
     }
 
     @Test

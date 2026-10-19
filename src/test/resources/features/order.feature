@@ -15,6 +15,7 @@ Feature: Order management
       {"description": "Empty", "customerId": 1, "productIds": []}
       """
     Then the response status is 400
+    And the response problem code is "validation_failed"
     And the response problem lists a validation error for "productIds"
 
   Scenario: An order with more than 100 products is rejected
@@ -159,6 +160,7 @@ Feature: Order management
   Scenario: Fetching an unknown order is a not found
     When I request order 999999
     Then the response status is 404
+    And the response problem code is "not_found"
     And the response problem detail is "Order with id 999999 was not found"
 
   Scenario: Fetching an order with a non-numeric id is rejected

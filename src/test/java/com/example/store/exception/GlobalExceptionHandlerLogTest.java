@@ -9,7 +9,11 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.web.context.request.ServletWebRequest;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -92,6 +96,19 @@ class GlobalExceptionHandlerLogTest {
                 .contains("java.sql.SQLTransientConnectionException")
                 .doesNotContain("HikariPool");
         assertThat(event(Level.DEBUG).getThrowableProxy().getMessage()).contains("EntityManager");
+    }
+
+    @Test
+    void aFailureAfterTheResponseIsCommittedIsLoggedAndAnswersNothing() throws Exception {
+        MockHttpServletResponse committed = new MockHttpServletResponse();
+        committed.setCommitted(true);
+
+        ResponseEntity<Object> response = handler.handleException(
+                new HttpMessageNotWritableException("Could not write JSON"),
+                new ServletWebRequest(new MockHttpServletRequest(), committed));
+
+        assertThat(response).isNull();
+        assertThat(event(Level.WARN).getFormattedMessage()).contains("Response already committed");
     }
 
     private ILoggingEvent event(Level level) {
