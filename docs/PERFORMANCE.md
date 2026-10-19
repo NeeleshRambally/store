@@ -28,11 +28,13 @@ the parent of the commit that introduced it, which its section names.
 | `GET /order` | 10,000 | 950,440 B | 11 | 1 query for all orders, then `default_batch_fetch_size: 10` loaded the 100 customers in batches of 10 |
 | `GET /customer` | 100 (+10,000 nested orders) | 503,458 B | 11 | 1 query for all customers, then 10 batch loads of the lazy `orders` collections |
 
-Round trips are the dominant cost with a remote database: with 30 ms of latency each request
-spent at least 330 ms waiting on the network before any serialisation. Both endpoints also
-materialised the entire table on every call, so cost grew linearly with data volume. The lazy
-loading only worked because `spring.jpa.open-in-view` was left at its default, which keeps a
-database session open for the duration of the HTTP request.
+Round trips are the dominant cost with a remote database, and each statement costs at least
+one: with 30 ms of latency each request spent at least 330 ms waiting on the network before any
+serialisation, where a full page now costs 3 statements plus the commit of its read-only
+transaction, about 120 ms ("Results" derives it). Both endpoints also materialised the entire
+table on every call, so cost grew linearly with data volume. The lazy loading only worked
+because `spring.jpa.open-in-view` was left at its default, which keeps a database session open
+for the duration of the HTTP request.
 
 Two further findings: the foreign key `order.customer_id` had no index, so any lookup of orders
 by customer was a sequential scan of the order table, and the serial sequences had not been
@@ -107,9 +109,10 @@ In production the latency of each route can be read from `/actuator/prometheus`:
 `http_server_requests_seconds_bucket` has bounds from 5 ms to 10 s (`docs/DESIGN.md`,
 Operations), so the p95 or p99 of `GET /order` or `GET /customer` is a `histogram_quantile`
 over those buckets rather than an average. At 30 ms per round trip a full page now waits about
-120 ms on the network, 3 statements and the commit (one round trip more when HikariCP
-validates a connection that was idle for more than 500 ms), inside the 250 ms bound, where the
-original 11 statements waited at least 330 ms.
+120 ms on the network: its 3 statements plus the commit of its read-only transaction (PgJDBC
+sends the `BEGIN` together with the first statement), and one round trip more when HikariCP
+validates a connection that was idle for more than 500 ms. That is inside the 250 ms bucket,
+where the original 11 statements waited at least 330 ms.
 
 ## Hydration
 The list endpoints originally loaded entities (the page, their to-one associations and the
