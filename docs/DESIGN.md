@@ -212,7 +212,8 @@ them. Reports land in `build/reports`.
    `store_app` must fail with `permission denied for schema public` and `permission denied for
    table customer`, and `DELETE /order/1` sent with `X-Request-Id: smoke-<pid>` must be a 405
    problem detail whose log line the `store` container's output carries as ECS JSON with
-   `"requestId":"smoke-<pid>"` and the `service` name and version (see Operations). A failing
+   `"requestId":"smoke-<pid>"` and the `service` name and version (see Operations), and that
+   output must not contain a `Picked up JAVA_TOOL_OPTIONS` line. A failing
    step prints the `migrate` and `store` logs and fails the job; the
    stack is always torn down. On `main` the job then tags that same `store:ci` image and pushes
    it to GitHub Container Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`,
@@ -267,25 +268,28 @@ Compose volume; `docker compose down -v` clears it.
 
 Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
 Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
-majors except for `gradle/actions`, the `Dockerfile` base images as one grouped pull request with
-the Java major excluded, and the `compose.yaml` images as the `compose-images` group. Both `FROM`
-lines of the `Dockerfile` and the `postgres:16.2` image of `compose.yaml` are pinned by the
-multi-arch index digest with the tag kept for readability, so a rebuild or a `compose up`
-resolves the same image until Dependabot refreshes the digest (a digest refresh carries no major,
-so the exclusions do not suppress it). The Compose entry ignores every version update of
-`postgres`, so the tag stays at the README's 16.2 while digest refreshes still arrive, and
-ignores `store` entirely, because Dependabot reads `${STORE_IMAGE:-store:local}` as a Docker Hub
-image to look up. Every action is pinned to the commit SHA of its release with the version in a
-trailing comment; Dependabot's github-actions ecosystem moves the SHA and rewrites the comment in
-the grouped weekly pull request, so a pin never freezes the pipeline. The cost is that Dependabot
-security alerts cover only semver-referenced actions, not SHA pins; the weekly update and the
-pinned version comment are the review path instead. `gradle/actions/setup-gradle` stays on the v5
-line (major updates ignored) because v6 moved the build cache into a closed-source component that
-requires separate terms of use. The Gradle wrapper carries `distributionSha256Sum`, so every
-distribution it downloads is verified against the checksum before it is unpacked, independently
-of `validateDistributionUrl`: the image build stage downloads on every build, runners and
-developers verify on their first download and reuse the cache afterwards, and adding the key
-invalidated no existing cache.
+majors except for `gradle/actions`, the `Dockerfile` base images as one grouped pull request, and
+the `compose.yaml` images as the `compose-images` group. The Java major-version exclusion of the
+`docker` entry names `eclipse-temurin`, so it governs only the build stage; the runtime stage's
+`gcr.io/distroless/java17-debian13:nonroot` has no version in its tag, so its updates are digest
+refreshes only, and a move to another Java line is a change of image name, which Dependabot does
+not propose. Both `FROM` lines of the `Dockerfile` and the `postgres:16.2` image of `compose.yaml`
+are pinned by the multi-arch index digest with the tag kept for readability, so a rebuild or a
+`compose up` resolves the same image until Dependabot refreshes the digest (a digest refresh
+carries no major, so the exclusions do not suppress it). The Compose entry ignores every version
+update of `postgres`, so the tag stays at the README's 16.2 while digest refreshes still arrive,
+and ignores `store` entirely, because Dependabot reads `${STORE_IMAGE:-store:local}` as a Docker
+Hub image to look up. Every action is pinned to the commit SHA of its release with the version in
+a trailing comment; Dependabot's github-actions ecosystem moves the SHA and rewrites the comment
+in the grouped weekly pull request, so a pin never freezes the pipeline. The cost is that
+Dependabot security alerts cover only semver-referenced actions, not SHA pins; the weekly update
+and the pinned version comment are the review path instead. `gradle/actions/setup-gradle` stays on
+the v5 line (major updates ignored) because v6 moved the build cache into a closed-source
+component that requires separate terms of use. The Gradle wrapper carries `distributionSha256Sum`,
+so every distribution it downloads is verified against the checksum before it is unpacked,
+independently of `validateDistributionUrl`: the image build stage downloads on every build,
+runners and developers verify on their first download and reuse the cache afterwards, and adding
+the key invalidated no existing cache.
 
 `.gitlab-ci.yml` is provided for portability and has not been executed in this project; there is
 no GitLab project for this repository. It follows the same stages: `build` runs
@@ -466,6 +470,24 @@ probes and metrics are reachable from inside the cluster but never from the publ
   deployment. `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008
   records the split, which changeset needs a privileged role, and the `down -v` step for a
   volume created before the job existed
+* The image runs the layered jar as the non-root user 65532 on
+  `gcr.io/distroless/java17-debian13:nonroot`, pinned by digest: Eclipse Temurin 17.0.20.1,
+  installed as the Debian package `temurin-17-jre`, among 25 Debian 13 packages, with no shell,
+  package manager, `curl` or `wget`. The JVM flags are arguments of the `ENTRYPOINT`
+  (`/usr/bin/java -XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError
+  org.springframework.boot.loader.launch.JarLauncher`), and the image sets no
+  `JAVA_TOOL_OPTIONS`: the JVM announces that variable, even an empty one, with a plain-text
+  `Picked up JAVA_TOOL_OPTIONS: ...` line on stderr ahead of the JSON, and the smoke test's
+  `compose` mode fails on such a line. Command-line flags win over `JAVA_TOOL_OPTIONS` and
+  `JDK_JAVA_OPTIONS`, so an operator can attach an agent through `JAVA_TOOL_OPTIONS` without
+  losing the heap flags (the JVM then prints its own `Picked up` line); only `_JAVA_OPTIONS` or
+  a replaced entrypoint changes them. Without a shell there is no `docker exec` into the
+  container; debug locally with the `:debug-nonroot` variant of the same image, which adds a
+  busybox shell and is never shipped. Distroless retires a Java image when it stops updating
+  that Java version on a Debian release (`java17-debian12` is no longer updated), so
+  `java17-debian13` may stop receiving updates while the service is still on Java 17; since the
+  scan inventories the JRE, a stale base then fails the image scan, and the way out is a move to
+  a newer Java line (a `java21` image and the matching toolchain)
 * The Compose `store` and `migrate` services are hardened: `read_only: true` with
   `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` live there),
   `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]` and

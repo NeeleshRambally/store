@@ -97,6 +97,11 @@ if [ "$mode" = compose ]; then
     fail "store logs: no ECS JSON line carrying requestId smoke-$$ with service name and version"
   fi
   echo "ok   store logs -> ECS JSON line with requestId smoke-$$"
+
+  if docker compose logs --no-log-prefix store 2>&1 | grep -F 'Picked up JAVA_TOOL_OPTIONS' > "$body"; then
+    fail "store logs: the JVM printed a Picked up JAVA_TOOL_OPTIONS line"
+  fi
+  echo "ok   store logs -> no Picked up JAVA_TOOL_OPTIONS line"
 fi
 
 echo "Smoke test passed"
