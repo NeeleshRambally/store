@@ -298,10 +298,16 @@ delivered.
 - Every change arrives on a branch, goes through a pull request with a review, and is
   squash-merged once CI is green. Branch rulesets are not available on a private repository of
   the free GitHub plan, so the gate is enforced by process rather than by the platform.
-- The container image runs as a non-root user on a JRE, with layered jar extraction for
-  efficient caching. Liveness and readiness probes are exposed for Kubernetes on the management
-  port (8081), which the ingress does not publish; readiness includes the database indicator
-  (ADR 0008); no Docker `HEALTHCHECK` is declared because orchestrators ignore it.
+- The container image runs as a non-root user on a distroless Java 17 runtime with no shell,
+  package manager or `curl`, with layered jar extraction for efficient caching; its JRE is a
+  Debian package that the image scan inventories (ADR 0004, `docs/DESIGN.md` Operations).
+  Liveness and readiness probes are exposed for Kubernetes on the management port (8081), which
+  the ingress does not publish; readiness includes the database indicator (ADR 0008). No Docker
+  `HEALTHCHECK` is declared: Kubernetes ignores one and runs its own probes against
+  `/actuator/health/liveness` and `/actuator/health/readiness`, nothing in `compose.yaml` waits
+  on the store's health, the smoke script polls `/actuator/health/readiness` itself, and without
+  a shell or `curl` in the image the only probe command would be a second JVM started inside the
+  same memory limit.
 - Migrations are a job and the runtime role cannot alter the schema. The Compose stack runs the
   image once as `migrate` (no web server, schema owner `admin`, `seed` context) and starts
   `store` only after it has exited 0; `store` connects as `store_app`, a role created by
