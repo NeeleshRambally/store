@@ -24,8 +24,10 @@ delivered.
   `FailClosedStartupIT` observes exactly that against a real database. The original
   code hard-coded `admin:admin`; an earlier revision kept the pair as the fallback, which is
   the same defect with an opt-out. The README path (`admin:admin`, port 5433, sample data) lives
-  in the `local` profile, which `./gradlew bootRun` selects as the default profile; the tests
-  take their credentials from Testcontainers and `compose.yaml` sets every variable explicitly.
+  in the `local` profile, which `./gradlew bootRun` selects as the default profile and which the
+  bootJar, and so the image, does not contain, so `SPRING_PROFILES_ACTIVE=local` cannot bring
+  the sample credentials or the seed into a deployment; the tests take their credentials from
+  Testcontainers and `compose.yaml` sets every variable explicitly.
 - Sample data is loaded only when the `seed` Liquibase context is active: under the `local`
   profile, in the tests and in the `migrate` job of `compose.yaml`. The seed changesets are
   the only ones with a context, so `prod` (or any non-blank value other than `seed`) applies
