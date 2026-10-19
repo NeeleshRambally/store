@@ -8,9 +8,10 @@ and `productId` filters of `GET /order` (below, under Decision) apply in both pa
 
 ## Context
 `GET /order` returned every order (10,000 rows, ~950 KB) and `GET /customer` returned every
-customer with every nested order (~500 KB). Each request also issued 11 database round trips:
-one for the root entities and ten batch fetches of size 10 for the lazy associations. The
-production database is not co-located with the service, so round trips dominate latency.
+customer with every nested order (~500 KB). Each request also issued 11 statements, each a
+database round trip: one for the root entities and ten batch fetches of size 10 for the lazy
+associations. The production database is not co-located with the service, so round trips
+dominate latency.
 
 ## Decision
 - Both list endpoints are paged. The response is a `PageResponse` envelope
