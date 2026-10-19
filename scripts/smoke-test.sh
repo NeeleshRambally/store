@@ -96,7 +96,8 @@ if [ "$mode" = compose ]; then
     expect_setting "$service" "$id" SecurityOpt '"no-new-privileges:true"' 'no-new-privileges is not set'
     expect_setting "$service" "$id" Memory '^536870912$' 'memory limit is not 512 MiB'
     expect_setting "$service" "$id" MemorySwap '^536870912$' 'memory plus swap limit is not 512 MiB, so the container can swap'
-    echo "ok   $service hardening -> read-only root, tmpfs /tmp, no capabilities, no-new-privileges, 512 MiB without swap"
+    expect_setting "$service" "$id" LogConfig '"Type":"json-file","Config":{"max-file":"3","max-size":"10m"}' 'logs are not rotated at 3 files of 10 MB'
+    echo "ok   $service hardening -> read-only root, tmpfs /tmp, no capabilities, no-new-privileges, 512 MiB without swap, logs rotated at 3 x 10 MB"
   done
 
   bind_address=${STORE_BIND_ADDRESS:-127.0.0.1}

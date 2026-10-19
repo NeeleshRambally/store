@@ -499,7 +499,9 @@ delivered.
 - The Compose `store` and `migrate` services run with a read-only root, a tmpfs `/tmp`, no
   capabilities, `no-new-privileges` and a 512 MiB memory limit without swap, in which the
   image's entrypoint gives the heap 30% under SerialGC, a share measured under concurrent
-  load; the smoke test's `compose` mode asserts each of these settings on both containers, so
+  load, and rotate their `json-file` log at 3 files of 10 MB, since one access line per
+  request would otherwise grow the log without bound; the smoke test's `compose` mode asserts
+  each of these settings on both containers, so
   dropping one fails the pipeline. `postgres` stays unhardened because `initdb` needs root
   capabilities on first start (ADR 0008). The stack publishes the API, the actuator and the
   database on 127.0.0.1 only, because the API has no authentication and the database role is
