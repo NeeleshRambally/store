@@ -309,9 +309,10 @@ delivered.
   everything `admin` creates and nothing else, with `SPRING_LIQUIBASE_ENABLED=false` so no
   Liquibase bean exists at runtime. The smoke test's `compose` mode asserts the job's exit code
   and the grants (a `create table` and an `update` as `store_app` must be denied). The two
-  passwords stay inline as README-path development values; an `env_file` split is a deployment
-  concern left open. `./gradlew bootRun` keeps in-process Liquibase as `admin` for development
-  (ADR 0008).
+  passwords stay inline as README-path development values; a deployment supplies credentials as
+  variables or as secret files in `/run/secrets` (`docs/DESIGN.md`, Configuration), and an
+  `env_file` split of the Compose file is left open. `./gradlew bootRun` keeps in-process
+  Liquibase as `admin` for development (ADR 0008).
 - Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
   is also in the MDC of every log line of that request, so a client-quoted id finds the logs;
   the contract declares it as required on every response and the contract check enforces it.
