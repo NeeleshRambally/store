@@ -628,6 +628,12 @@ revision), what was done, and where the reasoning lives.
 - `default_batch_fetch_size: 10` (`application.yaml:13`), which turned each list request into 11
   round trips: the list endpoints run a fixed number of statements per page and the property is
   raised to 100 as a safety net only; `docs/PERFORMANCE.md` and ADR 0003.
+- No time limit on any database call (`application.yaml:2-5` sets only the URL and the
+  credentials): PgJDBC waits for an answer forever by default, so a stalled or silently dropped
+  connection to the remote database held its pool slot and its request thread with no limit.
+  Every connection now has a server-side statement timeout, a socket timeout and TCP keepalive,
+  every transaction a default timeout, and their failures are 503 problem details with
+  `Retry-After`; `docs/DESIGN.md` (Configuration, Operations) and ADR 0008.
 - Unbounded `findAll()` with no pagination (`CustomerController.java:25`,
   `OrderController.java:25`): paged and keyset list endpoints, bounded nested collections;
   ADR 0003.

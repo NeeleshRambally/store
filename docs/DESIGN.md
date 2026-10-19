@@ -77,6 +77,9 @@ included (see Configuration). More data can be generated with the script describ
 | `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
 | `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`connection-timeout`), then the request is a 503 |
+| `DB_STATEMENT_TIMEOUT` | `10s` | Server-side `statement_timeout` of every connection, sent in the PgJDBC startup `options`; a PostgreSQL time (`10s`, `500ms`, or a plain number of milliseconds), `0` disables it. A statement still running at the limit is cancelled by the server and the request is a 503 `database_timeout` |
+| `DB_SOCKET_TIMEOUT` | `15` | PgJDBC `socketTimeout` in whole seconds: how long the driver waits for the database to send anything before it drops the connection, and the request is a 503 `service_unavailable`; `0` disables it. Keep it above `DB_STATEMENT_TIMEOUT` (see below) |
+| `TX_TIMEOUT` | `15s` | Default timeout of every transaction (`spring.transaction.default-timeout`), a duration (`15s`, or `15` for seconds); `-1` disables it, but `0` does not (see below) |
 | `TOMCAT_THREADS_MAX` | `200` | Tomcat request threads (`server.tomcat.threads.max`); see the sizing note below |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
@@ -89,11 +92,58 @@ The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 
 threads at most 10 requests touch the database concurrently; the rest wait up to 5 s for a
 connection and then get a 503 problem detail with `Retry-After: 5` (see Operations), so a
 remote database that slows down degrades into retryable 503s rather than into 200 threads
-blocked on one pool. Size the pool to the database's connection budget per replica, and the
-threads to roughly the pool times the share of request time spent outside the database
-(serialisation, compression, the ETag hash); every endpoint spends most of its time in the
-database, so the defaults leave the threads well above the pool and the 5 s wait is the real
-bound. `FailClosedConfigurationTest` pins the resolved default and the variable.
+blocked on one pool. The timeouts below bound how long a request can hold one of those
+connections, so a database that stalls degrades the same way instead of keeping all ten
+connections, and with them every other request, waiting with no limit. Size the pool to the
+database's connection budget per replica, and the threads to roughly the pool times the share
+of request time spent outside the database (serialisation, compression, the ETag hash); every
+endpoint spends most of its time in the database, so the defaults leave the threads well above
+the pool and the 5 s wait is the real bound. `FailClosedConfigurationTest` pins the resolved
+default and the variable.
+
+The three timeouts bound every database call. They were measured on the Compose stack (Docker
+Desktop on arm64, PostgreSQL 16.2) with `GET /order?size=5` held on a lock that a second session
+took on the `order` table. A statement still running at `DB_STATEMENT_TIMEOUT` is cancelled by
+the server: the request answered a 503 `database_timeout` after 10.0 s. `TX_TIMEOUT` bounds the
+statements of one transaction together: each statement gets the time that remains as its JDBC
+timeout and the driver cancels it when that runs out (with the statement and socket timeouts
+raised, the same request was cancelled after 15.05 s), and a deadline that has already passed
+fails the next statement at once. It is not a hard bound: a statement started with less than
+half a second left runs without a JDBC timeout, because the remaining time is rounded to whole
+seconds, and is bounded by `DB_STATEMENT_TIMEOUT` alone, and Hibernate floors the remaining time
+of its own statements to whole seconds (at least 1), so a transaction can approach `TX_TIMEOUT`
+plus `DB_STATEMENT_TIMEOUT`. Unlike the other two, `TX_TIMEOUT=0` is not "off": it gives every
+transaction a deadline that has already passed, and with it `GET /order` answered a 503
+`database_timeout` at once, while `GET /order/{id}`, an entity load rather than a query, and
+`POST /customer` still succeeded; `-1` turns it off (the request held on the lock then waited
+19.16 s for it and answered 200).
+
+A database that stops answering altogether, which no server-side timeout can cancel, is cut by
+`DB_SOCKET_TIMEOUT`: with the `postgres` container paused the request answered a 503
+`service_unavailable` after 18.0 s in five of six runs and after 15.0 s in the sixth, that is
+the socket timeout's 15 s plus, when the cancel that the transaction timeout sends to the
+stalled server at about the same moment is still in flight, that cancel's 3 s
+`cancelSignalTimeout`; with the driver's default of 10 s for that signal the stall took 25.06 s,
+which is why it is set to 3. Keep `DB_SOCKET_TIMEOUT` above `DB_STATEMENT_TIMEOUT` and above the
+slowest legitimate statement, because a backend that waits or computes sends nothing: with
+`DB_STATEMENT_TIMEOUT` raised to 30 s the request lost its connection after 15.04 s (a 503
+`service_unavailable`) instead of being cancelled. `tcpKeepAlive` turns on TCP keepalive for the
+pool's sockets; with the Linux default of two hours of silence before the first probe it adds
+little, since HikariCP already checks a connection idle in the pool every 2 minutes
+(`keepaliveTime`) and replaces every connection after 30 minutes (`maxLifetime`), so the socket
+timeout, not keepalive, is the bound on a stall.
+
+The statement timeout travels in the connection's startup `options` rather than in
+`connection-init-sql` or an `ALTER ROLE ... SET`: it is then the session's reset value rather
+than a `SET` that `RESET ALL` undoes, it applies to whichever role the service connects as, and
+it survives the tests' `@ServiceConnection`, which replaces only the URL and the credentials (an
+`options` parameter written into the URL would not). `DatabaseTimeoutsIT` reads the values back
+through the application's pool, a pooled connection and the transaction manager, and
+`FailClosedConfigurationTest` pins the three variables. Liquibase runs on the same pool and
+inherits both driver timeouts (with `DB_STATEMENT_TIMEOUT=50ms` the `migrate` job fails at
+changeset `5-products-seed`), so `migrate` sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT`
+to `0`: an index build or a data migration on a large table may run longer than any request
+should.
 
 The two credentials can also be files. `application.yaml` imports
 `optional:configtree:/run/secrets/`, which turns each file in that directory into a property
@@ -492,8 +542,8 @@ the wording of `detail`:
 | `payload_too_large` | 413 | A body over `REQUEST_MAX_BODY_BYTES` |
 | `unsupported_media_type` | 415 | A body that is not `application/json` |
 | `internal_error` | 500 | An unexpected failure (no `detail`) |
-| `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request (with `Retry-After`) |
-| `database_timeout` | 503 | A database statement that was cancelled, or a transaction past its deadline (with `Retry-After`) |
+| `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT` (with `Retry-After`) |
+| `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a transaction past that deadline (with `Retry-After`) |
 
 `GlobalExceptionHandler` sets the code in each of its own handlers. The problem details that
 Spring MVC's `ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler,
@@ -675,42 +725,44 @@ probes and metrics are reachable from inside the cluster but never from the publ
 * A database that cannot be reached, loses the connection or does not answer in time is a 503
   with `Retry-After: 5`, not a 500, and the problem's `code` tells the cases apart. A request
   that cannot obtain a connection within the pool's 5 s `connection-timeout` (the pool
-  exhausted, or the database down) reaches the handler as `CannotCreateTransactionException`
-  and is answered `service_unavailable` (`The service cannot obtain a database connection`). A
-  cancelled statement reaches it as `QueryTimeoutException`, and a transaction whose deadline
-  passed before a query as `TransactionTimedOutException`; both are answered
-  `database_timeout` (`The database did not answer in time`). A connection lost inside the
-  transaction (the backend terminated, the server restarted) arrives differently: HikariCP
-  marks the connection broken, the rollback then fails on it, and Spring throws the rollback's
-  exception in place of the original, a `JpaSystemException` caused by Hibernate's
+  exhausted, or the database down) reaches the handler as `CannotCreateTransactionException` and
+  is answered `service_unavailable` (`The service cannot obtain a database connection`). A
+  statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets (see
+  Configuration) reaches it as `QueryTimeoutException`, and a transaction whose deadline passed
+  before a query as `TransactionTimedOutException`; both are answered `database_timeout`
+  (`The database did not answer in time`). A connection lost inside the transaction (the backend
+  terminated, the server restarted, a stall cut by `DB_SOCKET_TIMEOUT`) arrives differently:
+  HikariCP marks the connection broken, the rollback then fails on it, and Spring throws the
+  rollback's exception in place of the original, a `JpaSystemException` caused by Hibernate's
   `TransactionException` (`Unable to rollback against JDBC Connection`), which is answered
   `service_unavailable` as well. Before that, Spring's `TransactionInterceptor` logs the
-  original exception at ERROR as `Application exception overridden by rollback exception`,
-  with the statement's SQL (bind values appear as `?`) and the driver message; the line stays,
+  original exception at ERROR as `Application exception overridden by rollback exception`, with
+  the statement's SQL (bind values appear as `?`) and the driver message; the line stays,
   because silencing that logger would also hide a failed rollback that replaces a genuine
   application error. The handler tests the cause's type, never its message, so a transaction
   deadline that passed before one of Hibernate's own statements (a by-id read, the flush of a
   `POST`), which surfaces as the same type (`transaction timeout expired`), is answered
   `service_unavailable` too, and every other `JpaSystemException` stays a 500. The advice
-  imports two Hibernate types for this reason: Spring's exceptions expose neither the name of
-  a violated constraint (`ConstraintViolationException`, which the 409's log line needs) nor
+  imports two Hibernate types for this reason: Spring's exceptions expose neither the name of a
+  violated constraint (`ConstraintViolationException`, which the 409's log line needs) nor
   whether a `JpaSystemException` came from a failed rollback (`TransactionException`). The
   handler logs each 503 at WARN by the class name of its most specific cause only (the driver
   message can carry hosts or SQL; the full cause is at DEBUG), while Hibernate's
   `SqlExceptionHelper` still logs the SQL state of a failed statement at WARN and the driver
-  message at ERROR (`ERROR: canceling statement due to user request`). The ingress therefore
-  sees a 503 with `Retry-After` for each timed-out acquisition, and readiness reports `db` DOWN
-  while no connection can be obtained, but only after the same 5 s `connection-timeout`, so
-  probe timeouts must exceed it; a replica is then also taken out of rotation. All of them
-  recover without a restart once the database answers. A 503 on a `POST` does not guarantee
-  the write was not applied: the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`, "API
-  contract"). `DatabaseFailureIT` produces two of them on a real request: it holds a lock on
-  `order` from a second connection, waits until the backend of a `GET /order?size=5` waits for
-  it, and cancels it (`database_timeout`, with nothing logged by the transaction interceptor)
-  or terminates it (`service_unavailable`, with the ERROR line). `GlobalExceptionHandlerTests`
-  pins each type's status, code and header, `GlobalExceptionHandlerLogTest` the WARN lines of an
-  unobtainable connection and of a timeout, and `OpenApiContractIT` the declaration on every
-  operation and the two real responses against the `ServiceUnavailable` examples
+  message at ERROR (`ERROR: canceling statement due to statement timeout`). The ingress
+  therefore sees a 503 with `Retry-After` for each timed-out acquisition, and readiness reports
+  `db` DOWN while no connection can be obtained, but only after the same 5 s
+  `connection-timeout`, so probe timeouts must exceed it; a replica is then also taken out of
+  rotation. All of them recover without a restart once the database answers. A 503 on a `POST`
+  does not guarantee the write was not applied: the `POST`s are not idempotent
+  (`docs/ASSUMPTIONS.md`, "API contract"). `DatabaseFailureIT` produces two of them on a real
+  request: it holds a lock on `order` from a second connection, waits until the backend of a
+  `GET /order?size=5` waits for it, and cancels it (`database_timeout`, with nothing logged by
+  the transaction interceptor) or terminates it (`service_unavailable`, with the ERROR line).
+  `GlobalExceptionHandlerTests` pins each type's status, code and header,
+  `GlobalExceptionHandlerLogTest` the WARN lines of an unobtainable connection and of a timeout,
+  and `OpenApiContractIT` the declaration on every operation and the two real responses against
+  the `ServiceUnavailable` examples
 * Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
   stop grace for it, and a Kubernetes deployment needs the same margin in
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
@@ -723,10 +775,12 @@ probes and metrics are reachable from inside the cluster but never from the publ
   as `store_app` (connect, `SELECT`, `INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`)
   with `SPRING_LIQUIBASE_ENABLED=false`. `ddl-auto: validate` and the readiness `db` component
   prove the runtime works under that role, and the smoke test's `compose` mode proves the
-  grants. A Kubernetes rollout runs the image as a `Job` or init container ahead of the
-  deployment. `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008
-  records the split, which changeset needs a privileged role, and the `down -v` step for a
-  volume created before the job existed
+  grants. The job runs with `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` set to `0`, because
+  Liquibase uses the service's pool and its timeouts (see Configuration). A Kubernetes rollout
+  runs the image as a `Job` or init container ahead of the deployment, with the same two
+  variables. `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008 records
+  the split, which changeset needs a privileged role, and the `down -v` step for a volume
+  created before the job existed
 * The image runs the layered jar as the non-root user 65532 on
   `gcr.io/distroless/java17-debian13:nonroot`, pinned by digest: Eclipse Temurin 17.0.20.1,
   installed as the Debian package `temurin-17-jre`, among 25 Debian 13 packages, with no shell,
