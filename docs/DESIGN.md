@@ -200,12 +200,14 @@ name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the 
 single letter apart.
 
 `build` also checks formatting (`spotlessCheck`), checks that the bootJar does not contain the
-local profile (`verifyBootJarContents`, see Running locally) and fails below 80% line
-coverage. Two exclusions apply to the report and the gate alike: `**/mapper/**` (the whole
-`mapper` package: the MapStruct-generated implementations and the hand-written default method
-`ProductMapper.orderIds`, which `ProductMapperTest` covers but the gate does not count) and
-`StoreApplication` (the launcher); the 100% line figure quoted in the history is measured under
-them. Reports land in `build/reports`.
+local profile (`verifyBootJarContents`, see Running locally), runs SpotBugs over the main
+classes (`spotbugsMain`: any finding fails the build; ASSUMPTIONS "Delivery" gives the
+settings) and fails below 80% line coverage. Two exclusions apply to the coverage report and
+its gate alike: `**/mapper/**` (the whole `mapper` package: the MapStruct-generated
+implementations and the hand-written default method `ProductMapper.orderIds`, which
+`ProductMapperTest` covers but the gate does not count) and `StoreApplication` (the launcher);
+the 100% line figure quoted in the history is measured under them. Reports land in
+`build/reports`.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
@@ -213,8 +215,8 @@ them. Reports land in `build/reports`.
    the npm cache keyed on `utils/package-lock.json`), then
    `./gradlew spotlessCheck build test --rerun`; a failing test fails the pipeline.
    `--rerun` makes the test suite execute on every run instead of being replayed from Gradle's
-   cache when only documentation changed. Test results and coverage reports are uploaded as the
-   `reports` artifact.
+   cache when only documentation changed. Test results and the coverage and SpotBugs reports are
+   uploaded as the `reports` artifact.
 2. `docker`: builds the image once as `store:ci` (loaded into the runner's daemon, labelled with
    the metadata of the commit), scans it with Trivy (a critical or high fixable vulnerability
    fails the pipeline; the findings table is printed in the job log, because code scanning and
