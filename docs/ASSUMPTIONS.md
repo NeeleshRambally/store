@@ -13,7 +13,8 @@ delivered.
   `ProductMapper.orderIds`, which is tested but not counted) and the launcher class
   (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
-  authentication is deferred and what is shipped in the meantime.
+  authentication is deferred and what is shipped in the meantime. The resource-server phase is
+  [issue #70](https://github.com/neeleshambally/store/issues/70), due before 2027-03-31.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
   `DB_PASSWORD` and applies only the context-free Liquibase changesets (`LIQUIBASE_CONTEXTS`
   defaults to `prod`), so an environment that forgets a variable gets no sample credentials
@@ -175,7 +176,10 @@ delivered.
   retries after a timeout (or after the 503 of a lost database, which does not say whether the
   write was applied) creates a duplicate. That is recorded as a deferral, not an oversight: no
   retrying client is in scope, a correct implementation needs a key store with a TTL and the
-  original response to replay, and it is the next API change after authentication (ADR 0002).
+  original response to replay, and it is the next API change after authentication (ADR 0002):
+  [issue #71](https://github.com/neeleshambally/store/issues/71) tracks it, due before
+  2027-04-30, after [issue #70](https://github.com/neeleshambally/store/issues/70), because a key
+  is unique only within one client's requests.
 - `/customer` and `/order` stay singular to match the original README; `/products` will be
   plural because the task names it so. The inconsistency is acknowledged rather than silently
   changed.
