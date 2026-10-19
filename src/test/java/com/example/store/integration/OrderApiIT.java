@@ -84,6 +84,23 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void aFractionalCustomerIdIsRejectedWithoutCreatingAnOrder() {
+        Long before = ordersDescribed("Fractional customer id");
+
+        ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
+                "/order",
+                Map.of("description", "Fractional customer id", "customerId", 5.7, "productIds", List.of(2)),
+                ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("customerId");
+        assertThat(ordersDescribed("Fractional customer id")).isEqualTo(before);
+    }
+
+    @Test
     void returnsNotFoundForUnknownCustomer() {
         ResponseEntity<ProblemDetail> response = restTemplate.postForEntity(
                 "/order",
@@ -360,6 +377,11 @@ class OrderApiIT extends AbstractIntegrationTest {
                 .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
                 .extracting(error -> error.get("field"))
                 .containsExactly("productId");
+    }
+
+    private Long ordersDescribed(String description) {
+        return jdbcTemplate.queryForObject(
+                "select count(*) from \"order\" where description = ?", Long.class, description);
     }
 
     private static List<Long> ids(JsonNode page) {

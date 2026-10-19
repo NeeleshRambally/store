@@ -13,6 +13,14 @@ Feature: Product catalogue
     Then the response status is 400
     And the response problem lists a validation error for "description"
 
+  Scenario: A description sent as a number is rejected
+    When I create a product with payload:
+      """
+      {"description": 123}
+      """
+    Then the response status is 400
+    And the response problem lists a validation error for "description"
+
   Scenario: Fetch a product with the newest orders that contain it
     When I request product 2
     Then the response status is 200

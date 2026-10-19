@@ -301,6 +301,18 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void fractionalCustomerIdMatchesTheContract() {
+        Interaction interaction =
+                post("/order", Map.of("description", "Contract fraction", "customerId", 5.5, "productIds", List.of(1)));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("customerId");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void oversizedOrderMatchesTheContract() {
         Interaction interaction =
                 post("/order", Map.of("description", "a".repeat(70_000), "customerId", 1, "productIds", List.of(1)));
@@ -562,6 +574,17 @@ class OpenApiContractIT extends AbstractIntegrationTest {
 
         assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(interaction.json().get("errors")).isNotEmpty();
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void numericProductDescriptionMatchesTheContract() {
+        Interaction interaction = post("/products", Map.of("description", 123));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("description");
         assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
         assertResponseConforms(interaction);
     }

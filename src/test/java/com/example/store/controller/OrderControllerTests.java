@@ -1,5 +1,6 @@
 package com.example.store.controller;
 
+import com.example.store.config.JacksonConfig;
 import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
@@ -15,6 +16,7 @@ import com.example.store.service.OrderService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
@@ -39,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(OrderController.class)
+@Import(JacksonConfig.class)
 class OrderControllerTests {
 
     private static final OrderDTO ORDER = new OrderDTO(
@@ -110,6 +113,100 @@ class OrderControllerTests {
                         .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":" + productIds + "}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("productIds"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAFractionalCustomerId() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Fraction\",\"customerId\":5.7,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Invalid request content."))
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAnIntegralCustomerIdWrittenAsAFloat() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Float\",\"customerId\":5.0,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"));
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Exponent\",\"customerId\":5e0,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsANumericStringCustomerId() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Quoted\",\"customerId\":\"5\",\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAnEmptyStringCustomerIdAsNotAnInteger() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Empty\",\"customerId\":\"\",\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsANumericDescription() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":123,\"customerId\":5,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("description"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be a string"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsFractionalAndQuotedProductIds() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Coerced\",\"customerId\":5,\"productIds\":[1.9,\"2\"]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("productIds[0]"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be an integer"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createReportsOnlyTheFirstFieldThatDoesNotBind() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":123,\"customerId\":\"5\",\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(1))
+                .andExpect(jsonPath("$.errors[0].field").value("description"));
         verify(orderService, never()).create(any());
     }
 

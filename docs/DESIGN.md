@@ -153,14 +153,15 @@ runs, in one task and in one JVM:
   validated against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real
   requests cover the 200 offset and cursor pages of the three list endpoints and the three by-id
   reads, and the customer-filtered page and the product-filtered cursor page of `/order`; the
-  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name` and a
-  repeated product id); the 400 of a non-numeric id on the three by-id paths, of an unknown
-  sort property on `/order` and `/products`, of a cursor combined with a page, of a negative
-  `after`, of a `customerId` of 0 and of `customerId` combined with `productId` on `/order`,
-  and of a multi-word `name` on `/customer` (while a no-break space in `name` is accepted by
-  both); the 404 of an unknown order, product and customer and of an order for an unknown
-  customer; the 413 of an oversized body and the 415 of a `POST /order` sent as `text/plain`;
-  and the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
+  201 and the rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated
+  product id, a fractional `customerId` and a numeric product `description`); the 400 of a
+  non-numeric id on the three by-id paths, of an unknown sort property on `/order` and
+  `/products`, of a cursor combined with a page, of a negative `after`, of a `customerId` of 0
+  and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` on
+  `/customer` (while a no-break space in `name` is accepted by both); the 404 of an unknown
+  order, product and customer and of an order for an unknown customer; the 413 of an oversized
+  body and the 415 of a `POST /order` sent as `text/plain`; and the 304 of a conditional
+  `GET /order/{id}`, `GET /products/{id}`,
   `GET /customer/{id}` and `GET /customer` page. A 405 for a method a path does not list cannot
   be declared per operation, because the method is absent from the contract; `info.description`
   states it and the smoke test sends `DELETE /order/1` to check it. The 409, 500 and 503 bodies
@@ -452,6 +453,14 @@ Request input is strict rather than coerced (ADR 0002):
   the field by its path (`productIds[0]`) with `must be an integer`, `must be a string` or
   `must be an array`. Malformed JSON and a body that is not a JSON object are a 400 with the
   detail `Failed to read request` and no `errors`.
+- JSON types are bound exactly. A JSON string, a fraction or an exponent where an integer is
+  expected (`"5"`, `""`, `5.7`, `5.0`, `5e0`) and a number or a boolean where a string is
+  expected are such type failures, where Jackson's defaults would coerce them
+  (`"customerId": 5.7` used to create an order for customer 5).
+  `spring.jackson.deserialization.accept-float-as-int` and
+  `spring.jackson.mapper.allow-coercion-of-scalars` are off, and `JacksonConfig` fails the
+  number-to-text and boolean-to-text coercions those two leave on. Jackson stops at the first
+  field it cannot bind, so `errors` lists one type failure even when several fields are wrong.
 
 Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
 back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
