@@ -151,9 +151,11 @@ The history shows how the procedure reached that form; `main`'s history is kept 
 * The squash subjects are imperative from #27 on and the bodies wrapped at 72 columns from #51
   on (one line of #60 has 73); the earlier squash commits carry their pull-request text as it
   was written.
-* Pull requests up to #64 were squash-merged, one commit each under the merging account. From
-  #65 on they are rebase-merged: each commit lands on `main` as written and keeps its author,
-  the repository's commit identity, while GitHub records the merging account as the committer.
+* Pull requests up to #64 were squash-merged into one commit each, committed by GitHub and
+  authored by the account that opened the pull request: the repository owner's account, or
+  `dependabot[bot]` for #17, #28, #30 and #46. From #65 on they are rebase-merged: each commit
+  lands on `main` as written and keeps its author, the repository's commit identity, while
+  GitHub records the merging account as the committer.
 
 ## Testing
 ```shell
