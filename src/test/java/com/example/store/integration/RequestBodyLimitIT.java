@@ -139,6 +139,31 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
                 .containsExactly(LIMIT, LIMIT);
     }
 
+    @Test
+    void bothConnectorsWaitTenSecondsForTheRestOfARequestAndSixtyForTheNextOne() {
+        assertThat(List.of(connector(context), connector(managementContext()))).allSatisfy(connector -> {
+            assertThat(connector.getProperty("connectionTimeout")).isEqualTo(10_000);
+            assertThat(connector.getProperty("keepAliveTimeout")).isEqualTo(60_000);
+        });
+    }
+
+    @Test
+    void aClientThatSendsNothingAfterItsAnswerIsDisconnectedAtTheConnectionTimeout() throws IOException {
+        try (Socket socket = new Socket("localhost", port)) {
+            answer(
+                    socket,
+                    "POST",
+                    "/order",
+                    "application/json",
+                    1_900_000,
+                    "{\"description\":\"" + "a".repeat(8192),
+                    413);
+            socket.setSoTimeout(20_000);
+
+            assertThat(socket.getInputStream().read()).isEqualTo(-1);
+        }
+    }
+
     private WebServerApplicationContext managementContext() {
         return ReflectionTestUtils.invokeMethod(
                 context.getBean("childManagementContextInitializer"), "getManagementContext");
@@ -152,22 +177,34 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
             String method, String path, String contentType, int declaredLength, String firstBytes, int status)
             throws IOException {
         try (Socket socket = new Socket("localhost", port)) {
-            socket.setSoTimeout(5_000);
-            socket.getOutputStream()
-                    .write((method + " " + path + " HTTP/1.1\r\n"
-                                    + "Host: localhost\r\n"
-                                    + "Content-Type: " + contentType + "\r\n"
-                                    + "Content-Length: " + declaredLength + "\r\n\r\n"
-                                    + firstBytes)
-                            .getBytes(StandardCharsets.US_ASCII));
-            InputStream response = socket.getInputStream();
-
-            String head = readUntil(response, "\r\n\r\n");
-            assertThat(head)
-                    .startsWith("HTTP/1.1 " + status + " ")
-                    .contains("\r\nContent-Type: application/problem+json\r\n");
-            return head + body(head, response);
+            return answer(socket, method, path, contentType, declaredLength, firstBytes, status);
         }
+    }
+
+    private static String answer(
+            Socket socket,
+            String method,
+            String path,
+            String contentType,
+            int declaredLength,
+            String firstBytes,
+            int status)
+            throws IOException {
+        socket.setSoTimeout(5_000);
+        socket.getOutputStream()
+                .write((method + " " + path + " HTTP/1.1\r\n"
+                                + "Host: localhost\r\n"
+                                + "Content-Type: " + contentType + "\r\n"
+                                + "Content-Length: " + declaredLength + "\r\n\r\n"
+                                + firstBytes)
+                        .getBytes(StandardCharsets.US_ASCII));
+        InputStream response = socket.getInputStream();
+
+        String head = readUntil(response, "\r\n\r\n");
+        assertThat(head)
+                .startsWith("HTTP/1.1 " + status + " ")
+                .contains("\r\nContent-Type: application/problem+json\r\n");
+        return head + body(head, response);
     }
 
     private static String body(String head, InputStream response) throws IOException {

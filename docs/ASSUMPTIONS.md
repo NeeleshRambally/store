@@ -367,13 +367,23 @@ delivered.
   (`Request body exceeds 65536 bytes`) before it is parsed: by the declared `Content-Length`
   when there is one, otherwise by counting the bytes of a chunked body as they are read. The
   largest valid body (a 255-character description and 100 product ids) is about 2 KB, so the
-  bound is thirty times the largest request the API accepts. The 413 response is guaranteed
-  up to Tomcat's 2 MB swallow limit (`server.tomcat.max-swallow-size`): Tomcat appends
-  `Connection: close` and discards the unread remainder; beyond 2 MB it closes the connection
-  without reading the rest and the client may see a reset instead of the problem detail.
+  bound is thirty times the largest request the API accepts. Tomcat sends the 413 at once with
+  `Connection: close` and then reads and discards the unread remainder, up to its 2 MB swallow
+  limit (`server.tomcat.max-swallow-size`), before it closes the connection: a client that reads
+  the answer before it sends more gets the problem detail, while one that keeps sending gets a
+  broken pipe once Tomcat has closed (in one run after it had sent 2.8 MB past the answer) and
+  may not see the answer if it had not read it by then. A client that sends nothing more keeps
+  the connection and its request thread until the connection timeout. On the jar of 286d65b
+  (2026-10-20, JDK 17.0.14, a throwaway PostgreSQL 16.2), with Tomcat's default of 60 s, a
+  `POST` declaring 1,900,000 or 100,000,000 bytes as JSON (413) or 100,000,000 as a form (415)
+  had its answer within 16 ms and its connection closed after 60.0 s;
+  `server.tomcat.connection-timeout` is now 10 s, and the same requests were closed after 10.0 s
+  (`docs/DESIGN.md`, API, has the effect on the request threads). `RequestBodyLimitIT` requires
+  a client that sends nothing after its 413 to be disconnected within 20 s and reads both
+  timeouts back from the two connectors, and `FailClosedConfigurationTest` pins them.
   `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitIT` (declared and chunked), the contract
-  case, the Cucumber scenario and the container smoke test pin it; there is no 411, because a
-  chunked body is legal HTTP/1.1 and is what the test client sends.
+  case, the Cucumber scenario and the container smoke test pin the 413; there is no 411, because
+  a chunked body is legal HTTP/1.1 and is what the test client sends.
 - The filter bounds a body only while it is read through the request's stream, and a
   form-encoded body was not: for a form `POST` without a query string Spring's
   `ServletServerHttpRequest` builds the body from the request parameters, so Tomcat read and
