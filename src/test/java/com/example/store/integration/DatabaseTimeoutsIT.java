@@ -11,7 +11,7 @@ import java.sql.Connection;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-// Reads the database timeouts back from the application's own pool, connections and transaction manager.
+// Reads the driver settings and timeouts back from the application's own pool, connections and transaction manager.
 class DatabaseTimeoutsIT extends AbstractIntegrationTest {
 
     @Autowired
@@ -41,6 +41,11 @@ class DatabaseTimeoutsIT extends AbstractIntegrationTest {
         assertThat(dataSource.getDataSourceProperties())
                 .containsEntry("tcpKeepAlive", "true")
                 .containsEntry("cancelSignalTimeout", "3");
+    }
+
+    @Test
+    void theDriverLeavesServerErrorDetailOutOfItsExceptionMessages() {
+        assertThat(dataSource.getDataSourceProperties()).containsEntry("logServerErrorDetail", "false");
     }
 
     @Test
