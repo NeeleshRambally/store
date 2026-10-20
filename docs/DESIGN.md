@@ -555,12 +555,14 @@ carries `code` but no `X-Request-Id`, since the filters run on the API connector
 that Tomcat rejects before the servlet filters never gets one: a request line and headers over
 the 8 KB default of `server.max-http-request-header-size`, a request line that does not parse (a
 request target with a character that is not allowed in it, such as an unencoded `|`, or an
-unencoded space), a header holding a control character, and a path whose percent-decoded form
-holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or bytes that are not UTF-8
-(`%FF`) are answered with a 400 and Tomcat's minimal HTML page (`text/html;charset=utf-8`,
-`HTTP Status 400 – Bad Request`, without the server version), with no `X-Request-Id` and no
-access-log line. Tomcat logs a failure to parse the request line or a header at INFO on
-`org.apache.coyote.http11.Http11Processor`, with its stack trace, and the exception it logs
+unencoded space), a header holding a control character, a path that cannot be percent-decoded
+(a `%` not followed by two hexadecimal digits, as in `/order/%ZZ` or `/order/1%`), and a path
+whose percent-decoded form holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or
+bytes that are not UTF-8 (`%FF`) are answered with a 400 and Tomcat's minimal HTML page
+(`text/html;charset=utf-8`, `HTTP Status 400 – Bad Request`, without the server version), with
+no `X-Request-Id` and no access-log line. Tomcat logs a failure to parse the request line or a
+header at INFO on `org.apache.coyote.http11.Http11Processor`, with its stack trace, and the
+exception it logs
 quotes what it rejected: the whole request target, query string included, for a character that
 is not allowed in it (`Invalid character found in the request target [/customer?name=...|x ]`,
 with a byte outside ASCII printed in hex, `0xc3`), the word after an unencoded space, which
@@ -569,8 +571,20 @@ with an unencoded `|` or space does reach the log, while an oversized request li
 logged only as `Request header is too large`. Each of Tomcat's connection processors logs its
 first such failure at INFO and its later ones in the next 24 hours at DEBUG, and the connector
 adds a processor whenever all of them are busy, so a busy server writes several INFO lines. A
-path rejected after percent-decoding (`%00`, `%2F`, `%5C`, bytes that are not UTF-8) is not
-logged at the shipped levels. A direct `GET /error` gets a 500 from Boot's error controller,
+path that cannot be percent-decoded, or is rejected after percent-decoding (`%00`, `%2F`, `%5C`,
+bytes that are not UTF-8), is not logged at the shipped levels. Tomcat parses a query string
+only when the service asks for its parameters, after the servlet filters, so a failure there is
+not one of these 400s: the list endpoints answer it with a problem detail (see the input rules
+below), and Tomcat logs it at INFO on `org.apache.tomcat.util.http.Parameters` from the
+request's thread, so that line carries the request's `requestId`. For an escape it cannot decode
+the line quotes the parameter's name and value as Tomcat read them, so a search word reaches the
+log (`Character decoding failed. Parameter [name] with value [Secret%ZZWord] has been ignored.
+Note that the name and value quoted here may be corrupted due to the failed decoding. ...`),
+and for a value without a name it quotes the chunk (`Invalid chunk starting at byte [0] and
+ending at byte [7] with a value of [=Secret] ignored`). One throttle serves the whole JVM and
+both kinds: the first such line after start-up is written at INFO with a note that further ones
+go to DEBUG, and the others in the next 24 hours are written at DEBUG only. A direct
+`GET /error` gets a 500 from Boot's error controller,
 `{"timestamp":"...","status":999,"error":"None"}`. Validation failures, whether of a request
 body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
 `size`, include an `errors` array with the offending field names and the constraint messages. A
@@ -593,7 +607,7 @@ the wording of `detail`:
 | `code` | Status | Raised for |
 |---|---|---|
 | `validation_failed` | 400 | A body field or a query parameter that breaks a constraint, or a body value of the wrong JSON type or beyond the 64-bit range; `errors` names each |
-| `invalid_parameter` | 400 | A path or query parameter that does not convert (`GET /order/abc`, `GET /order/0x1`, `GET /order/01`, `page=abc`), or a repeated single-valued query parameter (named in `errors`) |
+| `invalid_parameter` | 400 | A path or query parameter that does not convert (`GET /order/abc`, `GET /order/0x1`, `GET /order/01`, `page=abc`), a query string Tomcat cannot parse in full on a list endpoint (`customerId=1%`), or a repeated single-valued query parameter (named in `errors`) |
 | `unknown_property` | 400 | A body property the request does not define (named in `errors`) |
 | `malformed_body` | 400 | A body that is not one readable JSON object (malformed JSON, another JSON value, a repeated property, content after the object) |
 | `invalid_sort` | 400 | A `sort` property outside the endpoint's list |
@@ -707,6 +721,28 @@ Request input is strict rather than coerced (ADR 0002):
   handler mapping and before the arguments are bound, so a repetition is reported even when a
   value is also invalid. `sort` may be repeated to sort by several properties, and a comma
   inside a single `name` stays part of the word.
+- A query string that Tomcat cannot parse in full is a 400 on the three list endpoints
+  (`invalid_parameter`, with the detail `The query string could not be parsed` and no `errors`):
+  a `%` that is not followed by two hexadecimal digits, in a value or a name (`customerId=1%`,
+  `customerId=%ZZ1`, `name=50%`, `%ZZ=1`), or a value without a name (`=1`). Tomcat drops such a
+  parameter and sets the request attribute `org.apache.catalina.parameter_parse_failed`, and the
+  list endpoints used to run without it: on the seed, `/order?customerId=1%` listed all 10,000
+  orders where customer 1 has 96, `/order?productId=%ZZ2` all 10,000 where product 2 has 200,
+  `/customer?name=50%` and `/customer?name=Secret%ZZWord` all 100 customers, an undecodable
+  `after`, `page`, `size` or `sort` counted as absent (an offset page, page 0, size 20, id
+  order), and `customerId=1&customerId=%ZZ` passed the repetition check with its one decoded
+  value. `MalformedQueryInterceptor` runs before that check on every handler that binds a query
+  parameter, asks Tomcat for the parameters and rejects the request when the attribute is set,
+  whichever parameter failed, even one the endpoint does not read: Tomcat does not say which
+  parameter it dropped, the undecodable part can be the name, and Tomcat records only the first
+  failure's reason (for `=1&customerId=1%` the reason is the value without a name, while
+  `customerId` was dropped as well). The by-id reads and the `POST`s bind no query parameter, so
+  a dropped one cannot change what they do: the service never has Tomcat parse their query
+  string, and `/order/1?customerId=1%` is order 1, just as an unknown parameter is ignored.
+  Parsing a `POST`'s parameters would also have Tomcat read a form-encoded body itself. A `%` in
+  a search word is sent as `%25`. Bytes that are not UTF-8 are not a parse failure: Tomcat
+  decodes `%FF` to U+FFFD, which `customerId` rejects as not decimal (`invalid_parameter`) and
+  `name` searches for. The same malformed escapes in the path are Tomcat's HTML 400 (above).
 
 Every operation answers in `application/json`, a problem detail in `application/problem+json`,
 and the three controllers declare both media types as `produces`. An `Accept` header that admits
@@ -799,8 +835,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   controller maps is served by the static-resource mapping and logs `/**`, and a 405, which
   matches no handler, logs `UNKNOWN`. The access line never holds the raw path, the query
   string or the body, so search words stay out of it and the set of routes stays bounded;
-  Tomcat's own INFO line for a request it cannot parse does quote what it rejected, query
-  string included (see API).
+  Tomcat's own INFO lines for a request it cannot parse and for a query parameter it cannot
+  decode do quote what they rejected, query string or search word included (see API).
   `AccessLogFilter` is ordered right after `RequestIdFilter` and `RequestBodyLimitFilter` and
   outside the ETag filter, so a 304 is logged as 304; like them it is registered on the API
   connector only, so probes and scrapes on the management port write nothing. `AccessLogIT`
