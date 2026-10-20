@@ -867,33 +867,50 @@ probes and metrics are reachable from inside the cluster but never from the publ
   begins by closing the API connector's listening socket, so from then on a new connection to
   8080 is refused, while the management port keeps answering, readiness with 503
   (`OUT_OF_SERVICE`) and liveness with 200, until the requests in flight have finished; the
-  management server, the API server and the pool stop after them. A request still running when
-  the 20 s are up loses its connection without a response, and Tomcat then waits up to 5 s for
-  its thread before the pool closes, so a `POST` cut there may still have been committed (the
-  `POST`s are not idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows
-  the status its handler set. The 30 second stop grace of `compose.yaml` covers those 20 and
-  5 s. `GracefulShutdownIT` observes the sequence on a second application started on the shared
+  management server, the API server and the pool stop after them. A keep-alive connection that
+  is idle when the drain begins is not closed but stays open until the API server stops, and a
+  request sent on it in the meantime is not processed: Tomcat closes the connection without a
+  response (no 503, no access line, and a `POST` stores nothing). A keep-alive connection whose
+  request is in flight is closed right after that request's response, which carries no
+  `Connection: close` header. A request still running when the 20 s are up loses its
+  connection without a response, and Tomcat then waits up to 5 s for its thread before the
+  pool closes, so a `POST` cut there may still have been committed (the `POST`s are not
+  idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows the status its
+  handler set. The 30 second stop grace of `compose.yaml` covers those 20 and 5 s
+* `GracefulShutdownIT` observes the sequence on a second application started on the shared
   database: while a `GET /order?size=5` waits for a lock on `order` and the application closes,
   a new connection is refused, readiness answers 503 and liveness 200, and the request is
   answered 200 once the lock is released (with `server.shutdown: immediate` its connection is
-  reset instead); `FailClosedConfigurationTest` pins both properties. A `SIGTERM` to the jar
-  built from 977abd1 showed the same on 2026-10-20 (Java 17 on macOS against PostgreSQL 16.2,
-  the same held request, the signal 1.1 s after it started): a new connection 0.56 s after the
-  signal was refused, readiness answered 503 and liveness 200, the held request was answered
-  200 when the lock was released 3.4 s after the signal, and the pool closed 13 ms after the
-  drain had finished; with the phase timeout lowered to 2 s the held request got an empty reply
-  2.0 s after the signal, and Tomcat waited 1.3 s more for its thread, which still finished and
-  logged a 200, before the process exited 3.5 s after the signal
+  reset instead); `FailClosedConfigurationTest` pins both properties. The test sends no request
+  on a connection that was idle at the signal; that case and the timings were observed by hand
+  on 2026-10-20 (Java 17 on macOS against PostgreSQL 16.2, the same held request). A `SIGTERM`
+  to the jar built from 977abd1, 1.1 s after the request started, showed what the test shows: a
+  new connection 0.56 s after the signal was refused, readiness answered 503 and liveness 200,
+  the held request was answered 200 when the lock was released 3.4 s after the signal, and the
+  pool closed 13 ms after the drain had finished; with the phase timeout lowered to 2 s the held
+  request got an empty reply 2.0 s after the signal, and Tomcat waited 1.3 s more for its
+  thread, which still finished and logged a 200, before the process exited 3.5 s after the
+  signal. On the jar built from 7d4ff7c, in five runs, keep-alive connections that had each
+  answered a request about a second before the signal were still open 1.0 to 3.6 s after it,
+  and a `GET /order/{id}` and a `POST /customer` sent on them then got no byte back, wrote no
+  access line and stored no row; a connection whose `GET /order` was in flight was closed as
+  soon as its 200 had been sent, and idle connections were closed when the API server stopped,
+  right after the held request had been answered
 * A Kubernetes deployment needs a delay before that signal. Deleting a pod marks its endpoints
   as not ready while the kubelet starts stopping the container, and kube-proxy and the ingress
   act on that a moment later, so without a delay connections still arrive after the drain has
   closed the API port, and they are refused: readiness turning `OUT_OF_SERVICE` moves no
-  traffic away by itself. The image has no shell for an `exec` hook, so the delay is the
-  `sleep` handler (`lifecycle.preStop.sleep.seconds`, enabled by default from Kubernetes 1.30),
-  and `terminationGracePeriodSeconds` (30 s by default), which counts from the start of the
-  hook, must cover the delay, the 20 s phase and the 5 s for a request cut at its end, plus a
-  margin, for example a 10 s delay with `terminationGracePeriodSeconds: 40`; otherwise the
-  drain is cut short by `SIGKILL`
+  traffic away by itself. The delay moves new connections only: kube-proxy chooses an endpoint
+  when a connection opens, so a connection that a client established through a Service before
+  the endpoint was removed stays on the pod, is served normally during the delay and, if it is
+  idle when the drain begins, gets no response to its next request. A client that pools its
+  connections can retry a `GET` on a new connection, which reaches another replica, but it
+  cannot tell whether a `POST` that got no response was applied. The image has no shell for an
+  `exec` hook, so the delay is the `sleep` handler (`lifecycle.preStop.sleep.seconds`, enabled
+  by default from Kubernetes 1.30), and `terminationGracePeriodSeconds` (30 s by default), which
+  counts from the start of the hook, must cover the delay, the 20 s phase and the 5 s for a
+  request cut at its end, plus a margin, for example a 10 s delay with
+  `terminationGracePeriodSeconds: 40`; otherwise the drain is cut short by `SIGKILL`
 * A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
   process exits during start-up and the orchestrator reports a crash, not a running service
   on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data and blank is refused
