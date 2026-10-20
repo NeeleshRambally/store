@@ -877,16 +877,23 @@ probes and metrics are reachable from inside the cluster but never from the publ
   400, a 404 from the service and a 413 carry their endpoint's pattern, a path that no
   controller maps is served by the static-resource mapping and logs `/**`, and a 405, a 406 or
   a 415, which Spring MVC raises while it maps the request because no handler of the path
-  accepts the method, the `Accept` header or the `Content-Type`, logs `UNKNOWN`. The access
-  line never holds the raw path, the query string or the body, so search words stay out of it
-  and the set of routes stays bounded; Tomcat's own INFO lines for a request it cannot parse
-  and for a query parameter it cannot decode do quote what they rejected, query string or
-  search word included (see API). `AccessLogFilter` is ordered right after `RequestIdFilter`
-  and `RequestBodyLimitFilter` and outside the ETag filter, so a 304 is logged as 304; like
-  them it is registered on the API connector only, so probes and scrapes on the management
-  port write nothing. `AccessLogIT` pins the line and its members, the 304, the `/**` route,
-  the `UNKNOWN` route of a 405, a 406 and a 415, the missing query string and the silent
-  management port. A line is about 395 B on stdout (the mean of 1,008
+  accepts the method, the `Accept` header or the `Content-Type`, logs `UNKNOWN`. The status is
+  the one the client receives. An exception that escapes the servlet filters is answered by
+  Tomcat with a 500 and Spring Boot's default error body after the filter has run, so the line
+  logs 500 for it, the status `http_server_requests_seconds` records too, and not the status the
+  response held when the exception passed (on the jar of 286d65b a `PUT` whose form body
+  Spring's form-content filter rejected, before that filter was switched off, was a 500 logged
+  as `PUT UNKNOWN 200 0 ms`); a response committed before the exception logs the status it
+  sent. The access line never holds the raw path, the query string or the body, so search
+  words stay out of it and the set of routes stays bounded; Tomcat's own INFO lines for a
+  request it cannot parse and for a query parameter it cannot decode do quote what they
+  rejected, query string or search word included (see API). `AccessLogFilter` is ordered
+  right after `RequestIdFilter` and `RequestBodyLimitFilter` and outside the ETag filter, so a
+  304 is logged as 304; like them it is registered on the API connector only, so probes and
+  scrapes on the management port write nothing. `AccessLogIT` pins the line and its members,
+  the 304, the `/**` route, the `UNKNOWN` route of a 405, a 406 and a 415, the missing query
+  string and the silent management port, and `AccessLogFilterTest` the status of an exception
+  that escapes the chain. A line is about 395 B on stdout (the mean of 1,008
   lines left by the smoke test and a 1,000-request mix on the Compose stack, 370 to 403 B),
   roughly 400 MB per million requests per replica. Its cost was measured on the server, as the
   mean of the request timer, which encloses the filter, over 50,000 cached `GET /order/1` from
