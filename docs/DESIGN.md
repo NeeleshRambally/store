@@ -551,15 +551,25 @@ with the same `sort` whitelist, an id that matches nothing yields an empty page 
 orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collections").
 Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail, and so is
 one on the management connector, whose child context shares the advice: a 404 or 405 there
-carries `code` but no `X-Request-Id`, since the filters run on the API connector only. A
-request that Tomcat rejects before the servlet filters never gets one: a request line and
-headers over the 8 KB default of `server.max-http-request-header-size`, a request target with
-a character that is not allowed in it (an unencoded `|`), and a path whose percent-decoded form
+carries `code` but no `X-Request-Id`, since the filters run on the API connector only. A request
+that Tomcat rejects before the servlet filters never gets one: a request line and headers over
+the 8 KB default of `server.max-http-request-header-size`, a request line that does not parse (a
+request target with a character that is not allowed in it, such as an unencoded `|`, or an
+unencoded space), a header holding a control character, and a path whose percent-decoded form
 holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or bytes that are not UTF-8
 (`%FF`) are answered with a 400 and Tomcat's minimal HTML page (`text/html;charset=utf-8`,
 `HTTP Status 400 – Bad Request`, without the server version), with no `X-Request-Id` and no
-access-log line. Tomcat logs a failure to parse a request line or header at INFO with its
-stack trace, and further ones within the next 24 hours at DEBUG; the rejected paths are not
+access-log line. Tomcat logs a failure to parse the request line or a header at INFO on
+`org.apache.coyote.http11.Http11Processor`, with its stack trace, and the exception it logs
+quotes what it rejected: the whole request target, query string included, for a character that
+is not allowed in it (`Invalid character found in the request target [/customer?name=...|x ]`,
+with a byte outside ASCII printed in hex, `0xc3`), the word after an unencoded space, which
+Tomcat reads as the protocol, or the offending header line with its value. So a search word sent
+with an unencoded `|` or space does reach the log, while an oversized request line or header is
+logged only as `Request header is too large`. Each of Tomcat's connection processors logs its
+first such failure at INFO and its later ones in the next 24 hours at DEBUG, and the connector
+adds a processor whenever all of them are busy, so a busy server writes several INFO lines. A
+path rejected after percent-decoding (`%00`, `%2F`, `%5C`, bytes that are not UTF-8) is not
 logged at the shipped levels. A direct `GET /error` gets a 500 from Boot's error controller,
 `{"timestamp":"...","status":999,"error":"None"}`. Validation failures, whether of a request
 body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
@@ -787,8 +797,10 @@ probes and metrics are reachable from inside the cluster but never from the publ
   the value of the `uri` tag of `http_server_requests_seconds` for the same request: a 304, a
   400, a 404 from the service, a 413 and a 415 carry their endpoint's pattern, a path that no
   controller maps is served by the static-resource mapping and logs `/**`, and a 405, which
-  matches no handler, logs `UNKNOWN`. The raw path, the query string and the body are never
-  logged, so search words stay out of the log and the set of routes stays bounded.
+  matches no handler, logs `UNKNOWN`. The access line never holds the raw path, the query
+  string or the body, so search words stay out of it and the set of routes stays bounded;
+  Tomcat's own INFO line for a request it cannot parse does quote what it rejected, query
+  string included (see API).
   `AccessLogFilter` is ordered right after `RequestIdFilter` and `RequestBodyLimitFilter` and
   outside the ETag filter, so a 304 is logged as 304; like them it is registered on the API
   connector only, so probes and scrapes on the management port write nothing. `AccessLogIT`
