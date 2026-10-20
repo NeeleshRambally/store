@@ -851,7 +851,7 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `@Component` filter registered on the API connector only: the management connector's child
   context does not inherit it, and the actuator takes no request bodies. Tomcat's form limit,
   which follows the same variable, is set on both connectors, as Spring Boot applies its Tomcat
-  settings to the management server too
+  settings to the management server too; `RequestBodyLimitIT` reads it back from both
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`):
   one object per line with nested members, `"log":{"level":...,"logger":...}`,
   `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (the service name and version come
