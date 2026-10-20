@@ -14,6 +14,9 @@ import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.OrderService;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -492,6 +495,29 @@ class OrderControllerTests {
         verify(orderService, never()).findById(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"+1", "01", "\u0661", "\uFF11"})
+    void getByIdRejectsAnIdThatIsNotInCanonicalDecimalForm(String id) throws Exception {
+        when(orderService.findById(any())).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/{id}", id))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '" + id + "'"));
+        verify(orderService, never()).findById(any());
+    }
+
+    @Test
+    void getByIdRejectsAnIdBeyondTheSixtyFourBitRange() throws Exception {
+        when(orderService.findById(any())).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/{id}", "9223372036854775808"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '9223372036854775808'"));
+        verify(orderService, never()).findById(any());
+    }
+
     @Test
     void getByIdWithANonJsonAcceptHeaderIsNotAcceptableBeforeTheLookup() throws Exception {
         when(orderService.findById(1L)).thenReturn(ORDER);
@@ -667,6 +693,21 @@ class OrderControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'productId' with value: '#2'"));
         verify(orderService, never()).findAll(any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"customerId, +1", "productId, 02", "after, -0", "page, \u0661", "size, \uFF15"})
+    void getAllRejectsANumberThatIsNotInCanonicalDecimalForm(String parameter, String value) throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+        when(orderService.findAfter(any(), any())).thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, null));
+
+        mockMvc.perform(get("/order").param(parameter, value))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail")
+                        .value("Failed to convert '" + parameter + "' with value: '" + value + "'"));
+        verify(orderService, never()).findAll(any(), any());
+        verify(orderService, never()).findAfter(any(), any());
     }
 
     @Test
