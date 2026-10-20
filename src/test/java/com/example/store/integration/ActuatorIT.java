@@ -5,8 +5,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalManagementPort;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import java.util.List;
 
@@ -114,6 +119,19 @@ class ActuatorIT extends AbstractIntegrationTest {
                         .getForEntity(management("/actuator/beans"), String.class)
                         .getStatusCode())
                 .isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
+    void aMultipartPostToTheManagementPortIsAMethodNotAllowed() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        MultiValueMap<String, String> parts = new LinkedMultiValueMap<>();
+        parts.add("probe", "a".repeat(1000));
+
+        ResponseEntity<String> response = restTemplate.postForEntity(
+                management("/actuator/health"), new HttpEntity<>(parts, headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
     }
 
     @Test
