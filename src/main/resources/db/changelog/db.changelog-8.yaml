@@ -13,3 +13,17 @@ databaseChangeLog:
       rollback:
         - sql:
             sql: DROP INDEX CONCURRENTLY IF EXISTS idx_order_customer_id_id;
+  - changeSet:
+      id: 8-index-order-product-product-id-order-id
+      author: developer@securitease.com
+      comment: Serves the productId filter of GET /order, a product's order ids in id order, as one index range
+      runInTransaction: false
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DROP INDEX CONCURRENTLY IF EXISTS idx_order_product_product_id_order_id;
+              CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_order_product_product_id_order_id ON order_product (product_id, order_id);
+      rollback:
+        - sql:
+            sql: DROP INDEX CONCURRENTLY IF EXISTS idx_order_product_product_id_order_id;
