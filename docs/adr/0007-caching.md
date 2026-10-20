@@ -37,8 +37,9 @@ key is the id, the value is small, and the API has no `PUT` or `DELETE`.
   containing it, which changes when `POST /order` succeeds: `OrderServiceImpl.create` publishes an
   `OrderCreatedEvent` with the product ids and `ProductCacheEvictor` evicts those `products`
   entries in a `@TransactionalEventListener(phase = AFTER_COMMIT)`. Evicting after commit, not
-  inside the transaction, means a concurrent read cannot re-populate the entry with the
-  pre-commit state between the eviction and the commit.
+  inside the transaction, leaves no window between an eviction and the commit in which a read
+  would cache the pre-commit state; a read that missed the cache before the commit can still
+  store the old value after the eviction (see Consequences).
 - **Tests.** `HttpCacheIT` and `CompressionIT` pin the ETag, `no-cache`, the bodiless 304 and
   that a gzipped response still carries the ETag; `QueryCountIT` clears every cache before each
   test, keeps the cold-cache statement counts and pins zero statements and zero sessions for a
@@ -49,11 +50,11 @@ key is the id, the value is small, and the API has no `PUT` or `DELETE`.
 ## Consequences
 - A repeated by-id read within the TTL costs no database round trip and no Hibernate session;
   a conditional `GET` costs no response bytes. Measured numbers are in `docs/PERFORMANCE.md`.
-- `ProductDTO.orders` is exact on the node that committed the order and bounded-stale (at most
-  `CACHE_TTL`) on other replicas and after any write that bypasses the service (a migration, a
-  manual `INSERT`). The eviction and a concurrent cache miss on the same product can race: a miss
-  that read the product before the commit may put the old value after the eviction; that entry
-  is also bounded by the TTL. The 60 s default is deliberately short for that reason.
+- `ProductDTO.orders` can be stale for up to `CACHE_TTL`: on other replicas, after any write that
+  bypasses the service (a migration, a manual `INSERT`), and on the node that committed the order
+  when a read that missed the cache before the commit stores the old value after the eviction,
+  because the eviction and that read race. On that node, without the race, the first read after
+  the eviction lists the new order. The 60 s default is deliberately short for that reason.
 - Raise the TTL only on evidence: `cache_gets_total{cache="orders",result="hit"}` and
   `cache_gets_total{cache="products",result="hit"}` against `result="miss"` show whether the
   cache earns its staleness.
