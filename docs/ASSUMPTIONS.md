@@ -124,8 +124,10 @@ delivered.
 - `GET /order` filters by `customerId` or `productId` (each at least 1, otherwise 400 with the
   field named). The filters are filters, not lookups: an id that matches no order, including an
   unknown customer or product, is a 200 with an empty page, not a 404. They work in both paging
-  modes under the same `sort` whitelist and cost the same statements as the unfiltered list
-  (`idx_order_customer_id` and `idx_order_product_product_id` serve them). The two cannot be
+  modes under the same `sort` whitelist and cost the same statements as the unfiltered list. An
+  index that leads with the filtered id and ends with the order id serves each of them, so a
+  page in id order reads its offset and its own entries and a cursor page only its own entries
+  (measured on 1,000,000 orders in `docs/PERFORMANCE.md`, "Filtered pages"). The two cannot be
   combined (`customerId and productId cannot be combined`, 400): a client that wants the orders
   of one customer containing one product filters the smaller list itself, which keeps the
   query shapes to the two indexed ones. These endpoints are the uncapped lists behind the
@@ -284,8 +286,8 @@ delivered.
 
 ## Products (README task 4)
 - A product has an id and a description. Orders and products are many-to-many through an
-  `order_product` join table with a composite primary key and an index on `product_id`, so both
-  directions of the relationship are index scans.
+  `order_product` join table with a composite primary key on `(order_id, product_id)` and an
+  index on `(product_id, order_id)`, so both directions of the relationship are index scans.
 - "An order contains 1 or more products" is enforced at creation: `POST /order` requires a
   non-empty `productIds` list without repetition (a repeated id is a 400) and every id must
   exist (otherwise 404 naming the lowest missing id, whatever the request order). Seeded
@@ -372,7 +374,8 @@ delivered.
 - Latency is observable per route in production: `http_server_requests_seconds` carries
   buckets from 5 ms to 10 s, so the p95 or p99 of `GET /order` and `GET /customer` comes from
   the scrape rather than from an average (`docs/DESIGN.md`, Operations).
-- The foreign key `order.customer_id` is indexed. PostgreSQL does not do this automatically.
+- The foreign key `order.customer_id` is indexed, alone and together with `id` for the customer
+  filter of `GET /order`. PostgreSQL does not do this automatically.
 - Every whitelisted sort property is indexed together with `id` (changeset 7), and the service
   appends `id` as a tie-break in the direction of the last sort property, so a sorted offset page
   has a deterministic boundary and a shallow one is an index scan rather than a sort of the whole

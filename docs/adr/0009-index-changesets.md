@@ -98,3 +98,11 @@ Liquibase also runs outside a transaction, removed the index.
 - The suite migrates empty or seeded tables only, where a plain build takes milliseconds, so it
   would not notice a new changeset that breaks the rule; the rule rests on the review of each
   new changeset.
+- Changeset 8 is the first to follow the rule. `8-index-order-customer-id-id` and
+  `8-index-order-product-product-id-order-id` build one index each in the form above, and
+  `8-drop-index-order-product-product-id` drops the index the second replaces with
+  `DROP INDEX CONCURRENTLY IF EXISTS`, which does not lock out reads or writes either, with a
+  rollback that builds it again in the same concurrent form. Through the service's Liquibase on
+  2026-10-20, run as the `migrate` job runs it against the 1,000,000 orders and 2,001,000 order
+  lines of `docs/PERFORMANCE.md` ("Filtered pages"), the two builds took 674 ms and 1,024 ms and
+  the drop 3 ms; five concurrent builds of each in psql took 280 to 453 ms and 573 to 1,326 ms.

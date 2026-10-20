@@ -499,9 +499,11 @@ alone.
 An order has an id, a description, belongs to the customer that placed it, and contains one or
 more products. A customer has an id, a name, and zero or more orders. A product has an id and a
 description and can appear in any number of orders. Beyond the primary keys, the schema indexes
-`order.customer_id`, the two sides of `order_product`, `lower(customer.name)` with trigrams for
-the substring search, and each whitelisted sort column together with `id`
-(`idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id`).
+`order.customer_id` alone and together with `id` (`idx_order_customer_id_id`), `order_product` in
+its other column order (`idx_order_product_product_id_order_id`, beside the primary key on
+`(order_id, product_id)`), `lower(customer.name)` with trigrams for the substring search, and
+each whitelisted sort column together with `id` (`idx_order_description_id`,
+`idx_product_description_id`, `idx_customer_name_id`).
 
 ## API
 The contract is documented in `OpenAPI.yaml`, version 2.1.0; the version is the contract's own,
@@ -868,7 +870,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   variables. Changesets 3, 4 and 7 index existing tables with a plain `CREATE INDEX`, which
   holds every write to the table until the changeset commits (changeset 7 took about a second
   on 1,000,000 orders), so applying them to a populated database needs a write window; ADR 0009
-  records the measured builds and the concurrent form that every new index changeset uses.
+  records the measured builds and the concurrent form that every new index changeset uses,
+  which changeset 8 follows for its two builds and its drop.
   `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008 records the split,
   which changeset needs a privileged role, and the `down -v` step for a volume created before
   the job existed

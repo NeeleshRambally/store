@@ -18,10 +18,11 @@ Every figure in this document is either pinned or measured by hand. Pinned, so t
 which breaks it fails the build: statement and entity counts (`getPrepareStatementCount()` and
 `getEntityLoadCount()` in `QueryCountIT`, prepared statements and inserts in
 `InsertBatchingIT`) and the plan shapes that `MigrationIT` asserts with sequential scans
-disabled. Measured by hand, with the commit, the date and the method beside each: payloads,
-query timings and the plans the planner picks unaided; nothing re-checks them. A "before"
-figure comes from the original code (this section) or, for a measure introduced later, from
-the parent of the commit that introduced it, which its section names.
+disabled (for the filtered pages, of the statements the application sends). Measured by hand,
+with the commit, the date and the method beside each: payloads, query timings and the plans the
+planner picks unaided; nothing re-checks them. A "before" figure comes from the original code
+(this section) or, for a measure introduced later, from the parent of the commit that
+introduced it, which its section names.
 
 | Request | Rows returned | Payload | JDBC statements | Why |
 |---------|---------------|---------|-----------------|-----|
@@ -62,8 +63,8 @@ advanced past the seeded ids, so the first insert failed outright.
 | HikariCP pool size configurable (`DB_POOL_SIZE`), connection and validation timeouts explicit (5 s, 2 s) | Predictable behaviour under load; fail fast when the database is unreachable |
 | Statement, socket and transaction timeouts on every connection (`DB_STATEMENT_TIMEOUT` 10 s on the server, `DB_SOCKET_TIMEOUT` 15 s, `TX_TIMEOUT` 15 s, `cancelSignalTimeout` 3 s) | A slow statement or a stalled remote database holds its connection and its request thread for a bounded time and then answers a retryable 503: after 10.0 s for a statement still waiting at the limit and after 15.0 to 18.1 s for a paused database, measured by hand on 2026-10-19 on the Compose stack built from the branch of #80, whose timeout settings and exception handler are those of `60529f6` (`docs/DESIGN.md`, Configuration, gives the method); no statement is added, so `QueryCountIT` is unchanged |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
-| `GET /order?customerId=` and `GET /order?productId=`: the same page, count and products queries with a `where c.id = :customerId` predicate on `idx_order_customer_id` or a `join o.products p where p.id = :productId` on `idx_order_product_product_id` (the join-table primary key makes the join row-preserving) | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; the full list of one customer's or one product's orders is reachable without raising the per-request cost |
-| Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows (see "Deep pages" below and ADR 0003) |
+| `GET /order?customerId=` and `GET /order?productId=`: the page, count and products queries restricted to one customer or one product, each served by an index that leads with the filtered id and ends with the order id (changeset 8): the customer's page, cursor and count read `idx_order_customer_id_id` on `"order" (customer_id, id)`; a product's page in `id` order and its cursor take the page's order ids from `idx_order_product_product_id_order_id` on `order_product (product_id, order_id)` in a limited subquery before reading those orders, and its count reads that index alone | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; on 1,000,000 orders every filtered first page and cursor page in `id` order that was measured reads at most 172 buffers (an offset page still reads its offset), where the earlier plans walked up to 999,501 entries of `order_pkey` for a product (up to 163 ms) or read all 1,000 orders of a large account on every page (see "Filtered pages" below); `MigrationIT` pins the plans of the statements the application sends |
+| Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows, a filtered cursor into the index of its filter (see "Deep pages" and "Filtered pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
 | `QueryCountIT` pins the statement count of every read endpoint, of an empty filtered page (1 on the first offset page and in cursor mode, 2 beyond the end) and of `POST /order` with three and with 100 products (4, or 5 on the request that allocates the next block of ids), the zero entity loads of every list page and the zero statements and sessions of a repeated by-id read (and the 2 statements of a repeated `GET /customer/{id}`, which is not cached); `ProductApiIT` walks the cursor to the null `nextCursor` and checks the collected ids cover a snapshot of the product table | A reintroduced N+1, a list page that starts loading entities again, an empty page that starts running its child query, a by-id read that stops being cached or a cursor that stops early fails the build, not production |
@@ -155,24 +156,29 @@ id desc)` keeps the newest `NESTED_ORDERS_LIMIT` orders of each customer on the 
 shape over `order_product` serves the products. The statement is served by
 `idx_order_customer_id` when the page's customers own a small share of the order table
 (`MigrationIT.customerOrderWindowIsServedByTheCustomerIdIndex` pins a `Bitmap Index Scan` for
-three customers with sequential scans disabled); a `size=100` page on the 100-customer seed
-legitimately scans the whole table, because those customers own all of it (measured on
-2026-10-19 on the seed with the jar of `f0b1595`: unaided, the statement for the 20 customers of
-the default page is a `Bitmap Index Scan on idx_order_customer_id` returning their 1,941 orders,
-and for all 100 customers a `Seq Scan on "order"`). The statement's work
-is proportional to the orders of the parents on the page, bounded in count by `size` and
-unbounded per parent: `count(*) over (partition by customer_id)` reads every order of each
-parent to produce `orderCount`, so a customer with a million orders costs a million index
-entries on every page it appears on even though the response carries twenty of them. If a
-parent's orders ever grow without bound, the remedy is a cached or approximate `orderCount`,
-not a different window. What is bounded now: rows per page (`size`, at most 100), orders per
-customer and order ids per product (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per
-order (at most 100 at creation). The full lists are `GET /order?customerId=` and
-`GET /order?productId=`, at the usual 3 or 2 statements per page. The bound's effect on the body,
-"before" measured on `1da6fa0` the same way as the entities above (the uncompressed response body)
-and "after" under "Results": the default customer page went from 97,740 B with 1,941 nested orders
-to 21,343 B with 400 (20 per customer, `orderCount` still totalling 1,941), and `GET /products/2`
-from 1,025 B with 200 order ids to 165 B with 20 and `orderCount` 200.
+three customers with sequential scans disabled), and the product shape reads
+`idx_order_product_product_id_order_id`
+(`MigrationIT.productOrderWindowIsServedByTheProductIdOrderIdIndex`); a `size=100` page on the
+100-customer seed legitimately scans the whole table, because those customers own all of it
+(measured on 2026-10-19 on the seed with the jar of `f0b1595`, and the same on 2026-10-20 with
+changeset 8: unaided, the statement for the 20 customers of the default page is a
+`Bitmap Index Scan on idx_order_customer_id` returning their 1,941 orders, and for all 100
+customers a `Seq Scan on "order"`). The statement's work is proportional to the orders of the
+parents on the page, bounded in count by `size` and unbounded per parent: `count(*) over
+(partition by customer_id)` reads every order of each parent to produce `orderCount`, so a
+customer with a million orders costs a million index entries on every page it appears on even
+though the response carries twenty of them (on the production-sized table of "Filtered pages",
+the window for the first page of products, which holds the ten best-sellers, reads their
+1,010,000 order lines in 421 to 435 ms). If a parent's orders ever grow without bound, the
+remedy is a cached or approximate `orderCount`, not a different window. What is bounded now:
+rows per page (`size`, at most 100), orders per customer and order ids per product
+(`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
+The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
+statements per page. The bound's effect on the body, "before" measured on `1da6fa0` the same way
+as the entities above (the uncompressed response body) and "after" under "Results": the default
+customer page went from 97,740 B with 1,941 nested orders to 21,343 B with 400 (20 per customer,
+`orderCount` still totalling 1,941), and `GET /products/2` from 1,025 B with 200 order ids to
+165 B with 20 and `orderCount` 200.
 
 ## Deep pages
 `LIMIT/OFFSET` makes the database read and discard every row before the requested page, so the
@@ -256,9 +262,8 @@ As with the trigram pin below, each `EXPLAIN`s a hand-written statement of the s
 repositories' JPQL renders to (`order by description desc, id desc` and the other two), so the
 pins hold that the sorted shape is served by the index, not the SQL Hibernate renders, which is
 not captured; the tie-break direction that keeps the rendered shape index-servable is held by
-`SortPolicyTest.appendsAnIdTieBreakInTheDirectionOfTheLastProperty`. The filtered pages
-(`customerId`, `productId`) and the name search keep their plans (`idx_order_customer_id`, the
-trigram index).
+`SortPolicyTest.appendsAnIdTieBreakInTheDirectionOfTheLastProperty`. A filtered page sorted by
+`description` is measured under "Filtered pages", and the name search keeps the trigram index.
 
 ## Substring search
 `GET /customer?name=<word>` runs `lower(c.name) like lower(concat('%', :word, '%')) escape '!'`
@@ -397,6 +402,161 @@ show the rare case; `xw` and the single character `7`, which match nothing eithe
 plans, and the single letters `a`, `q` and `z` (165,971, 6,667 and 9,990 matches) the common-word
 ones. The page limit still bounds what is returned. If such searches turn out to be common the
 remedy is a minimum word length in the API, not another index.
+
+## Filtered pages
+`GET /order?customerId=` and `GET /order?productId=` page the orders of one customer or of one
+product, at 3 statements for a full page and 2 for a cursor page (`QueryCountIT`). Their plans
+were measured by hand on 2026-10-20 with the jar of `992cd7e` ("before", whose filtered
+statements are the ones the code had until changeset 8) and with a jar of changeset 8 and the
+statements below ("after"), on throwaway PostgreSQL 16.2 containers (Docker Desktop on arm64,
+default settings): the statements captured from each jar's `org.hibernate.SQL` log, run as
+`EXPLAIN (ANALYZE, BUFFERS) EXECUTE` of prepared copies under `plan_cache_mode =
+force_custom_plan`, warm, the time as the range over five runs after one warm-up. The server's
+`auto_explain` log of each jar's own requests showed the same plans, and the "after" statements
+keep their plans under `force_generic_plan`.
+
+Before, the customer page was the order page with `where c1_0.id=?`, which the planner carries
+over to `o1_0.customer_id`, and its count `where o1_0.customer_id=?`; the product page joined
+`order_product` with `where p1_0.product_id=?`, each cursor added `o1_0.id>?`, and the product
+count counted the join. On the seed, for customer 1 and product 2, only the two counts used
+`idx_order_customer_id` and `idx_order_product_product_id`: customer 1's first page walked
+`order_pkey` and filtered on `customer_id`, removing 2,332 rows (2,498 for the cursor from 0),
+and product 2's page and cursor merge-joined `order_pkey` (943 and 1,001 entries) with an
+index-only scan of `pk_order_product`, while customer 1's second page and a customer added with
+21 orders holding the highest ids got a bitmap scan of `idx_order_customer_id` and a sort. Which
+plan runs depends on how selective the planner expects the id to be, and every plan is cheap on
+the seed, so a production-sized table decides.
+
+That table holds the 200,000 customers of "Substring search", made the same way in a database
+the jar migrated with `LIQUIBASE_CONTEXTS=prod`, 1,000,000 orders numbered in time order and
+2,001,000 order lines, loaded by these statements with the order and order-line indexes dropped
+before the load and created again after it, then `VACUUM ANALYZE`:
+
+```sql
+INSERT INTO "order" (id, description, customer_id)
+SELECT id,
+       (ARRAY['Handcrafted','Awesome','Handmade','Sleek','Recycled','Rustic','Refined',
+              'Ergonomic','Practical','Elegant'])[(id % 10) + 1]
+       || ' ' || (ARRAY['Soft','Metal','Frozen','Wooden','Steel','Cotton','Granite',
+                        'Plastic','Rubber','Fresh'])[((id / 10) % 10) + 1]
+       || ' ' || (ARRAY['Chair','Fish','Salad','Shoes','Table','Lamp','Keyboard','Mouse',
+                        'Bike','Hat'])[((id / 100) % 10) + 1],
+       customer_id
+FROM (SELECT row_number() OVER (ORDER BY t, customer_id) AS id, customer_id
+      FROM (SELECT (n + 0.5) * 10 / 9 AS t, k + 1 + k / 1999 AS customer_id
+            FROM generate_series(0::bigint, 899999) AS n,
+                 LATERAL (SELECT n * 199900 / 900000 AS k) AS s
+            UNION ALL
+            SELECT (a - 1) * 10000 + (i + 0.5) * (1000000 - (a - 1) * 10000) / 1000, 2000 * a
+            FROM generate_series(1::bigint, 100) AS a, generate_series(0, 999) AS i) AS e) AS o;
+INSERT INTO product (id, description)
+SELECT g,
+       (ARRAY['Handcrafted','Rustic','Sleek','Refined','Bespoke','Ergonomic','Practical',
+              'Elegant','Durable','Modern'])[((g - 1) % 10) + 1]
+       || ' ' || (ARRAY['Chair','Table','Lamp','Keyboard','Mouse','Bike','Shoes','Hat',
+                        'Gloves','Watch'])[(((g - 1) / 10) % 10) + 1]
+FROM generate_series(1, 1210) AS g;
+INSERT INTO order_product (order_id, product_id)
+SELECT g, 1 + g % (1 + (g - 1) / 100000) FROM generate_series(1, 1000000) AS g
+UNION ALL
+SELECT g, 11 + (g - 1) / 1000 FROM generate_series(1, 1000000) AS g
+UNION ALL
+SELECT g, 1011 + g / 1000 / 5 FROM generate_series(500, 999500, 1000) AS g;
+```
+
+So 199,900 customers have 4 or 5 orders each, placed together when they sign up (customer 1
+holds orders 1 to 5, customer 199,999 the last ones), and 100 large accounts, customers 2,000,
+4,000 and so on to 200,000, have 1,000 orders each, spread from their sign-up to the newest
+order (customer 2,000's over the whole table, customer 200,000's over its last 14,175 ids).
+Products 1 to 10 sell best: one is launched every 100,000 orders and each order takes the
+launched ones in turn (product 1 is in 292,899 orders of every age, product 10 in 10,000 orders
+above id 900,000). Products 11 to 1,010 each sell in one run of 1,000 consecutive orders
+(product 11 in orders 1 to 1,000, product 1,010 in the last 1,000), and products 1,011 to 1,210
+have 5 orders each, 1,000 ids apart (product 1,011 in orders 500 to 4,500, product 1,210 in
+995,500 to 999,500). Customers and products with few orders at old ids were cheap before and
+stay so (customer 1: 8, 8 and 4 buffers for its page, cursor and count; product 1,011: 77
+buffers before, 44 after). The rest:
+
+| Request | Before | After |
+|---------|--------|-------|
+| Customer 2,000 (1,000 orders across the table), first page | `idx_order_customer_id` for all 1,000 orders, then a sort: 1,007 buffers, 0.39 to 0.59 ms | `idx_order_customer_id_id` in id order, 20 entries: 27 buffers, 0.023 to 0.034 ms |
+| Customer 2,000, cursor after its median order id | the same 1,000 orders, 500 of them removed by `id > ?`: 1,007 buffers, 0.33 to 0.36 ms | `Index Cond` on both columns, 21 entries: 28 buffers, 0.023 to 0.026 ms |
+| Customer 2,000, count | 1,003 buffers, 0.32 to 0.37 ms | index-only scan of `idx_order_customer_id_id`: 8 buffers, 0.10 to 0.12 ms |
+| Customer 200,000 (its 1,000 orders among the last 14,175 ids), first page and cursor from 0 | 127 buffers, 0.22 to 0.29 ms | 10 buffers, 0.019 to 0.037 ms |
+| Product 1,010 (the last 1,000 ids), first page and cursor from 0 | merge join walking 999,020 entries of `order_pkey`: 11,385 buffers, 86 to 92 ms | the subquery's 20 or 21 entries of `idx_order_product_product_id_order_id`: 164 and 172 buffers, 0.058 to 0.077 ms |
+| Product 510 (ids 499,001 to 500,000), the same | merge join walking 499,020 entries: 5,736 buffers, 42 to 62 ms | 164 and 172 buffers, 0.057 to 0.098 ms |
+| Product 1,210 (5 orders, ids 995,500 to 999,500), the same | merge join walking 999,501 entries: 11,325 buffers, 85 to 104 ms | 44 buffers, 0.025 to 0.044 ms |
+| Product 10 (10,000 orders above id 900,000), the same | merge join walking 900,199 entries of `order_pkey`: 20,610 buffers, 127 to 163 ms; on the statistics sample of a first run, a scan of `pk_order_product` for its second column: 10,511 buffers, 14 to 39 ms | 164 and 172 buffers, 0.056 to 0.081 ms |
+| Product 10, page 50 | 14,926 buffers, 80 to 81 ms | 1,020 index entries, of which the subquery skips 1,000: 168 buffers, 0.16 to 0.18 ms |
+| Product 10, count | a parallel hash join with a sequential scan of `"order"`: 10,159 buffers, 35 to 37 ms (a nested loop on the first sample: 30,555 buffers, 6.0 to 6.9 ms) | index-only scan of its 10,000 entries: 45 buffers, 1.6 to 1.8 ms |
+| Product 1 (292,899 orders of every age), cursor after its median order id | merge join reading its first 146,471 entries of `pk_order_product`: 2,270 buffers, 13 to 15 ms | 172 buffers, 0.068 to 0.108 ms |
+| Product 1, count | a parallel hash join: 14,390 buffers, 69 to 78 ms | index-only scan of its 292,899 entries: 1,129 buffers, 33 to 34 ms |
+
+The plans before came from the planner's estimates. Either it read the foreign-key index and
+sorted all the matches, which reads every order of a large account on every page, or it walked
+the primary key in id order until the page was full, which assumes that the matches are spread
+over all ids and walks most of the table for a product launched mid-way or lately. The same
+statement also changed plan with the statistics sample (product 10 above).
+
+Changeset 8 adds `idx_order_customer_id_id` on `"order" (customer_id, id)` and
+`idx_order_product_product_id_order_id` on `order_product (product_id, order_id)`, in the
+concurrent form of ADR 0009. The customer statements are unchanged: the page and the cursor read
+the customer's entries in id order and stop after the page, and the count is an index-only scan.
+For products the index was not enough by itself. With it, the planner still merge-joined
+`order_pkey` from the first id for product 10 (80 ms), because nothing tells it that a frequent
+product's orders are recent, and the cursor's `o1_0.id>?` stays on `"order"`, because PostgreSQL
+carries an equality across the join but not a range, so the cursor after product 1's median
+order id still read its first 146,471 index entries (10 ms). A product page in id order and the
+product cursor therefore take the page's order ids from the index first, in a subquery with its
+own order, limit and offset, and then read those orders and their customers:
+
+```sql
+select o.id as "id", o.description as "description", c.id as "customerId", c.name as "customerName" from "order" o join customer c on c.id = o.customer_id where o.id in (select op.order_id from order_product op where op.product_id = ? and op.order_id > ? order by op.order_id limit ?) order by o.id
+```
+
+The page has `order by op.order_id limit ? offset ?` and no range. Both are native statements,
+because JPQL reaches `order_product.order_id` only through a join to `"order"`; a product page
+sorted by another property keeps the join. The product count, `select count(po) from Product p
+join p.orders po where p.id = :productId` in JPQL, is rendered without `"order"` and reads the
+product's entries of the index alone. On the seed the same changes take customer 1's page,
+cursor and count from 29, 31 and 57 buffers to 15, 16 and 3, and product 2's pages and cursors
+to 103 to 108 buffers (55 to 106 before, now without the walk of `order_pkey`) in at most
+0.11 ms, its count from 512 buffers to 5.
+
+What the filters still cost: an offset page reads its offset (a large account's page 49 reads
+all of its 1,000 orders, 0.45 to 0.49 ms, and product 10's page 50 above); a count reads every
+entry of its customer or product, 33 to 34 ms for product 1; and a filtered page sorted by
+`description` either sorts the filtered orders (a large account's page: 1,007 buffers, 0.52 to
+0.56 ms) or walks `idx_order_description_id` until the page is full, which for a product probes
+`idx_order_product_product_id_order_id` once per order walked (product 11: 163,822 buffers, 24
+to 31 ms; product 10: 404,374 buffers, 80 to 84 ms; 112 to 141 ms and 328 to 382 ms before
+changeset 8). A page in descending id order read at most 164 buffers for every customer and
+product measured. For a product it keeps the join, which could walk `order_pkey` backwards from
+the newest order for a frequently ordered product whose orders all hold old ids, the mirror
+image of product 10; this table has no such product.
+
+`idx_order_customer_id` stays: without it the planner walks `idx_order_description_id` for a
+large account's page sorted by description (4.2 to 5.0 ms for customer 2,000, 8.8 ms in one run
+for customer 200,000), because it rates the heap access of an index on more than one column as
+less ordered than that of a single-column index. `idx_order_product_product_id` is dropped by
+changeset 8: the new index serves every statement that used it, and the window query behind the
+products' nested order ids reads it index-only (3,930 buffers for the twenty products of the
+first page, which include the ten best-sellers, instead of 30,702). Through the service's
+Liquibase, as the `migrate` job runs it, the two builds took 674 ms and 1,024 ms on this table
+and the drop 3 ms (ADR 0009).
+
+`MigrationIT` pins the "after" plans with sequential scans disabled. Unlike the other pins it
+does not `EXPLAIN` a hand-written copy: it sends a filtered request, captures the statements it
+runs from the `org.hibernate.SQL` logger, binds the request's values and explains those
+(`customerFilteredPageIsReadInIdOrderFromTheCustomerIdIdIndex`,
+`customerFilteredCursorSeeksTheCustomerIdIdIndex`, `customerFilteredCountUsesTheCustomerIdIdIndex`,
+`productFilteredPageTakesItsOrderIdsFromALimitedScanOfTheProductIdOrderIdIndex`,
+`productFilteredCursorSeeksTheProductIdOrderIdIndex` and
+`productFilteredCountReadsTheProductIdOrderIdIndexWithoutTheOrderTable`), so a change to the
+JPQL or to the native statements that loses the index fails the build. In the suite's seeded
+database, with sequential scans off, the customer cursor is a bitmap scan of the new index and a
+sort of its few rows until the tables are analyzed, and an index scan in id order afterwards; the
+pins hold in both states.
 
 ## Caching
 Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionIT`,

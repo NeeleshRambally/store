@@ -36,10 +36,14 @@ dominate latency.
   happen outside a transaction.
 - `GET /order` accepts `customerId` or `productId` (not both: 400) and then pages the orders of
   that customer, or the orders containing that product, with the same page, count and products
-  queries restricted by the indexed foreign key (`idx_order_customer_id`,
-  `idx_order_product_product_id`). An id that matches nothing is an empty page, not a 404. This
-  is the uncapped list of a customer's or a product's orders; the nested `orders` of the
-  customer and product responses can therefore be bounded without losing any data path.
+  queries restricted to that id. Each filter is served by an index that leads with the id and
+  ends with the order id (changeset 8): the customer's first page and cursor read
+  `idx_order_customer_id_id` in id order, and a product's page in id order and its cursor take
+  the page's order ids from `idx_order_product_product_id_order_id` before reading those orders,
+  so a cursor page reads the entries it returns at any depth; the measured plans are in
+  `docs/PERFORMANCE.md`, "Filtered pages". An id that matches nothing is an empty page, not a
+  404. This is the uncapped list of a customer's or a product's orders; the nested `orders` of
+  the customer and product responses can therefore be bounded without losing any data path.
 - An integration test pins the statement counts, so a reintroduced N+1 fails the build.
 
 ## Consequences
