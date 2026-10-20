@@ -210,9 +210,11 @@ nothing in a response or a log line identified the request a client was asking a
   DEBUG. PgJDBC runs with `logServerErrorDetail: false`, so no driver message quotes the
   request's values: a failed entry of a batched insert reads `<unknown>` where it would quote
   the insert with the posted name or description, and the server's detail (the key of a
-  violated constraint, the failing row) is left out, which is the price, while the constraint
-  name survives in the server's primary message. `FailedInsertLogIT` finds none of the text
-  sent in the lines that a cancelled, a terminated and a constraint-violating insert write.
+  violated constraint, the failing row) is left out, while the constraint name survives in the
+  server's primary message. The price is that detail and, for a 409 or a `database_timeout`
+  503, the statement itself, so the log of a failed `POST` no longer says which insert failed
+  (`docs/DESIGN.md`, Operations). `FailedInsertLogIT` finds none of the text sent in the lines
+  that a cancelled, a terminated and a constraint-violating insert write.
 - A deployment that changes a database timeout keeps their order: the socket timeout above the
   statement timeout and above the slowest legitimate statement, or a slow statement loses its
   connection instead of being cancelled. `DatabaseTimeoutsIT` reads the values back from the
