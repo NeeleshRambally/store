@@ -32,9 +32,10 @@ loading during JSON serialisation.
 - A layered structure: `controller` (HTTP concerns only) → `service` (use cases, transactions)
   → `repository` (Spring Data JPA). Services are defined by interfaces so controllers depend on
   abstractions and unit tests can mock a single collaborator.
-- Request bodies are validated records (`CreateCustomerRequest`, `CreateOrderRequest`) with no
-  id field. Unknown JSON properties are rejected (`fail-on-unknown-properties`), so a client
-  supplying an id receives 400 rather than silently mutating data.
+- Request bodies are validated records (`CreateCustomerRequest`, `CreateOrderRequest`,
+  `CreateProductRequest`) with no id field. Unknown JSON properties are rejected
+  (`fail-on-unknown-properties`), so a client supplying an id receives 400 rather than silently
+  mutating data.
 - Responses are immutable records mapped by MapStruct. Entities never cross the controller
   boundary, and the entity graph is truncated one level deep to avoid serialisation cycles.
 - A single `@RestControllerAdvice` maps errors to RFC 7807 problem details: validation → 400
@@ -47,5 +48,5 @@ loading during JSON serialisation.
 - Request and response shapes are now explicit contracts documented in `OpenAPI.yaml`.
 - Adding an endpoint means a request record, a service method, a controller method and tests at
   each layer, which keeps each class small and single-purpose.
-- A hexagonal (ports and adapters) layout was considered and rejected for now: with two
+- A hexagonal (ports and adapters) layout was considered and rejected for now: with three
   aggregates and one persistence technology the extra indirection would not pay for itself.
