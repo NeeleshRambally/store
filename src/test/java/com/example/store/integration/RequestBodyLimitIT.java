@@ -6,6 +6,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.embedded.tomcat.TomcatWebServer;
+import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -34,6 +36,9 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
 
     @Autowired
     private TestRestTemplate restTemplate;
+
+    @Autowired
+    private ServletWebServerApplicationContext context;
 
     @Test
     void aDeclaredLengthOverTheBoundIsAPayloadTooLargeProblemDetail() {
@@ -90,6 +95,13 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
             assertThat(new String(response.readNBytes(length), StandardCharsets.UTF_8))
                     .contains("\"code\":\"unsupported_media_type\"");
         }
+    }
+
+    @Test
+    void tomcatRefusesToParseAFormBodyOverTheBound() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+
+        assertThat(server.getTomcat().getConnector().getMaxPostSize()).isEqualTo(LIMIT);
     }
 
     private static String head(InputStream response) throws IOException {

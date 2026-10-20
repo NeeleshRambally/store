@@ -66,6 +66,7 @@ server:
   tomcat:
     threads:
       max: ${TOMCAT_THREADS_MAX:200}
+    max-http-form-post-size: ${REQUEST_MAX_BODY_BYTES:65536}B
   compression:
     enabled: true
     mime-types: application/json,application/problem+json,text/plain

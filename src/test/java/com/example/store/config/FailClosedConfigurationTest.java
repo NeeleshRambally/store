@@ -105,6 +105,14 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void tomcatFormParsingFollowsTheRequestBodyBound() {
+        StandardEnvironment environment = environmentWith(Map.of("REQUEST_MAX_BODY_BYTES", "131072"));
+
+        assertThat(environment.getProperty("server.tomcat.max-http-form-post-size"))
+                .isEqualTo("131072B");
+    }
+
+    @Test
     void shutdownDrainsRequestsInFlightForUpToTwentySeconds() {
         StandardEnvironment environment = environmentWith(Map.of());
 
