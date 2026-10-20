@@ -671,6 +671,16 @@ Request input is strict rather than coerced (ADR 0002):
   every value the binding accepts as the same number. The binding registers an editor on the
   binder, not a converter, because the binder retries a failed conversion with its default
   number editor, which parses the same lenient way.
+- An empty numeric query value, or one made only of whitespace as `Character.isWhitespace`
+  defines it (space, tab, line feed, vertical tab, form feed, carriage return, U+001C to
+  U+001F, and the Unicode space, line and paragraph separators other than the three no-break
+  spaces, such as U+2003), counts as absent, as it does for Spring Data's pageable resolver:
+  `customerId=` does not filter, `after=%20` asks for an offset page, and `page=` and
+  `size=%09` take the defaults. `OpenAPI.yaml` states the rule in the descriptions of the five
+  parameters, because an integer schema cannot express it: the validator of the contract check
+  (`OpenApiContractIT`) reports such a value as a missing parameter even with
+  `allowEmptyValue`, which it honours only for string and array parameters, so the flag is not
+  declared.
 - Every query parameter an endpoint binds as a single value (`name`, `customerId`,
   `productId`, `after`, `page`, `size`) is a 400 when repeated, with the detail
   `'name' must not be repeated` and an `errors` entry for it, where Spring used to keep the first

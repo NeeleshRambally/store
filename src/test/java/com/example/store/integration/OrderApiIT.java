@@ -446,6 +446,22 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void treatsAnEmptyOrBlankNumericQueryValueAsAbsent() {
+        Long total = jdbcTemplate.queryForObject("select count(*) from \"order\"", Long.class);
+
+        ResponseEntity<JsonNode> response = restTemplate.getForEntity(
+                URI.create(
+                        restTemplate.getRootUri() + "/order?customerId=&productId=%E2%80%83&after=%20&page=&size=%09"),
+                JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("page").asInt()).isZero();
+        assertThat(response.getBody().get("size").asInt()).isEqualTo(20);
+        assertThat(ids(response.getBody()).get(0)).isEqualTo(1L);
+        assertThat(response.getBody().get("totalElements").asLong()).isEqualTo(total);
+    }
+
+    @Test
     void rejectsAPageWhosePlusSignDecodesToASpace() {
         ResponseEntity<ProblemDetail> response =
                 restTemplate.getForEntity("/order?page=+2&size=1", ProblemDetail.class);
