@@ -4,6 +4,7 @@ import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class CustomerApiIT extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void createsCustomerWithGeneratedId() {
@@ -314,6 +318,18 @@ class CustomerApiIT extends AbstractIntegrationTest {
                 .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
                 .extracting(error -> error.get("field"))
                 .containsExactly("name");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"name=50%", "name=Secret%ZZWord", "name=onne&after=%ZZ"})
+    void rejectsAQueryStringTomcatCannotParse(String query) throws Exception {
+        ResponseEntity<String> response = RawRequest.get(restTemplate.getRootUri() + "/customer?" + query);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode problem = objectMapper.readTree(response.getBody());
+        assertThat(problem.get("code").asText()).isEqualTo("invalid_parameter");
+        assertThat(problem.get("detail").asText()).isEqualTo("The query string could not be parsed");
+        assertThat(problem.has("errors")).isFalse();
     }
 
     @ParameterizedTest

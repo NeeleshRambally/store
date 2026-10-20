@@ -9,8 +9,9 @@ info:
     pipeline's smoke test sends) answers a 405 problem detail with the code method_not_allowed;
     OpenAPI cannot declare a response for a method the contract does not define, so that case is
     stated here instead. A request the HTTP server rejects before that layer (a request line and
-    headers over 8 KB, or a path holding %00, %2F or bytes that are not UTF-8) gets a text/html 400
-    without X-Request-Id. Every problem detail carries a code, the stable identity of the problem
+    headers over 8 KB, or a path holding %00, %2F, a % not followed by two hexadecimal digits or
+    bytes that are not UTF-8) gets a text/html 400 without X-Request-Id. Every problem detail
+    carries a code, the stable identity of the problem
     (the values are listed in the ProblemDetail schema; type stays about:blank): branch on the
     code, never on the detail text, which may change. A client must accept a code it does not
     know and handle it by the status, because adding a code is a minor version of this contract;
@@ -181,7 +182,10 @@ paths:
             no ASCII whitespace (space, tab, line feed, vertical tab, form feed, carriage
             return) and no C0 control character or DEL (U+0000 to U+001F, U+007F); any other
             character, including a no-break space, a C1 control such as U+0085 and U+2028, is
-            part of the word and matched literally. When omitted, all customers are returned.
+            part of the word and matched literally. When omitted, all customers are returned. A %
+            in the word is sent as %25: a query string the server cannot parse in full, such as
+            name=50% (a % must be followed by two hexadecimal digits) or one holding a nameless
+            value (=1), is rejected with 400, whichever parameter it affects.
           schema:
             type: string
             pattern: '^[^ \t\r\n\f\u000B\u0000-\u001F\u007F]+$'
@@ -458,7 +462,9 @@ components:
         that is not written in ASCII decimal digits without a plus sign or leading zeros (such as
         0x2, +1, 01 or -0) or one outside the 32-bit range is rejected with 400 as well. An empty
         value or one made only of whitespace (page= or page=%20) counts as absent: page 0 is
-        returned.
+        returned. A query string the server cannot parse in full, such as page=%ZZ (a % must be
+        followed by two hexadecimal digits) or one holding a nameless value (=1), is rejected with
+        400, whichever parameter it affects.
       schema:
         type: integer
         format: int32
@@ -474,7 +480,9 @@ components:
         below 1 is rejected with 400 naming size; a value that is not written in ASCII decimal
         digits without a plus sign or leading zeros (such as 0x10, +5 or 05) or one outside the
         32-bit range is rejected with 400 as well. An empty value or one made only of whitespace
-        (size= or size=%09) counts as absent: the default 20 applies.
+        (size= or size=%09) counts as absent: the default 20 applies. A query string the server
+        cannot parse in full, such as size=%ZZ (a % must be followed by two hexadecimal digits) or
+        one holding a nameless value (=1), is rejected with 400, whichever parameter it affects.
       schema:
         type: integer
         format: int32
@@ -494,7 +502,10 @@ components:
         below 0 is rejected with 400 naming after; a value that is not written in ASCII decimal
         digits without a plus sign or leading zeros (such as 0x10, +1, 01 or -0) or one outside
         the 64-bit range is rejected with 400 as well. An empty value or one made only of
-        whitespace (after= or after=%20) counts as absent: the response is an offset Page.
+        whitespace (after= or after=%20) counts as absent: the response is an offset Page. A query
+        string the server cannot parse in full, such as after=%ZZ (a % must be followed by two
+        hexadecimal digits) or one holding a nameless value (=1), is rejected with 400, whichever
+        parameter it affects.
       schema:
         type: integer
         format: int64
@@ -511,7 +522,9 @@ components:
         ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
         outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
         whitespace (customerId= or customerId=%20) counts as absent: the orders are not filtered
-        by customer.
+        by customer. A query string the server cannot parse in full, such as customerId=1% (a %
+        must be followed by two hexadecimal digits) or one holding a nameless value (=1), is
+        rejected with 400, whichever parameter it affects.
         Cannot be combined with productId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
@@ -530,7 +543,9 @@ components:
         ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
         outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
         whitespace (productId= or productId=%20) counts as absent: the orders are not filtered by
-        product.
+        product. A query string the server cannot parse in full, such as productId=2%G (a % must
+        be followed by two hexadecimal digits) or one holding a nameless value (=1), is rejected
+        with 400, whichever parameter it affects.
         Cannot be combined with customerId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
@@ -634,9 +649,9 @@ components:
           $ref: '#/components/headers/RequestId'
     BadRequest:
       description: >-
-        The request is malformed, fails validation, repeats a query parameter other than sort,
-        sorts by a property outside the documented list, combines after with page or sort, or
-        combines customerId with productId
+        The request is malformed, has a query string that cannot be parsed in full, fails
+        validation, repeats a query parameter other than sort, sorts by a property outside the
+        documented list, combines after with page or sort, or combines customerId with productId
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -873,9 +888,10 @@ components:
             Stable identity of the problem. validation_failed: a body field or a query parameter
             breaks a constraint, or a body value has the wrong JSON type or lies beyond the
             64-bit range (errors names each). invalid_parameter: a path or query parameter that
-            cannot be converted (GET /order/abc, page=abc), or a query parameter other than sort
-            that is repeated (errors names it). unknown_property: the body carries a property the
-            request does not define (errors names it). malformed_body: the body is not one JSON
+            cannot be converted (GET /order/abc, page=abc), a query string that cannot be parsed
+            in full (customerId=1%), or a query parameter other than sort that is repeated (errors
+            names it). unknown_property: the body carries a property the request does not define
+            (errors names it). malformed_body: the body is not one JSON
             object that can be read (malformed JSON, another JSON value, a repeated property,
             content after the object). invalid_sort: a sort property outside the documented
             list. invalid_cursor: after combined with page or sort (see the after parameter).

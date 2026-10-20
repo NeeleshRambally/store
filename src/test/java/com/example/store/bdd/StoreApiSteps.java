@@ -246,6 +246,11 @@ public class StoreApiSteps {
         capture(RawRequest.get(restTemplate.getRootUri() + "/customer?" + query));
     }
 
+    @When("I request orders with the query {string}")
+    public void requestOrdersWithQuery(String query) throws Exception {
+        capture(RawRequest.get(restTemplate.getRootUri() + "/order?" + query));
+    }
+
     @When("I request orders after {int} with size {int}")
     public void requestOrdersAfter(int after, int size) throws Exception {
         get("/order?after=" + after + "&size=" + size);

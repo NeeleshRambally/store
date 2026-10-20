@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
+import org.apache.catalina.Globals;
 import org.hibernate.TransactionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -71,6 +72,34 @@ class GlobalExceptionHandlerTests {
     @Test
     void aRepeatedParameterOnAPathWithoutAHandlerMethodIsStillANotFound() throws Exception {
         mockMvc.perform(get("/nowhere").param("name", "a", "b")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aQueryStringTomcatCouldNotParseIsABadRequest() throws Exception {
+        mockMvc.perform(get("/named").param("customer-id", "1").requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("The query string could not be parsed"))
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    void aQueryStringTomcatCouldNotParseIsReportedBeforeARepetition() throws Exception {
+        mockMvc.perform(get("/named")
+                        .param("customer-id", "1", "1")
+                        .requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("The query string could not be parsed"));
+    }
+
+    @Test
+    void aHandlerThatBindsNoQueryParameterIgnoresAQueryStringTomcatCouldNotParse() throws Exception {
+        mockMvc.perform(post("/named")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}")
+                        .requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -184,6 +213,11 @@ class GlobalExceptionHandlerTests {
                         "invalid_parameter"),
                 arguments(
                         "a repeated parameter", get("/named").param("customer-id", "1", "1"), 400, "invalid_parameter"),
+                arguments(
+                        "a query string Tomcat could not parse",
+                        get("/named").param("customer-id", "1").requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true),
+                        400,
+                        "invalid_parameter"),
                 arguments(
                         "an unknown property",
                         json("/validated", "{\"name\":\"a\",\"id\":5}"),

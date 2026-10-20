@@ -13,6 +13,7 @@ import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.OrderService;
 
+import org.apache.catalina.Globals;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -795,6 +796,17 @@ class OrderControllerTests {
                 .andExpect(jsonPath("$.errors[0].field").value("after"))
                 .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
         verify(orderService, never()).findAfter(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAQueryStringTomcatCouldNotParse() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("customerId", "1").requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("The query string could not be parsed"))
+                .andExpect(jsonPath("$.code").value("invalid_parameter"));
+        verify(orderService, never()).findAll(any(), any());
     }
 
     @Test

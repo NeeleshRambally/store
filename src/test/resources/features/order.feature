@@ -139,6 +139,12 @@ Feature: Order management
     And every order on the page belongs to customer 1
     And every order on the page lists at least one product
 
+  Scenario: A customer filter followed by a stray percent sign is rejected
+    When I request orders with the query "customerId=1%"
+    Then the response status is 400
+    And the response problem code is "invalid_parameter"
+    And the response problem detail is "The query string could not be parsed"
+
   Scenario: Orders containing one product
     When I request orders containing product 2
     Then the response status is 200
