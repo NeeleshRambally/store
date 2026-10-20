@@ -135,6 +135,14 @@ class CustomerApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsAHexadecimalCustomerId() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/customer/0x1", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: '0x1'");
+    }
+
+    @Test
     void rejectsClientSuppliedId() {
         ResponseEntity<ProblemDetail> response =
                 restTemplate.postForEntity("/customer", Map.of("id", 5, "name", "Overwrite"), ProblemDetail.class);

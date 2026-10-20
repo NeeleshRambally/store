@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
@@ -18,6 +20,7 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -224,6 +227,29 @@ class OrderApiIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: 'abc'");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0x1", "%231", "%201", "1%09", "1%200"})
+    void rejectsAnOrderIdThatIsNotADecimalInteger(String id) {
+        ResponseEntity<ProblemDetail> response =
+                restTemplate.getForEntity(URI.create(restTemplate.getRootUri() + "/order/" + id), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties()).containsEntry("code", "invalid_parameter");
+        assertThat(response.getBody().getDetail()).startsWith("Failed to convert 'id' with value: ");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"after=0x10", "after=%2316", "after=1%200", "customerId=0x1", "productId=%232"})
+    void rejectsAQueryNumberThatIsNotADecimalInteger(String query) {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/order?" + query), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties())
+                .containsEntry("code", "invalid_parameter")
+                .doesNotContainKey("errors");
     }
 
     @Test

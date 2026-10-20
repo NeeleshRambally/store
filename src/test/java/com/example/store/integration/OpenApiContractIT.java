@@ -225,6 +225,26 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void hexadecimalOrderIdMatchesTheContract() {
+        Interaction interaction = get("/order/0x1", Map.of());
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("detail").asText()).isEqualTo("Failed to convert 'id' with value: '0x1'");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void cursorWhoseDigitsAreSplitByASpaceMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("after", "1 0"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("detail").asText()).isEqualTo("Failed to convert 'after' with value: '1 0'");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void orderPageFilteredByCustomerMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("customerId", "1", "size", "2"));
 

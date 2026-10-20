@@ -180,6 +180,16 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getByIdRejectsAHexadecimalId() throws Exception {
+        when(customerService.findById(any())).thenReturn(new CustomerDTO(1L, "John Doe", List.of(), 0));
+
+        mockMvc.perform(get("/customer/{id}", "0x1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '0x1'"));
+        verify(customerService, never()).findById(any());
+    }
+
+    @Test
     void getAllReturnsPageOfCustomers() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(customerService.findAll(pageable))
@@ -335,6 +345,16 @@ class CustomerControllerTests {
         mockMvc.perform(get("/customer").param("after", "0").param("page", "1"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("after cannot be combined with page or sort"));
+        verify(customerService, never()).findAfter(any());
+    }
+
+    @Test
+    void getAllRejectsACursorWhoseDigitsAreSplitByASpace() throws Exception {
+        when(customerService.findAfter(any())).thenReturn(new CursorPageResponse<>(List.of(), 20, null));
+
+        mockMvc.perform(get("/customer").param("after", "1 0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'after' with value: '1 0'"));
         verify(customerService, never()).findAfter(any());
     }
 
