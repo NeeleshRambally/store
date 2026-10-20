@@ -74,6 +74,8 @@ server:
     threads:
       max: ${TOMCAT_THREADS_MAX:200}
     max-http-form-post-size: ${REQUEST_MAX_BODY_BYTES:65536}B
+    connection-timeout: 10s
+    keep-alive-timeout: 60s
   compression:
     enabled: true
     mime-types: application/json,application/problem+json,text/plain

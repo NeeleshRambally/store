@@ -76,11 +76,12 @@ included (see Configuration). More data can be generated with the script describ
 | `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password, from the variable or the file `/run/secrets/DB_PASSWORD`; without either the first connection fails and the process exits |
 | `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
-| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`connection-timeout`), then the request is a 503 |
+| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`spring.datasource.hikari.connection-timeout`), then the request is a 503 |
 | `DB_STATEMENT_TIMEOUT` | `10s` | Server-side `statement_timeout` of every connection, sent in the PgJDBC startup `options`; a PostgreSQL time (`10s`, `500ms`, or a plain number of milliseconds), `0` disables it. A statement still running at the limit is cancelled by the server and the request is a 503 `database_timeout` |
 | `DB_SOCKET_TIMEOUT` | `15` | PgJDBC `socketTimeout` in whole seconds: how long the driver waits for the database to send anything before it drops the connection, and the request is a 503 `service_unavailable`; `0` disables it. Keep it above `DB_STATEMENT_TIMEOUT` (see below) |
 | `TX_TIMEOUT` | `15s` | Default timeout of every transaction (`spring.transaction.default-timeout`), a duration (`15s`, or `15` for seconds); `-1` disables it, but `0` does not (see below) |
 | `TOMCAT_THREADS_MAX` | `200` | Tomcat request threads (`server.tomcat.threads.max`); see the sizing note below |
+| `SERVER_TOMCAT_CONNECTIONTIMEOUT` | `10s` | Boot's own `server.tomcat.connection-timeout`: how long Tomcat waits for the next bytes of a request it has begun to read, its body included, before it drops the connection, and so how long a client that goes silent holds a request thread (see API); idle keep-alive connections are kept 60 s (`server.tomcat.keep-alive-timeout`) whatever this is set to |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
@@ -607,17 +608,29 @@ a 413 problem detail (`Request body exceeds 65536 bytes`), judged by the declare
 Tomcat appends `Connection: close` to the 413. The API has no `PUT`, `PATCH` or `DELETE`
 endpoint, so such a request is the 405 problem detail decided when it is mapped (the 404 of an
 unknown path), whatever body it carries, and the body is not read. After the 413, the 415 or
-such a 405 or 404 Tomcat discards the unread remainder, up to its 2 MB swallow limit, on the
-request's thread, so a client that then sends nothing holds that thread until Tomcat's 60 s
-connection timeout, while none of the body is kept. Two kinds of body used to escape the bound,
-because they were parsed past
-`RequestBodyLimitFilter`'s bounded stream. Spring builds a URL-encoded form `POST`'s body from
-the request parameters, so Tomcat parsed the body itself, up to its 2 MB form limit, and a
-`POST` declaring 1,900,000 form bytes was answered only once all of them had arrived. Spring's
-`DispatcherServlet` parsed any `multipart/*` request, whatever its method, before it mapped
-it, up to Spring Boot's multipart limits (1 MB a part, 10 MB a request) and spooling the parts
-to files under `java.io.tmpdir` (the Compose stack's memory-backed `/tmp`), so a `POST`
-declaring 9,000,000 multipart bytes and sending 8 KiB had no answer within 5 s
+such a 405 or 404 Tomcat reads and discards the unread remainder on the request's thread, up to
+its 2 MB swallow limit, and keeps none of it; past 2 MB it closes the connection, as the
+answer's `Connection: close` announced. So the thread stays busy until the rest has arrived or
+the client has sent nothing for `server.tomcat.connection-timeout`, 10 s. With Tomcat's default
+of 60 s, 200 clients that sent nothing after their answer held all 200 request threads for a
+minute: on the jar of 286d65b, 200 form `POST`s each declaring 1,900,000 bytes and sending 8 KiB
+were all answered 415 within 0.03 s, readiness on the management port still answered 200, and a
+`GET /order/1` sent next was answered after 60.05 s; with the 10 s timeout it was answered after
+9.89 s, and a client that sent nothing after its answer was disconnected after 10.0 s instead of
+60.0 s. The timeout bounds a client that goes silent, not one that trickles bytes (one byte
+every 8 s kept its connection and thread for the 40 s it went on), nor one that keeps opening
+connections: request buffering or a rate limit at the ingress bounds those. Idle keep-alive
+connections are still closed after 60 s (`server.tomcat.keep-alive-timeout`); Tomcat would
+otherwise apply the connection timeout to them too (with it alone, an idle connection was closed
+after 11.0 s), and an ingress that reuses idle connections for longer than the service keeps
+them would then find them closed under it. Two kinds of body used to escape the bound, because
+they were parsed past `RequestBodyLimitFilter`'s bounded stream. Spring builds a URL-encoded
+form `POST`'s body from the request parameters, so Tomcat parsed the body itself, up to its 2 MB
+form limit, and a `POST` declaring 1,900,000 form bytes was answered only once all of them had
+arrived. Spring's `DispatcherServlet` parsed any `multipart/*` request, whatever its method,
+before it mapped it, up to Spring Boot's multipart limits (1 MB a part, 10 MB a request) and
+spooling the parts to files under `java.io.tmpdir` (the Compose stack's memory-backed `/tmp`),
+so a `POST` declaring 9,000,000 multipart bytes and sending 8 KiB had no answer within 5 s
 (`docs/ASSUMPTIONS.md`, "Products", gives both measurements). Multipart support is switched
 off (`spring.servlet.multipart.enabled: false`), as the API takes no multipart body: no
 multipart resolver is registered and no servlet has a multipart configuration, so neither

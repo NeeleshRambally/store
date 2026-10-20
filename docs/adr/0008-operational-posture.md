@@ -137,32 +137,37 @@ nothing in a response or a log line identified the request a client was asking a
   problem detail when the request is mapped and is never read; the API has no `PUT`, `PATCH` or
   `DELETE` endpoint, so a request with one of those methods is a 405 problem detail decided at
   the same point (a 404 for an unknown path), and its body is not read either.
-  `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API connector only) wraps
-  every request so that a declared `Content-Length` over `REQUEST_MAX_BODY_BYTES` (64 KiB by
-  default) fails before a byte is read and a chunked body fails once more than the bound has
-  been counted; when Spring MVC reads a `POST`'s JSON body, both surface as a 413 problem detail
-  with the request id, and malformed JSON stays a 400. No Spring Boot property
-  bounds a JSON body on Tomcat (`max-http-form-post-size` is form parsing, `max-swallow-size`
-  the post-abort swallow, `max-http-request-header-size` the headers), which is why the filter
-  exists. The filter bounds only what is read through the request's stream, while two kinds of
-  body were parsed past it: Tomcat parses a URL-encoded body itself whenever something asks for a
-  `POST`'s parameters, as Spring did to build the 415 of a form `POST` before the `POST`s
-  declared what they consume, and Spring's `DispatcherServlet`, with Spring Boot's default
-  multipart support, parsed every `multipart/*` request before mapping it. Either body was read,
-  up to Tomcat's 2 MB form limit or Spring Boot's multipart limits of 1 MB a part and 10 MB a
-  request, before it was rejected. A third reader used the stream, but before the request was
-  mapped and outside Spring MVC: Spring's `FormContentFilter`, which Spring Boot also registers by
-  default, parsed the URL-encoded body of every `PUT`, `PATCH` and `DELETE` into request
-  parameters, so such a body was read in full before its 405, and over the bound the filter's
-  exception escaped the servlet as a 500 with Spring Boot's default error body, not a problem
-  detail, and an ERROR line. So multipart support and that filter are switched off
-  (`spring.servlet.multipart.enabled: false`, `spring.mvc.formcontent.filter.enabled: false`),
-  which leaves nothing that parses a multipart body or reads a body before the request is
-  mapped, and `max-http-form-post-size` follows `REQUEST_MAX_BODY_BYTES` on both connectors, so no
-  URL-encoded body over the bound is parsed even where something such as Spring's hidden-method
-  filter asks for the parameters. The largest valid request is about 2 KB; Tomcat closes the
-  connection after the 413 and swallows the unread remainder of a 413, a 415 or a 405 up to 2 MB.
-  There is no 411: chunked bodies are legal and common.
+  `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API connector only) wraps every
+  request so that a declared `Content-Length` over `REQUEST_MAX_BODY_BYTES` (64 KiB by default)
+  fails before a byte is read and a chunked body fails once more than the bound has been counted;
+  when Spring MVC reads a `POST`'s JSON body, both surface as a 413 problem detail with the
+  request id, and malformed JSON stays a 400. No Spring Boot property bounds a JSON body on Tomcat
+  (`max-http-form-post-size` is form parsing, `max-swallow-size` the post-abort swallow,
+  `max-http-request-header-size` the headers), which is why the filter exists. The filter bounds
+  only what is read through the request's stream, while two kinds of body were parsed past it:
+  Tomcat parses a URL-encoded body itself whenever something asks for a `POST`'s parameters, as
+  Spring did to build the 415 of a form `POST` before the `POST`s declared what they consume, and
+  Spring's `DispatcherServlet`, with Spring Boot's default multipart support, parsed every
+  `multipart/*` request before mapping it. Either body was read, up to Tomcat's 2 MB form limit or
+  Spring Boot's multipart limits of 1 MB a part and 10 MB a request, before it was rejected. A
+  third reader used the stream, but before the request was mapped and outside Spring MVC: Spring's
+  `FormContentFilter`, which Spring Boot also registers by default, parsed the URL-encoded body of
+  every `PUT`, `PATCH` and `DELETE` into request parameters, so such a body was read in full
+  before its 405, and over the bound the filter's exception escaped the servlet as a 500 with
+  Spring Boot's default error body, not a problem detail, and an ERROR line. So multipart support
+  and that filter are switched off (`spring.servlet.multipart.enabled: false`,
+  `spring.mvc.formcontent.filter.enabled: false`), which leaves nothing that parses a multipart
+  body or reads a body before the request is mapped, and `max-http-form-post-size` follows
+  `REQUEST_MAX_BODY_BYTES` on both connectors, so no URL-encoded body over the bound is parsed
+  even where something such as Spring's hidden-method filter asks for the parameters. The largest
+  valid request is about 2 KB. After a 413, a 415 or a 405 Tomcat reads and discards the rest of
+  the body on the request's thread, up to 2 MB, and closes the connection after a 413, so a client
+  that goes silent holds that thread until `server.tomcat.connection-timeout`, set to 10 s because
+  Tomcat's 60 s let 200 such clients hold every request thread for a minute; idle keep-alive
+  connections keep Tomcat's 60 s (`server.tomcat.keep-alive-timeout`), which the shorter timeout
+  would otherwise cut as well. The timeout bounds silence, not a client that trickles bytes or
+  keeps opening connections, which the ingress has to bound (`docs/DESIGN.md`, API, has the
+  measurements). There is no 411: chunked bodies are legal and common.
 - **Request ids, not tracing.** `RequestIdFilter` runs before every other filter, echoes an
   inbound `X-Request-Id` that matches `[A-Za-z0-9._-]{1,128}` and otherwise mints a UUID; the
   value is set on the response before the chain runs and put in the MDC as `requestId` until
