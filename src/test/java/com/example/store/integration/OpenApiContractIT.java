@@ -18,6 +18,7 @@ import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -30,6 +31,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
 import java.util.List;
@@ -296,6 +298,16 @@ class OpenApiContractIT extends AbstractIntegrationTest {
         assertThat(interaction.json().get("detail").asText())
                 .isEqualTo("Failed to convert 'customerId' with value: '\uFF11'");
         assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/order, customerId=1%", "/customer, name=50%", "/products, page=%ZZ"})
+    void queryStringTomcatCannotParseMatchesTheContract(String path, String query) throws Exception {
+        Interaction interaction = getAsWritten(path, query);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("code").asText()).isEqualTo("invalid_parameter");
         assertResponseConforms(interaction);
     }
 
@@ -1029,14 +1041,23 @@ class OpenApiContractIT extends AbstractIntegrationTest {
         URI target = URI.create(restTemplate.getRootUri() + uri.build().encode().toUriString());
         ResponseEntity<String> entity =
                 restTemplate.exchange(target, method, new HttpEntity<>(body, headers), String.class);
+        return new Interaction(request.build(), response(entity), entity);
+    }
 
+    private Interaction getAsWritten(String path, String query) throws IOException {
+        ResponseEntity<String> entity = RawRequest.get(restTemplate.getRootUri() + path + "?" + query);
+        return new Interaction(
+                new SimpleRequest.Builder(HttpMethod.GET.name(), path).build(), response(entity), entity);
+    }
+
+    private static Response response(ResponseEntity<String> entity) {
         SimpleResponse.Builder response =
                 new SimpleResponse.Builder(entity.getStatusCode().value());
         entity.getHeaders().forEach((name, values) -> response.withHeader(name, values));
         if (entity.getBody() != null) {
             response.withBody(entity.getBody());
         }
-        return new Interaction(request.build(), response.build(), entity);
+        return response.build();
     }
 
     @SneakyThrows

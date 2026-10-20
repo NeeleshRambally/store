@@ -3,6 +3,7 @@ package com.example.store.integration;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,9 @@ class OrderApiIT extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void createsOrderForExistingCustomer() {
@@ -274,6 +278,40 @@ class OrderApiIT extends AbstractIntegrationTest {
         assertThat(response.getBody().getProperties())
                 .containsEntry("code", "invalid_parameter")
                 .doesNotContainKey("errors");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "customerId=1%",
+                "customerId=%ZZ1",
+                "customerId=1%2",
+                "productId=%ZZ2",
+                "productId=2%G",
+                "after=%ZZ",
+                "page=%ZZ",
+                "size=%ZZ",
+                "sort=%ZZ",
+                "customerId=1&customerId=%ZZ",
+                "%ZZ=1",
+                "=1&customerId=1"
+            })
+    void rejectsAQueryStringTomcatCannotParse(String query) throws Exception {
+        ResponseEntity<String> response = RawRequest.get(restTemplate.getRootUri() + "/order?" + query);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode problem = objectMapper.readTree(response.getBody());
+        assertThat(problem.get("code").asText()).isEqualTo("invalid_parameter");
+        assertThat(problem.get("detail").asText()).isEqualTo("The query string could not be parsed");
+        assertThat(problem.has("errors")).isFalse();
+    }
+
+    @Test
+    void servesAnOrderByIdWhoseQueryStringTomcatCannotParse() throws Exception {
+        ResponseEntity<String> response = RawRequest.get(restTemplate.getRootUri() + "/order/1?customerId=1%");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(objectMapper.readTree(response.getBody()).get("id").asLong()).isEqualTo(1L);
     }
 
     @Test

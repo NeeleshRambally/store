@@ -5,10 +5,11 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
-public class SingleValuedParameterConfig implements WebMvcConfigurer {
+public class QueryParameterConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        registry.addInterceptor(new MalformedQueryInterceptor());
         registry.addInterceptor(new SingleValuedParameterInterceptor());
     }
 }

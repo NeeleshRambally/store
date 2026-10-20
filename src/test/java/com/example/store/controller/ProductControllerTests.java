@@ -8,6 +8,7 @@ import com.example.store.dto.ProductDTO;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.ProductService;
 
+import org.apache.catalina.Globals;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -240,6 +241,17 @@ class ProductControllerTests {
                 .andExpect(jsonPath("$.detail").value("'page' must not be repeated"))
                 .andExpect(jsonPath("$.errors[0].field").value("page"))
                 .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsAQueryStringTomcatCouldNotParse() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("page", "0").requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("The query string could not be parsed"))
+                .andExpect(jsonPath("$.code").value("invalid_parameter"));
         verify(productService, never()).findAll(any());
     }
 

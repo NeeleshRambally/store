@@ -9,6 +9,7 @@ import com.example.store.dto.CustomerOrderDTO;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.CustomerService;
 
+import org.apache.catalina.Globals;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -298,6 +299,17 @@ class CustomerControllerTests {
                 .andExpect(jsonPath("$.detail").value("'name' must not be repeated"))
                 .andExpect(jsonPath("$.errors[0].field").value("name"))
                 .andExpect(jsonPath("$.errors[0].message").value("must not be repeated"));
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAQueryStringTomcatCouldNotParse() throws Exception {
+        when(customerService.search(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("name", "onne").requestAttr(Globals.PARAMETER_PARSE_FAILED_ATTR, true))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("The query string could not be parsed"))
+                .andExpect(jsonPath("$.code").value("invalid_parameter"));
         verify(customerService, never()).search(any(), any());
     }
 

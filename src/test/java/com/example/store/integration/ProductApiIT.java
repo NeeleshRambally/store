@@ -4,6 +4,7 @@ import com.example.store.dto.OrderDTO;
 import com.example.store.dto.PageResponse;
 import com.example.store.dto.ProductDTO;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class ProductApiIT extends AbstractIntegrationTest {
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     void createsProductWithGeneratedId() {
@@ -137,6 +141,18 @@ class ProductApiIT extends AbstractIntegrationTest {
             assertThat(product.orderCount())
                     .isGreaterThanOrEqualTo(product.orders().size());
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page=%ZZ", "after=1%"})
+    void rejectsAQueryStringTomcatCannotParse(String query) throws Exception {
+        ResponseEntity<String> response = RawRequest.get(restTemplate.getRootUri() + "/products?" + query);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        JsonNode problem = objectMapper.readTree(response.getBody());
+        assertThat(problem.get("code").asText()).isEqualTo("invalid_parameter");
+        assertThat(problem.get("detail").asText()).isEqualTo("The query string could not be parsed");
+        assertThat(problem.has("errors")).isFalse();
     }
 
     @ParameterizedTest
