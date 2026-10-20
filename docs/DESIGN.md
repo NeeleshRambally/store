@@ -638,7 +638,7 @@ Request input is strict rather than coerced (ADR 0002):
   space, which is what the unencoded plus of `page=+2` decodes to) or one outside the 32-bit
   range is the type-mismatch 400 (`Failed to convert 'page' with value: 'abc'`) without
   `errors`; an empty or blank value counts as absent. A `size` above 100 is still capped at
-  100. `PagingParameterBinding` parses both parameters as the resolver does
+  100. `DecimalParameterBinding` parses both parameters as the resolver does
   (`Integer.valueOf`): Spring's number conversion strips whitespace and reads `0x` and `#` as
   hexadecimal, while the resolver parses the raw text and falls back to page 0 or size 20 when
   it cannot, so `page=0x2` used to pass validation as 2 and be served as page 0. It registers an

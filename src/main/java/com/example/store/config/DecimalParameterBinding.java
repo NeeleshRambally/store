@@ -10,7 +10,7 @@ import java.beans.PropertyEditorSupport;
 // Parses page and size as Spring Data's Pageable resolver does (Integer.valueOf), so the value validated is the
 // value served: Spring's own number parsing strips whitespace and reads 0x and # as hexadecimal.
 @ControllerAdvice
-public class PagingParameterBinding {
+public class DecimalParameterBinding {
 
     @InitBinder({"page", "size"})
     void parseAsThePageableResolverDoes(WebDataBinder binder) {
