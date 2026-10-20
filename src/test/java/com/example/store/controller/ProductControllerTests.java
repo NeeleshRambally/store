@@ -189,6 +189,18 @@ class ProductControllerTests {
     }
 
     @Test
+    void getAllRejectsAPageAboveTheBound() throws Exception {
+        when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
+
+        mockMvc.perform(get("/products").param("page", "21474837"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("validation_failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be less than or equal to 21474836"));
+        verify(productService, never()).findAll(any());
+    }
+
+    @Test
     void getAllRejectsAZeroSize() throws Exception {
         when(productService.findAll(any())).thenReturn(new PageImpl<>(List.of(PRODUCT)));
 

@@ -127,6 +127,12 @@ Feature: Order management
     Then the response status is 400
     And the response problem lists a validation error for "page"
 
+  Scenario: A page number above 21474836 is rejected
+    When I request orders with page 21474837 and size 100
+    Then the response status is 400
+    And the response problem code is "validation_failed"
+    And the response problem lists a validation error for "page"
+
   Scenario: Orders of one customer
     When I request orders of customer 1
     Then the response status is 200

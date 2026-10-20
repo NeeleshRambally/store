@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: store
-  version: '2.1.0'
+  version: '3.0.0'
   description: >-
     A simple store. Every error handled by the service's Spring MVC layer on the API port is an
     RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
@@ -14,8 +14,9 @@ info:
     know and handle it by the status, because adding a code is a minor version of this contract;
     removing or renaming one is a major version. The version is that of the contract itself,
     independent of the version of the service that implements it; 2.0.0 is incompatible with
-    the delivered 1.0, 2.1.0 adds the code database_timeout, and docs/ASSUMPTIONS.md ("Contract
-    version and client migration") lists what a 1.0 client has to change.
+    the delivered 1.0, 2.1.0 adds the code database_timeout, 3.0.0 bounds page at 21474836, and
+    docs/ASSUMPTIONS.md ("Contract version and client migration") lists what a client of an
+    earlier version has to change.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
@@ -449,13 +450,16 @@ components:
       name: page
       in: query
       description: >-
-        Zero-based page index. A value below 0 is rejected with 400 naming page; a value that is
-        not written in ASCII decimal digits without a plus sign or leading zeros (such as 0x2, +1,
-        01 or -0) or one outside the 32-bit range is rejected with 400 as well.
+        Zero-based page index, at most 21474836, so that the offset of a page (page times size)
+        stays within the 32-bit range at the largest size, 100; positions further on are reached
+        with after. A value below 0 or above 21474836 is rejected with 400 naming page; a value
+        that is not written in ASCII decimal digits without a plus sign or leading zeros (such as
+        0x2, +1, 01 or -0) or one outside the 32-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int32
         minimum: 0
+        maximum: 21474836
         default: 0
     size:
       name: size
