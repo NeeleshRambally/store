@@ -68,23 +68,33 @@ delivered.
   non-numeric `page` fell back to the defaults) and offers no hook to reject them, so the three
   list endpoints also declare `page` and `size` as validated `Integer` request parameters,
   which exist only to be validated. A `size` above 100 is still capped rather than rejected
-  (ADR 0003), and a value that is not a decimal integer or one outside the 32-bit range
-  (`format: int32` in the specification) is a type-mismatch 400 without `errors`. The two
-  parameters are parsed exactly as the resolver parses them, with `Integer.valueOf` and an empty
-  or blank value counting as absent, because Spring's own number conversion strips whitespace
-  and reads `0x` and `#` as hexadecimal: `page=0x2`, `page=#3` or an unencoded `page=+2` (a
-  space before the 2 once decoded) passed validation as 2 or 3 while the resolver, unable to
-  parse them, served page 0, and `size=0x10` passed as 16 and was served as 20.
-- Every numeric parameter is a decimal integer, not only `page` and `size`: the path `id` of
-  the three by-id reads and the `after`, `customerId` and `productId` query parameters are
-  parsed with `Long.valueOf` on the raw text in the same way, an empty or blank query value
-  counting as absent. A value in hexadecimal (`0x1`, `#1`) or with whitespace around or inside
-  its digits (` 1`, a `1` followed by a tab, `1 0`) is the type-mismatch 400
-  (`invalid_parameter`), as `abc` already was. Spring's own conversion read those forms as
-  numbers, although the specification declares each parameter an integer: `/order/0x1`,
-  `/order/%231` and `/order/%201` returned order 1, `/order/1%200` returned order 10, an id the
-  client never sent, `after=0x10` continued a walk after id 16, and `customerId=0x1` filtered
-  by customer 1.
+  (ADR 0003), and a value that is not in canonical decimal form (next point) or one outside the
+  32-bit range (`format: int32` in the specification) is a type-mismatch 400 without `errors`.
+  The two parameters are bound strictly, with an empty or blank value counting as absent,
+  because Spring's own number conversion strips whitespace and reads `0x` and `#` as
+  hexadecimal: `page=0x2`, `page=#3` or an unencoded `page=+2` (a space before the 2 once
+  decoded) passed validation as 2 or 3 while the resolver, unable to parse them, served page 0,
+  and `size=0x10` passed as 16 and was served as 20. Every value the binding accepts is one the
+  resolver reads as the same number.
+- Every numeric parameter is an integer in canonical decimal form, not only `page` and `size`:
+  ASCII digits with no plus sign and no leading zeros, and a minus sign only before a non-zero
+  digit, so that each number has one spelling. The path `id` of the three by-id reads and the
+  `after`, `customerId` and `productId` query parameters are bound by the same editor, which
+  checks the raw text against `0|-?[1-9][0-9]*` before it parses it with `Long.valueOf`, an
+  empty or blank query value counting as absent. A value in hexadecimal (`0x1`, `#1`), with
+  whitespace around or inside its digits (` 1`, a `1` followed by a tab, `1 0`), with a plus
+  sign, a leading zero or a minus sign before 0 (`+1`, `01`, `-0`) or with a digit outside
+  ASCII (U+0661, an Arabic-Indic one, or U+FF11, a fullwidth one) is the type-mismatch 400
+  (`invalid_parameter`), as `abc` already was, while a negative value still reaches the range
+  check of its parameter (`after=-1` is a 400 naming `after`). Spring's own conversion read the
+  hexadecimal and whitespace forms as numbers, although the specification declares each
+  parameter an integer: `/order/0x1`, `/order/%231` and `/order/%201` returned order 1,
+  `/order/1%200` returned order 10, an id the client never sent, `after=0x10` continued a walk
+  after id 16, and `customerId=0x1` filtered by customer 1. `Long.valueOf` on its own read the
+  other forms as the number their digits spell: `/order/%2B1`, `/order/01`, `/order/%D9%A1` and
+  `/order/%EF%BC%91` returned order 1 and `customerId=%2B1` filtered by customer 1, so one id
+  had several spellings, each of which a gateway in front of the service (ADR 0002) would have
+  had to normalise before it compared ids.
 - Every query parameter except `sort` is single-valued. A repeated one is a 400
   (`'customerId' must not be repeated`, with the parameter in `errors`), checked by an
   interceptor before the parameters are bound, so the repetition is reported even when a value
@@ -221,11 +231,12 @@ delivered.
     coerced, and so is a control character in a request string.
   - `page` below 0 and `size` below 1 are 400s naming the parameter instead of being normalised
     to page 0 and size 20 (a `size` above 100 is still capped); a numeric path or query
-    parameter that is not a decimal integer (`0x1`, `1 0`) is a 400 instead of being read in
-    hexadecimal or with its whitespace removed; a query parameter other than `sort` that is
-    repeated is a 400 instead of being read as its first value (a repeated `name` as the values
-    joined by commas); and a C0 control character or DEL in `name` is a 400, where a NUL was a
-    409 and the other controls were searched for.
+    parameter that is not in canonical decimal form (`0x1`, `1 0`, `+1`, `01`, a digit outside
+    ASCII) is a 400 instead of being read in hexadecimal, with its whitespace removed or as the
+    number its digits spell; a query parameter other than `sort` that is repeated is a 400
+    instead of being read as its first value (a repeated `name` as the values joined by
+    commas); and a C0 control character or DEL in `name` is a 400, where a NUL was a 409 and
+    the other controls were searched for.
   - Every error that Spring MVC handles on the API port is an RFC 7807 problem detail with a
     `code` to branch on, where 1.0 declared no error response; a client must accept a code it
     does not know.
@@ -243,7 +254,8 @@ delivered.
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
   single statement (entity graph on `findById`), cached for `CACHE_TTL` since an order never
   changes; or a 404 problem detail (`Order with id 999999 was not found`, the `unknownOrder`
-  example of the contract). An id that is not a decimal integer (`abc`, `0x1`, `1 0`) is a 400.
+  example of the contract). An id that is not in canonical decimal form (`abc`, `0x1`, `1 0`,
+  `+1`, `01`, a digit outside ASCII) is a 400.
 
 ## Customer name search (README task 2)
 - "A substring of one of the words in their name" is read literally: the query must be a single
