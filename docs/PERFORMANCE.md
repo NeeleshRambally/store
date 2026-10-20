@@ -421,12 +421,15 @@ with autovacuum off for the "after" runs, which followed an explicit `VACUUM ANA
 statements captured from each jar's `org.hibernate.SQL` log, run as
 `EXPLAIN (ANALYZE, BUFFERS) EXECUTE` of prepared copies under
 `plan_cache_mode = force_custom_plan`, warm, the time as the range over five runs after one
-warm-up. The buffer counts are the figure to compare: for the same data and plan they repeat
-exactly from run to run (a parallel plan varies by a few hundred), while the times vary with the
-host and its load: within one set of five runs the slowest took up to 6.8 times as long as the
+warm-up. Where a row of the table below gives a first page and the cursor from 0, its time range
+covers the runs of both statements, and a single buffer or entry count is the page's (the
+cursor's is at most 10 entries and 8 buffers higher). The buffer counts are the figure to
+compare, because the times vary with the host and its load. Across the "after" runs, each
+statement read exactly the same number of buffers in its five runs (a parallel plan's counts were
+up to a few hundred apart), while the slowest of the five took up to 6.8 times as long as the
 fastest for a statement under a millisecond and up to 1.8 times for a longer one. The server's
-`auto_explain` log of each jar's own requests showed the same plans, and the statements of the
-table below keep their plans under `force_generic_plan`.
+`auto_explain` log of each jar's own requests showed the same plans, and the "after" statements
+of the table below keep their plans under `force_generic_plan`.
 
 Before, the customer page was the order page with `where c1_0.id=?`, which the planner carries
 over to `o1_0.customer_id`, and its count `where o1_0.customer_id=?`; the product page joined
