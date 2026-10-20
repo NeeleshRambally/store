@@ -9,3 +9,5 @@ scripts
 .github
 .gitlab-ci.yml
 compose.yaml
+db_password.txt
+.env

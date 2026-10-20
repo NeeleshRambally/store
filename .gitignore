@@ -37,3 +37,7 @@ out/
 .vscode/
 
 node_modules
+
+### Local secrets ###
+db_password.txt
+.env
