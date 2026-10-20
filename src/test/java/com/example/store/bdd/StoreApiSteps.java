@@ -1,5 +1,6 @@
 package com.example.store.bdd;
 
+import com.example.store.integration.RawRequest;
 import com.example.store.integration.TableLock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -19,7 +20,6 @@ import io.cucumber.java.en.Given;
 import io.cucumber.java.en.Then;
 import io.cucumber.java.en.When;
 
-import java.net.URI;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -243,7 +243,7 @@ public class StoreApiSteps {
 
     @When("I request customers with the query {string}")
     public void requestCustomersWithQuery(String query) throws Exception {
-        capture(restTemplate.getForEntity(URI.create(restTemplate.getRootUri() + "/customer?" + query), String.class));
+        capture(RawRequest.get(restTemplate.getRootUri() + "/customer?" + query));
     }
 
     @When("I request orders after {int} with size {int}")
