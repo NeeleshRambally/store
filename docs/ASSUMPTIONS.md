@@ -309,11 +309,11 @@ delivered.
   ascending ids of the newest `NESTED_ORDERS_LIMIT` orders that contain it (20 by default); the
   complete list is `GET /order?productId=`. The list is paged like every other list endpoint and
   the order ids come from one window query over `order_product` (3 statements per page, 2 for a
-  single product: the product row and that window). The task's "all products" is delivered through that same paging:
-  `size=100` returns the whole seeded catalogue of 100 products in one page, and the cursor walk
-  with `after` covers a catalogue of any size (`ProductApiIT.cursorWalkReturnsTheWholeCatalogue`
-  walks `/products?after=` to the null cursor past a product it creates and checks the collected
-  ids cover a snapshot of the product table).
+  single product: the product row and that window). The task's "all products" is delivered through
+  that same paging: `size=100` returns the whole seeded catalogue of 100 products in one page, and
+  the cursor walk with `after` covers a catalogue of any size
+  (`ProductApiIT.cursorWalkReturnsTheWholeCatalogue` walks `/products?after=` to the null cursor
+  past a product it creates and checks the collected ids cover a snapshot of the product table).
 - `GET /order` and `GET /order/{id}` return the products in the order (`id` and `description`),
   loaded with one extra statement per page and none for a single order.
 - The path is `/products` (plural) because the task names it so; see the note on `/customer`
@@ -378,10 +378,10 @@ delivered.
 - `GET /order/{id}` and `GET /products/{id}` are cached in memory for 60 s (`CACHE_TTL`,
   `CACHE_TYPE=none` to disable): a repeated read runs no statement and opens no session (pinned
   by the integration test). An order never changes after creation, so `orders` entries are never
-  evicted; a product's order ids and `orderCount` change on `POST /order`, so those `products` entries are
-  evicted after the commit on the node that served the write. A product can still be stale for
-  up to the TTL: on another replica, after a write that bypasses the service, and on the same
-  node when a read that missed the cache before the commit stores the old value after the
+  evicted; a product's order ids and `orderCount` change on `POST /order`, so those `products`
+  entries are evicted after the commit on the node that served the write. A product can still be
+  stale for up to the TTL: on another replica, after a write that bypasses the service, and on the
+  same node when a read that missed the cache before the commit stores the old value after the
   eviction. That bound is the reason the default is short. See ADR 0007.
 
 ## Testing strategy
@@ -616,10 +616,10 @@ an oversized body) with the actuator on 8081 only; the job's exit code, the hard
 containers and the address of every published port are read with `docker inspect`, the
 runtime role's grants are checked in the database container, and the access line of a request
 must appear in the container's ECS output. The image that is published from the
-default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is worded precisely: a failing smoke test fails the
-`docker` job (the `smoke` job on GitLab), the merge procedure requires both jobs green and an
-approval, and the platform cannot enforce required checks on a private free-plan repository, so
-the procedure is the gate.
+default branch is that scanned and smoke-tested image, retagged, never a rebuild. The gate is
+worded precisely: a failing smoke test fails the `docker` job (the `smoke` job on GitLab), the
+merge procedure requires both jobs green and an approval, and the platform cannot enforce required
+checks on a private free-plan repository, so the procedure is the gate.
 
 ## Defects found in the original code and what was done
 The README says bad choices were made deliberately. This is the consolidated list, one line per
@@ -708,12 +708,12 @@ revision), what was done, and where the reasoning lives.
   and the specification is enforced by `OpenApiContractIT`; "Testing strategy" above and
   `docs/DESIGN.md` (Testing). The products section (`:90-135`) is covered under "Products" above.
 - `utils/generateData.js`: unescaped quotes in the generated SQL (`:8`, `:14`; Faker's English
-  surnames include `O'Keefe`, so a regenerated file could fail to load), explicit ids (`:8`, `:14`), an unseeded `Math.random()` for the
-  customer of each order (`:13`) and the `faker.name` module (`:8`): quotes are escaped, the
-  generator is seeded end to end and tested for it in the pipeline, the explicit ids are kept because changeset 3
-  aligns the sequences after the load, and `faker.name` is kept because the locked Faker 7.6.0
-  has no `faker.person` (the rename arrived in Faker 8, whose upgrade would change every
-  generated name); `utils/README.md`.
+  surnames include `O'Keefe`, so a regenerated file could fail to load), explicit ids (`:8`,
+  `:14`), an unseeded `Math.random()` for the customer of each order (`:13`) and the `faker.name`
+  module (`:8`): quotes are escaped, the generator is seeded end to end and tested for it in the
+  pipeline, the explicit ids are kept because changeset 3 aligns the sequences after the load, and
+  `faker.name` is kept because the locked Faker 7.6.0 has no `faker.person` (the rename arrived in
+  Faker 8, whose upgrade would change every generated name); `utils/README.md`.
 - The reserved table name `order` (`Order.java:9`, `schema.sql:8`) was kept: renaming it is a
   migration of the table, its sequence, its foreign key and the join table for no functional
   gain, and the quoted identifier is confined to the entity mapping, the native queries, the

@@ -202,9 +202,9 @@ started without the two variables fails with `password authentication failed for
 included, so the guard stops start-up with `spring.liquibase.contexts is blank` unless
 `spring.liquibase.enabled` is `false` (the Compose `store` service); the failure block is
 printed as plain text rather than JSON because logging is not yet initialised at that point
-(the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see Operations) is documented but not
-observed by a test, because the API has no slow request to hold open while a shutdown is
-signalled; ADR 0008 says the same.
+(the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see
+Operations) is documented but not observed by a test, because the API has no slow request to hold
+open while a shutdown is signalled; ADR 0008 says the same.
 
 ## Development workflow
 Every change goes through a pull request and is merged into `main` once both CI jobs are green
