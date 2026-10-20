@@ -120,8 +120,8 @@ transaction a deadline that has already passed, and with it `GET /order` answere
 
 A database that stops answering altogether, which no server-side timeout can cancel, is cut by
 `DB_SOCKET_TIMEOUT`: with the `postgres` container paused the request answered a 503
-`service_unavailable` after 18.0 s in five of six runs and after 15.0 s in the sixth, that is
-the socket timeout's 15 s plus, when the cancel that the transaction timeout sends to the
+`service_unavailable` after 18.03 to 18.06 s in five of six runs and after 15.02 s in the sixth,
+that is the socket timeout's 15 s plus, when the cancel that the transaction timeout sends to the
 stalled server at about the same moment is still in flight, that cancel's 3 s
 `cancelSignalTimeout`; with the driver's default of 10 s for that signal the stall took 25.06 s,
 which is why it is set to 3. Keep `DB_SOCKET_TIMEOUT` above `DB_STATEMENT_TIMEOUT` and above the
@@ -288,10 +288,11 @@ runs, in one task and in one JVM:
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
 `RequestBodyLimitPropertiesTest`), `*Tests` is a `@WebMvcTest` slice (all six), and `*IT` runs
-on the shared Testcontainers context (`CucumberIT` is the acceptance suite on the same
-context). Where a unit test and a slice cover the same class the slice carries `Slice` in its
-name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`), so the tier is never a
-single letter apart.
+on the shared Testcontainers context, which their abstract base class `AbstractIntegrationTest`
+declares (`CucumberIT` is the acceptance suite on the same context, through
+`CucumberSpringConfiguration`). Where a unit test and a slice cover the same class the slice
+carries `Slice` in its name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`),
+so the tier is never a single letter apart.
 
 `build` also checks formatting (`spotlessCheck`), checks that the bootJar does not contain the
 local profile (`verifyBootJarContents`, see Running locally), runs SpotBugs over the main
@@ -307,7 +308,7 @@ the 100% line figure quoted in the history is measured under them. Reports land 
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
 1. `build`: `npm ci && npm test` in `utils` (the data generator's own check, on Node 22 with
    the npm cache keyed on `utils/package-lock.json`), then
-   `./gradlew spotlessCheck build test --rerun`; a failing test fails the pipeline.
+   `./gradlew spotlessCheck build test --rerun --no-daemon`; a failing test fails the pipeline.
    `--rerun` makes the test suite execute on every run instead of being replayed from Gradle's
    cache when only documentation changed. Test results and the coverage and SpotBugs reports are
    uploaded as the `reports` artifact.
