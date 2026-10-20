@@ -6,10 +6,11 @@ in `docs/DESIGN.md`; the README at the repository root is the assessment brief a
 delivered.
 
 ## Production posture
-- The project is treated as a production service: every change ships with tests at the unit,
-  integration (real PostgreSQL via Testcontainers) and acceptance (Cucumber) level, and CI fails
-  on any failing test, formatting violation or coverage below 80% of lines, measured outside the
-  whole `mapper` package (the generated MapStruct implementations and the hand-written
+- The project is treated as a production service: new behaviour starts with a failing unit, slice
+  or integration test (the integration tier runs against real PostgreSQL via Testcontainers) and,
+  for API behaviour, a Cucumber scenario (`docs/DESIGN.md`, Development workflow). CI fails on any
+  failing test, formatting violation or coverage below 80% of lines, measured outside the whole
+  `mapper` package (the generated MapStruct implementations and the hand-written
   `ProductMapper.orderIds`, which is tested but not counted) and the launcher class
   (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
