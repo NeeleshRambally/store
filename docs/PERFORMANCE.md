@@ -165,14 +165,14 @@ unbounded per parent: `count(*) over (partition by customer_id)` reads every ord
 parent to produce `orderCount`, so a customer with a million orders costs a million index
 entries on every page it appears on even though the response carries twenty of them. If a
 parent's orders ever grow without bound, the remedy is a cached or approximate `orderCount`,
-not a different window. What is bounded now: rows per page (`size`, at most 100), orders per customer and order ids per product
-(`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
-The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
-statements per page. The bound's effect on the body, "before" measured on `1da6fa0` the same
-way as the entities above (the uncompressed response body) and "after" under "Results": the
-default customer page went from 97,740 B with 1,941 nested orders to 21,343 B with 400 (20 per
-customer, `orderCount` still totalling 1,941), and `GET /products/2` from 1,025 B with 200
-order ids to 165 B with 20 and `orderCount` 200.
+not a different window. What is bounded now: rows per page (`size`, at most 100), orders per
+customer and order ids per product (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per
+order (at most 100 at creation). The full lists are `GET /order?customerId=` and
+`GET /order?productId=`, at the usual 3 or 2 statements per page. The bound's effect on the body,
+"before" measured on `1da6fa0` the same way as the entities above (the uncompressed response body)
+and "after" under "Results": the default customer page went from 97,740 B with 1,941 nested orders
+to 21,343 B with 400 (20 per customer, `orderCount` still totalling 1,941), and `GET /products/2`
+from 1,025 B with 200 order ids to 165 B with 20 and `orderCount` 200.
 
 ## Deep pages
 `LIMIT/OFFSET` makes the database read and discard every row before the requested page, so the
