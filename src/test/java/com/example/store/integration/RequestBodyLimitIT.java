@@ -1,5 +1,6 @@
 package com.example.store.integration;
 
+import org.apache.catalina.connector.Connector;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -7,6 +8,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.embedded.tomcat.TomcatWebServer;
 import org.springframework.boot.web.servlet.context.ServletWebServerApplicationContext;
 import org.springframework.core.io.InputStreamResource;
@@ -16,6 +18,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayInputStream;
 import java.io.EOFException;
@@ -130,10 +133,19 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void tomcatRefusesToParseAFormBodyOverTheBound() {
-        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+    void tomcatRefusesToParseAFormBodyOverTheBoundOnBothConnectors() {
+        assertThat(List.of(connector(context), connector(managementContext())))
+                .extracting(Connector::getMaxPostSize)
+                .containsExactly(LIMIT, LIMIT);
+    }
 
-        assertThat(server.getTomcat().getConnector().getMaxPostSize()).isEqualTo(LIMIT);
+    private WebServerApplicationContext managementContext() {
+        return ReflectionTestUtils.invokeMethod(
+                context.getBean("childManagementContextInitializer"), "getManagementContext");
+    }
+
+    private static Connector connector(WebServerApplicationContext application) {
+        return ((TomcatWebServer) application.getWebServer()).getTomcat().getConnector();
     }
 
     private String answerBeforeTheRestIsSent(

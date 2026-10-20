@@ -395,7 +395,7 @@ delivered.
   1,900,000 bytes again despite `consumes`) gets no form body over the bound parsed; zero is
   not an option, since Spring Boot ignores a limit of 0 and Tomcat keeps 2 MB.
   `RequestBodyLimitIT` sends 8 KiB of a declared 1,900,000-byte form body to each `POST` and
-  requires the 415 within 5 s, and reads the limit back from the running connector; the
+  requires the 415 within 5 s, and reads the limit back from both running connectors; the
   controller slices pin the 415 and its `Accept: application/json` for a form, a JSON-based
   type and a missing `Content-Type`, `FailClosedConfigurationTest` the link to the variable,
   and a Cucumber scenario the 415 of an order sent as a form.
