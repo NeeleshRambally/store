@@ -388,26 +388,32 @@ delivered.
   `ServletServerHttpRequest` builds the body from the request parameters, so Tomcat read and
   parsed it itself, up to that 2 MB form limit, into an array sized from the declared
   `Content-Length` before the first byte arrived, and Spring answered 415 only after that.
-  Measured on the jar of bae63db (2026-10-20, JDK 17.0.14, `-Xmx154m`, a throwaway PostgreSQL
-  16.2): a `POST /customer` declaring 1,900,000 form bytes and sending 8 KiB had no answer
-  within 5 s and its 415 72 ms after the rest was sent, where the same declaration as JSON had
-  its 413 after 2 ms; a thread dump showed the request in Tomcat's `readPostBodyFully`, called
-  from `ServletServerHttpRequest.getBody()` while the `@RequestBody` argument was resolved; and
-  20 such requests that had sent 1 KiB each raised the live byte arrays (`jcmd
-  GC.class_histogram`) from 10.4 MB to 49.6 MB, about 1.96 MB a request, so a few dozen slow
-  clients could fill the image's 154 MiB heap. The three `POST`s now consume `application/json`
-  only, so a form body is a 415 decided when the request is mapped and is never read: the same
-  20 requests were each answered at once, and with their connections held
-  open the live byte arrays grew by 0.26 MB in all. Tomcat's form limit follows
-  `REQUEST_MAX_BODY_BYTES` as well, so a component that asks for a `POST`'s parameters
-  (Spring's hidden-method filter or request-detail logging, which both had Tomcat read the
-  1,900,000 bytes again despite `consumes`) gets no form body over the bound parsed; zero is
-  not an option, since Spring Boot ignores a limit of 0 and Tomcat keeps 2 MB.
-  `RequestBodyLimitIT` sends 8 KiB of a declared 1,900,000-byte form body to each `POST` and
-  requires the 415 within 5 s, and reads the limit back from both running connectors; the
-  controller slices pin the 415 and its `Accept: application/json` for a form, a JSON-based
-  type and a missing `Content-Type`, `FailClosedConfigurationTest` the link to the variable,
-  and a Cucumber scenario the 415 of an order sent as a form.
+  Measured on the jar of bae63db (2026-10-20, JDK 17.0.14 on an arm64 Mac, `-Xmx154m`, which
+  that JVM rounds up to a 160 MiB heap, a throwaway PostgreSQL 16.2): a `POST /customer`
+  declaring 1,900,000 form bytes and sending 8 KiB had no answer within 5 s and its 415 72 ms
+  after the rest was sent, where the same declaration as JSON had its 413 after 2 ms; a thread
+  dump showed the request in Tomcat's `readPostBodyFully`, called from
+  `ServletServerHttpRequest.getBody()` while the `@RequestBody` argument was resolved; and 20
+  such requests that had sent 1 KiB each raised the live byte arrays (`jcmd GC.class_histogram`)
+  from 10.4 MB to 49.6 MB, about 1.96 MB a request, so a few dozen slow clients could fill the
+  image's 154 MiB heap. The three `POST`s now consume `application/json` only, so a form body is
+  a 415 decided when the request is mapped and is never read: the same 20 requests were each
+  answered at once, and with their connections held open the live byte arrays grew by 0.26 MB in
+  all, a figure that holds for a JVM whose Tomcat has already handled as many requests at once.
+  A fresh JVM pays more for the first ones, because Tomcat allocates each concurrent request's
+  buffers once and keeps them for reuse after the connections close: re-measured in the same
+  environment with the form-content filter off and the 10 s connection timeout, 20 held form
+  `POST`s raised the live byte arrays of a fresh JVM by 1.36 MB, about 68 KB a connection
+  whatever the declared size, 1.0 MB of which stayed allocated after they closed, and the next
+  20 by only 0.33 MB. Tomcat's form limit follows `REQUEST_MAX_BODY_BYTES` as well, so a
+  component that asks for a `POST`'s parameters (Spring's hidden-method filter or request-detail
+  logging, which both had Tomcat read the 1,900,000 bytes again despite `consumes`) gets no form
+  body over the bound parsed; zero is not an option, since Spring Boot ignores a limit of 0 and
+  Tomcat keeps 2 MB. `RequestBodyLimitIT` sends 8 KiB of a declared 1,900,000-byte form body to
+  each `POST` and requires the 415 within 5 s, and reads the limit back from both running
+  connectors; the controller slices pin the 415 and its `Accept: application/json` for a form, a
+  JSON-based type and a missing `Content-Type`, `FailClosedConfigurationTest` the link to the
+  variable, and a Cucumber scenario the 415 of an order sent as a form.
 - A multipart body escaped the bound as well, and `consumes` did not stop it: Spring Boot turns
   multipart support on by default, and Spring's `DispatcherServlet` then parses any request
   whose `Content-Type` starts with `multipart/`, whatever its method, before it maps it, reading
