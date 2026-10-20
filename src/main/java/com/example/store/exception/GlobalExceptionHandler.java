@@ -69,6 +69,11 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return problem(HttpStatus.BAD_REQUEST, "conflicting_filters", ex.getMessage());
     }
 
+    @ExceptionHandler(MalformedQueryException.class)
+    ProblemDetail handleMalformedQuery(MalformedQueryException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid_parameter", ex.getMessage());
+    }
+
     @ExceptionHandler(RepeatedParameterException.class)
     ProblemDetail handleRepeatedParameter(RepeatedParameterException ex) {
         return fieldProblem(
