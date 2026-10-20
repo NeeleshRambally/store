@@ -1,9 +1,17 @@
 package com.example.store.integration;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import java.util.List;
 
@@ -16,6 +24,9 @@ class MigrationIT extends AbstractIntegrationTest {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private TestRestTemplate restTemplate;
 
     @Test
     void customerSequenceContinuesAfterSeededIds() {
@@ -121,6 +132,55 @@ class MigrationIT extends AbstractIntegrationTest {
                 + " FROM \"order\" o WHERE o.customer_id IN (1, 2, 3)) t WHERE rn <= 20 ORDER BY customer_id, id");
 
         assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_order_customer_id"));
+    }
+
+    @Test
+    void customerFilteredPageIsReadInIdOrderFromTheCustomerIdIdIndex() {
+        List<String> plan = planOfStatementSentFor("/order?customerId=1&size=20", 0, 1, 20);
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("Index Scan using idx_order_customer_id_id"));
+        assertThat(plan).noneSatisfy(line -> assertThat(line).contains("Sort"));
+    }
+
+    @Test
+    void customerFilteredCursorSeeksTheCustomerIdIdIndex() {
+        List<String> plan = planOfStatementSentFor("/order?customerId=1&after=5000&size=20", 0, 1, 5000, 21);
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("idx_order_customer_id_id"));
+        assertThat(plan)
+                .anySatisfy(line -> assertThat(line).contains("Index Cond: ((customer_id = 1) AND (id > 5000))"));
+    }
+
+    @Test
+    void customerFilteredCountUsesTheCustomerIdIdIndex() {
+        List<String> plan = planOfStatementSentFor("/order?customerId=1&size=20", 1, 1);
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("idx_order_customer_id_id"));
+    }
+
+    private List<String> planOfStatementSentFor(String uri, int statement, Object... values) {
+        String sql = statementsSentFor(uri).get(statement);
+        for (Object value : values) {
+            sql = sql.replaceFirst("\\?", String.valueOf(value));
+        }
+        return explainWithoutSeqScan("EXPLAIN " + sql);
+    }
+
+    private List<String> statementsSentFor(String uri) {
+        Logger sql = (Logger) LoggerFactory.getLogger("org.hibernate.SQL");
+        Level level = sql.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        sql.addAppender(appender);
+        sql.setLevel(Level.DEBUG);
+        try {
+            assertThat(restTemplate.getForEntity(uri, String.class).getStatusCode())
+                    .isEqualTo(HttpStatus.OK);
+        } finally {
+            sql.setLevel(level);
+            sql.detachAppender(appender);
+        }
+        return appender.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
     }
 
     private List<String> explainWithoutSeqScan(String explain) {
