@@ -1,0 +1,15 @@
+databaseChangeLog:
+  - changeSet:
+      id: 8-index-order-customer-id-id
+      author: developer@securitease.com
+      comment: Serves the customerId filter of GET /order, where customer_id = ? order by id, as one index range in id order
+      runInTransaction: false
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              DROP INDEX CONCURRENTLY IF EXISTS idx_order_customer_id_id;
+              CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_order_customer_id_id ON "order" (customer_id, id);
+      rollback:
+        - sql:
+            sql: DROP INDEX CONCURRENTLY IF EXISTS idx_order_customer_id_id;
