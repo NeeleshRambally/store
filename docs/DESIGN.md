@@ -856,12 +856,17 @@ probes and metrics are reachable from inside the cluster but never from the publ
   stack trace of the 500's ERROR line and the WARN line in which HikariCP marks a terminated
   connection broken; Hibernate's own messages show the statement with `?` for each value. A
   violated constraint is still named, because PostgreSQL puts the name in the primary message,
-  which is where Hibernate reads it for the 409's line. The price is the detail itself: a
-  failure leaves its SQL state, the server's primary message and the statement with `?` in the
-  log, never the key or the row. `FailedInsertLogIT` cancels the insert of each `POST` at its
-  commit, terminates one and violates a foreign key, and finds none of the names and
-  descriptions it sent in any line logged at the shipped levels, stack traces included;
-  `DatabaseTimeoutsIT` reads the setting back from the pool
+  which is where Hibernate reads it for the 409's line. The price is the detail itself, and for
+  a 409 or a `database_timeout` 503 the statement as well: at the shipped levels those two
+  answers log only the SQL state, the server's primary message and the handler's WARN line with
+  the constraint or the cause's class, so the log of a failed `POST` no longer says which insert
+  failed. At the shipped levels the statement, with `?` for each value, appears only in the stack
+  trace of an ERROR line, the 500's or the transaction interceptor's for a read whose connection
+  was lost; the handler's DEBUG line adds it for a `database_timeout`, and for a 409 holds the
+  driver's exception alone. No line carries the key or the row. `FailedInsertLogIT` cancels the
+  insert of each `POST` at its commit, terminates one and violates a foreign key, and finds none
+  of the names and descriptions it sent in any line logged at the shipped levels, stack traces
+  included; `DatabaseTimeoutsIT` reads the setting back from the pool
 * Shutdown is graceful: on `SIGTERM` the requests in flight get up to 20 s to finish
   (`server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase: 20s`). The drain
   begins by closing the API connector's listening socket, so from then on a new connection to
