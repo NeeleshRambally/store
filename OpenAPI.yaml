@@ -127,7 +127,10 @@ paths:
         - name: id
           in: path
           required: true
-          description: A non-numeric value is rejected with 400
+          description: >-
+            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
+            with whitespace around or between them) or one outside the 64-bit range is rejected
+            with 400.
           schema:
             type: integer
             format: int64
@@ -262,7 +265,10 @@ paths:
         - name: id
           in: path
           required: true
-          description: A non-numeric value is rejected with 400
+          description: >-
+            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
+            with whitespace around or between them) or one outside the 64-bit range is rejected
+            with 400.
           schema:
             type: integer
             format: int64
@@ -386,7 +392,10 @@ paths:
         - name: id
           in: path
           required: true
-          description: A non-numeric value is rejected with 400
+          description: >-
+            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
+            with whitespace around or between them) or one outside the 64-bit range is rejected
+            with 400.
           schema:
             type: integer
             format: int64
@@ -468,7 +477,9 @@ components:
         response's nextCursor to continue it; a null nextCursor means the walk is complete. The
         page size is still size (default 20, capped at 100). after cannot be combined with page
         (other than 0) or with a sort whose first property is not id ascending: such a request is
-        rejected with 400 (see the cursorWithPage example of the BadRequest response).
+        rejected with 400 (see the cursorWithPage example of the BadRequest response). A value
+        below 0 is rejected with 400 naming after; a value that is not a decimal integer (such as
+        0x10) or one outside the 64-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int64
@@ -481,9 +492,10 @@ components:
       description: >-
         Only the orders placed by this customer, in both paging modes. An id that matches no
         order (including an unknown customer) yields an empty page with totalElements 0, not a
-        404; a value below 1 is rejected with 400. Cannot be combined with productId: such a
-        request is rejected with 400 (see the combinedFilters example of the BadRequest
-        response).
+        404. A value below 1 is rejected with 400 naming customerId; a value that is not a decimal
+        integer (such as 0x1) or one outside the 64-bit range is rejected with 400 as well.
+        Cannot be combined with productId: such a request is rejected with 400 (see the
+        combinedFilters example of the BadRequest response).
       schema:
         type: integer
         format: int64
@@ -496,9 +508,10 @@ components:
       description: >-
         Only the orders that contain this product, in both paging modes. An id that matches no
         order (including an unknown product) yields an empty page with totalElements 0, not a
-        404; a value below 1 is rejected with 400. Cannot be combined with customerId: such a
-        request is rejected with 400 (see the combinedFilters example of the BadRequest
-        response).
+        404. A value below 1 is rejected with 400 naming productId; a value that is not a decimal
+        integer (such as 0x1) or one outside the 64-bit range is rejected with 400 as well.
+        Cannot be combined with customerId: such a request is rejected with 400 (see the
+        combinedFilters example of the BadRequest response).
       schema:
         type: integer
         format: int64
