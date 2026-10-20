@@ -876,7 +876,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   connection without a response, and Tomcat then waits up to 5 s for its thread before the
   pool closes, so a `POST` cut there may still have been committed (the `POST`s are not
   idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows the status its
-  handler set. The 30 second stop grace of `compose.yaml` covers those 20 and 5 s
+  handler set, which the client never received. A request that stays stuck therefore keeps the
+  process alive for the 20 s, Tomcat's 5 s and about 0.3 s more, which the 30 second stop grace
+  of `compose.yaml` covers
 * `GracefulShutdownIT` observes the sequence on a second application started on the shared
   database: while a `GET /order?size=5` waits for a lock on `order` and the application closes,
   a new connection is refused, readiness answers 503 and liveness 200, and the request is
@@ -895,7 +897,12 @@ probes and metrics are reachable from inside the cluster but never from the publ
   and a `GET /order/{id}` and a `POST /customer` sent on them then got no byte back, wrote no
   access line and stored no row; a connection whose `GET /order` was in flight was closed as
   soon as its 200 had been sent, and idle connections were closed when the API server stopped,
-  right after the held request had been answered
+  right after the held request had been answered. With the statement and socket timeouts set
+  to 0 and the transaction timeout to 120 s, so that the held request stayed stuck, it got an
+  empty reply 20.0 s after the signal, the idle connections were closed at the same moment, a
+  thread dump at 22.6 s showed the shutdown waiting for Tomcat's request threads, the pool
+  closed at 25.0 s, the stuck thread then logged a 503 access line, and the process exited 25.2
+  and 25.3 s after the signal in two runs
 * A Kubernetes deployment needs a delay before that signal. Deleting a pod marks its endpoints
   as not ready while the kubelet starts stopping the container, and kube-proxy and the ingress
   act on that a moment later, so without a delay connections still arrive after the drain has
