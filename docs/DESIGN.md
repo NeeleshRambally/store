@@ -85,7 +85,7 @@ included (see Configuration). More data can be generated with the script describ
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
-| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors, so no such body over it is parsed; a multipart body is not parsed at all (see API) |
+| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON body a `POST` accepts (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors, so no such body over it is parsed; a multipart body, and the body of a `PUT`, `PATCH` or `DELETE`, are not read at all (see API) |
 | `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (the logger inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
@@ -604,10 +604,13 @@ says `Content-Type is missing.` or, for a value that is not a media type, says `
 Content-Type.` A JSON body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is
 a 413 problem detail (`Request body exceeds 65536 bytes`), judged by the declared
 `Content-Length` before any byte is read or by the bytes counted while a chunked body is read;
-Tomcat appends `Connection: close` to the 413. After the 413 or the 415 Tomcat discards the
-unread remainder, up to its 2 MB swallow limit, on the request's thread, so a client that then
-sends nothing holds that thread until Tomcat's 60 s connection timeout, while none of the body
-is kept. Two kinds of body used to escape the bound, because they were parsed past
+Tomcat appends `Connection: close` to the 413. The API has no `PUT`, `PATCH` or `DELETE`
+endpoint, so such a request is the 405 problem detail decided when it is mapped (the 404 of an
+unknown path), whatever body it carries, and the body is not read. After the 413, the 415 or
+such a 405 or 404 Tomcat discards the unread remainder, up to its 2 MB swallow limit, on the
+request's thread, so a client that then sends nothing holds that thread until Tomcat's 60 s
+connection timeout, while none of the body is kept. Two kinds of body used to escape the bound,
+because they were parsed past
 `RequestBodyLimitFilter`'s bounded stream. Spring builds a URL-encoded form `POST`'s body from
 the request parameters, so Tomcat parsed the body itself, up to its 2 MB form limit, and a
 `POST` declaring 1,900,000 form bytes was answered only once all of them had arrived. Spring's
@@ -618,8 +621,16 @@ declaring 9,000,000 multipart bytes and sending 8 KiB had no answer within 5 s
 (`docs/ASSUMPTIONS.md`, "Products", gives both measurements). Multipart support is switched
 off (`spring.servlet.multipart.enabled: false`), as the API takes no multipart body: no
 multipart resolver is registered and no servlet has a multipart configuration, so neither
-Spring nor Tomcat parses a multipart body, and it is a 415 like any other type. Tomcat's limit
-for a URL-encoded form (`server.tomcat.max-http-form-post-size`) follows
+Spring nor Tomcat parses a multipart body, and it is a 415 like any other type. A third reader
+ran before the request was mapped: Spring's `FormContentFilter`, which Spring Boot registers by
+default, read the URL-encoded body of every `PUT`, `PATCH` and `DELETE` to turn it into request
+parameters. It read through the bounded stream, so within the bound the whole body was read
+before the 405 or 404, and over it the filter's exception escaped the servlet: a `PUT /customer`
+declaring 1,900,000 form bytes was a 500 with Spring Boot's default error body
+(`{"timestamp":"...","status":500,"error":"Internal Server Error","path":"/customer"}`, no
+problem detail, no `code`) and an ERROR line with the exception's stack trace. No endpoint takes
+such a body, so the filter is switched off (`spring.mvc.formcontent.filter.enabled: false`).
+Tomcat's limit for a URL-encoded form (`server.tomcat.max-http-form-post-size`) follows
 `REQUEST_MAX_BODY_BYTES` on both connectors, because whatever asks for a `POST`'s parameters
 still has Tomcat parse such a body, `consumes` or not: Spring's hidden-method filter
 (`spring.mvc.hiddenmethod.filter.enabled`) and request-detail logging

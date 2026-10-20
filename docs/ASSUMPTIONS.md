@@ -427,6 +427,29 @@ delivered.
   body to each `POST` and requires the 415 within 5 s, `FailClosedConfigurationTest` pins the
   property, `ActuatorIT` the management port's 405, and a Cucumber scenario the 415 of an order
   sent as multipart with a 1,100,000-byte file, which the part limit used to make a 413.
+- A URL-encoded body sent with `PUT`, `PATCH` or `DELETE` was read before the request was
+  mapped, by Spring's `FormContentFilter`, which Spring Boot registers by default to turn such a
+  body into request parameters. It reads through the bounded stream, yet the API has no endpoint
+  for those methods. Measured on the jar of 286d65b (2026-10-20, the same environment): a
+  `PUT /customer`, `PATCH /order/1`, `DELETE /order/1` or `PUT /no-such-path` declaring
+  1,900,000 form bytes, or a `PUT /customer` sending 70,000 of them chunked, was a 500 within 3 ms
+  with Spring Boot's default error body
+  (`{"timestamp":"...","status":500,"error":"Internal Server Error","path":"/customer"}`, no
+  problem detail and no `code`) and an ERROR line
+  `Servlet.service() for servlet [dispatcherServlet] in context with path [] threw exception`
+  with the `RequestBodyTooLargeException` thrown inside the filter; the same requests declaring
+  60,000 bytes and sending 8 KiB had no answer within 10 s, because the filter waited for the
+  rest of the body; and 100 `PUT /customer` connections that had each sent 64,999 bytes of a
+  declared 65,000 got no answer while they raised the live heap from 40.7 MB to 60.6 MB. The
+  filter is now switched off (`spring.mvc.formcontent.filter.enabled: false`), since nothing
+  needs it. With the same jar and the filter off, each of those requests was the 405 problem
+  detail (`method_not_allowed`), or the 404 (`not_found`) of the unknown path, in 1.4 to 4.3 ms
+  after a first, cold one in 14.4 ms, with no ERROR line, and the 100 connections each had their
+  405 while their bodies were still incomplete. `RequestBodyLimitIT` sends 8 KiB of a declared
+  60,000- and 1,900,000-byte form to each of the four and 70,000 chunked bytes to
+  `PUT /customer`, and requires the 405 or 404 problem detail within 5 s;
+  `FailClosedConfigurationTest` pins the property and a Cucumber scenario the 405 of a
+  70,000-byte form `PUT /customer`.
 - The invariant is enforced for orders created through the API from this release. The seed
   changeset runs only under the `seed` context, so in a production database an order that
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such
