@@ -287,7 +287,9 @@ runs, in one task and in one JVM:
   undeclared status, or a request that the server serves and the specification would reject
   fails the build. What the check proves is bounded by those interactions: a status, a header or
   a field that only another request would produce can still differ from the specification, which
-  is why each new response arrives with a contract case of its own.
+  is why each new response arrives with a contract case of its own. The `test` task declares
+  `OpenAPI.yaml` as an input, so an edit to the specification alone reruns the check instead of
+  reusing a cached result.
 
 The test classes follow one naming convention per tier: `*Test` runs without a Spring test
 context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,

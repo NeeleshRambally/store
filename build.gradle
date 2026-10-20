@@ -115,6 +115,9 @@ def coverageExclusions = ['**/mapper/**', '**/StoreApplication.class']
 
 tasks.named('test') {
     useJUnitPlatform()
+    inputs.file('OpenAPI.yaml')
+        .withPropertyName('openApiSpec')
+        .withPathSensitivity(PathSensitivity.RELATIVE)
     finalizedBy tasks.jacocoTestReport
 }
 
