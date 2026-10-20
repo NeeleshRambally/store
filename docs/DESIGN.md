@@ -549,10 +549,19 @@ with the same `sort` whitelist, an id that matches nothing yields an empty page 
 `NESTED_ORDERS_LIMIT` orders (20 by default; the highest ids, returned in ascending id order) and
 `orderCount`, the total; a product on the list and by-id responses carries the ids of the newest
 orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collections").
-Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
-request that never reaches the `DispatcherServlet` (one Tomcat rejects at the connector, such
-as an oversized header) and a 404 on the management connector get Boot's default error body
-(`{"timestamp","status","error","path"}`) instead. Validation failures, whether of a request
+Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail, and so is
+one on the management connector, whose child context shares the advice: a 404 or 405 there
+carries `code` but no `X-Request-Id`, since the filters run on the API connector only. A
+request that Tomcat rejects before the servlet filters never gets one: a request line and
+headers over the 8 KB default of `server.max-http-request-header-size`, a request target with
+a character that is not allowed in it (an unencoded `|`), and a path whose percent-decoded form
+holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or bytes that are not UTF-8
+(`%FF`) are answered with a 400 and Tomcat's minimal HTML page (`text/html;charset=utf-8`,
+`HTTP Status 400 – Bad Request`, without the server version), with no `X-Request-Id` and no
+access-log line. Tomcat logs a failure to parse a request line or header at INFO with its
+stack trace, and further ones within the next 24 hours at DEBUG; the rejected paths are not
+logged at the shipped levels. A direct `GET /error` gets a 500 from Boot's error controller,
+`{"timestamp":"...","status":999,"error":"None"}`. Validation failures, whether of a request
 body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
 `size`, include an `errors` array with the offending field names and the constraint messages. A
 path id that is not in canonical decimal form is a 400 problem detail. Requests never carry
@@ -738,14 +747,16 @@ probes and metrics are reachable from inside the cluster but never from the publ
   1,000-request mix on the Compose stack. `percentiles-histogram` would publish Micrometer's
   generic bucket set instead, 69 lines per series for this timer (about 11.6 KB each).
   `ActuatorIT` pins the bucket set
-* Every response carries an `X-Request-Id`. An inbound value is echoed when it matches
+* Every response carries an `X-Request-Id`, except the 400 Tomcat sends itself for a request it
+  rejects before the servlet filters (see API). An inbound value is echoed when it matches
   `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The header is
   declared as required on every response in `OpenAPI.yaml` and the contract check enforces it.
   The filter runs
   before every other filter, so 304, 400, 404 and 500 responses carry it too, and the id is in
   the MDC as `requestId` for the duration of the request, so every log line of a request can be
-  found from the id a client quotes, and every request on the API port writes at least its
-  access line (below). There is no tracing library: no collector is in scope, and
+  found from the id a client quotes, and every request on the API port that reaches the
+  filters writes at least its access line (below). There is no tracing library: no collector
+  is in scope, and
   the header is where a gateway's or a later tracer's id attaches.
 * `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
   interceptor are registered for the API paths only
@@ -766,7 +777,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   data-integrity conflict is logged at WARN by SQL state and constraint name (the full cause is
   at DEBUG), and neither line quotes the request's values, which the driver leaves out of its
   messages (see the failed statements below)
-* Every request on the API port writes one INFO line on the logger `com.example.store.access`
+* Every request on the API port that reaches the servlet filters (all but the ones Tomcat
+  rejects itself, see API) writes one INFO line on the logger `com.example.store.access`
   when it completes, for example `GET /order/{id} 200 3 ms`: the method, the route, the status
   and the duration in whole milliseconds, so a cache hit usually logs 0 ms. In the ECS output
   `route`, `status` (a number) and `durationMs` are also top-level members beside `message` and
