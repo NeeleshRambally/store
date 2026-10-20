@@ -320,6 +320,38 @@ class OrderServiceImplTest {
     }
 
     @Test
+    void findAllPagesAProductsOrdersInIdOrderFromTheirIdsAndCountsAFullPage() {
+        Pageable pageable = PageRequest.of(1, 2, Sort.by("id"));
+        when(orderRepository.findRowsByProductInIdOrder(2L, 2, 2))
+                .thenReturn(List.of(
+                        new OrderRow(11L, "Analytical Engine", 1L, "Ada Lovelace"),
+                        new OrderRow(12L, "Difference Engine", 1L, "Ada Lovelace")));
+        when(orderRepository.countByProduct(2L)).thenReturn(7L);
+        when(orderRepository.findProductRows(List.of(11L, 12L)))
+                .thenReturn(List.of(new OrderProductRow(11L, 2L, "Rustic Chair")));
+
+        Page<OrderDTO> result = service.findAll(new OrderFilter(null, 2L), pageable);
+
+        assertThat(result.getContent()).extracting(OrderDTO::id).containsExactly(11L, 12L);
+        assertThat(result.getContent().get(0).products()).containsExactly(new OrderProductDTO(2L, "Rustic Chair"));
+        assertThat(result.getTotalElements()).isEqualTo(7L);
+        verify(orderRepository, never()).findRowsByProduct(any(Long.class), any());
+    }
+
+    @Test
+    void findAllDerivesTheTotalOfAShortFirstProductPageWithoutCounting() {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(orderRepository.findRowsByProductInIdOrder(2L, 0, 20))
+                .thenReturn(List.of(new OrderRow(11L, "Analytical Engine", 1L, "Ada Lovelace")));
+        when(orderRepository.findProductRows(List.of(11L))).thenReturn(List.of());
+
+        Page<OrderDTO> result = service.findAll(new OrderFilter(null, 2L), pageable);
+
+        assertThat(result.getTotalElements()).isEqualTo(1L);
+        verify(orderRepository, never()).countByProduct(any(Long.class));
+    }
+
+    @Test
     void findAllRejectsBothFiltersBeforeAnyQuery() {
         Pageable pageable = PageRequest.of(0, 20);
 
@@ -349,7 +381,7 @@ class OrderServiceImplTest {
 
     @Test
     void findAfterFiltersByProduct() {
-        when(orderRepository.findRowsByProductAfter(2L, 0L, Limit.of(21)))
+        when(orderRepository.findRowsByProductAfter(2L, 0L, 21))
                 .thenReturn(List.of(new OrderRow(11L, "Analytical Engine", 1L, "Ada Lovelace")));
         when(orderRepository.findProductRows(List.of(11L)))
                 .thenReturn(List.of(new OrderProductRow(11L, 2L, "Rustic Chair")));

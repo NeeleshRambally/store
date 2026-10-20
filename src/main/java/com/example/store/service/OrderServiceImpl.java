@@ -26,6 +26,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +45,7 @@ import java.util.Set;
 public class OrderServiceImpl implements OrderService {
 
     private static final SortPolicy SORT_POLICY = SortPolicy.of("id", "description");
+    private static final Sort ID_ORDER = Sort.by("id");
 
     private final OrderRepository orderRepository;
     private final CustomerRepository customerRepository;
@@ -102,9 +105,18 @@ public class OrderServiceImpl implements OrderService {
             return orderRepository.findRowsByCustomer(filter.customerId(), pageable);
         }
         if (filter.productId() != null) {
-            return orderRepository.findRowsByProduct(filter.productId(), pageable);
+            return findRowsByProduct(filter.productId(), pageable);
         }
         return orderRepository.findRows(pageable);
+    }
+
+    private Page<OrderRow> findRowsByProduct(long productId, Pageable pageable) {
+        if (!ID_ORDER.equals(pageable.getSort())) {
+            return orderRepository.findRowsByProduct(productId, pageable);
+        }
+        List<OrderRow> rows = orderRepository.findRowsByProductInIdOrder(
+                productId, Math.toIntExact(pageable.getOffset()), pageable.getPageSize());
+        return PageableExecutionUtils.getPage(rows, pageable, () -> orderRepository.countByProduct(productId));
     }
 
     private List<OrderRow> findRowsAfter(OrderFilter filter, long after, Limit limit) {
@@ -112,7 +124,7 @@ public class OrderServiceImpl implements OrderService {
             return orderRepository.findRowsByCustomerAfter(filter.customerId(), after, limit);
         }
         if (filter.productId() != null) {
-            return orderRepository.findRowsByProductAfter(filter.productId(), after, limit);
+            return orderRepository.findRowsByProductAfter(filter.productId(), after, limit.max());
         }
         return orderRepository.findRowsAfter(after, limit);
     }

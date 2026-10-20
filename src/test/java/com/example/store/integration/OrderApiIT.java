@@ -432,6 +432,21 @@ class OrderApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void pagesAProductsOrdersInIdOrder() {
+        List<Long> expected = jdbcTemplate.queryForList(
+                "select order_id from order_product where product_id = 2 order by order_id limit 5 offset 5",
+                Long.class);
+        Long total = jdbcTemplate.queryForObject("select count(*) from order_product where product_id = 2", Long.class);
+
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity("/order?productId=2&page=1&size=5", JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids(response.getBody())).isEqualTo(expected);
+        assertThat(response.getBody().get("totalElements").asLong()).isEqualTo(total);
+    }
+
+    @Test
     void walksACustomersOrdersWithACursor() {
         List<Long> expected = jdbcTemplate.queryForList(
                 "select id from \"order\" where customer_id = 1 order by id limit 10", Long.class);

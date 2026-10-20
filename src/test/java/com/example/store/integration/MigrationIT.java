@@ -14,10 +14,13 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class MigrationIT extends AbstractIntegrationTest {
+
+    private static final String PRODUCT_ID_ORDER_ID_SCAN = "using idx_order_product_product_id_order_id";
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -156,6 +159,39 @@ class MigrationIT extends AbstractIntegrationTest {
         List<String> plan = planOfStatementSentFor("/order?customerId=1&size=20", 1, 1);
 
         assertThat(plan).anySatisfy(line -> assertThat(line).contains("idx_order_customer_id_id"));
+    }
+
+    @Test
+    void productFilteredPageTakesItsOrderIdsFromALimitedScanOfTheProductIdOrderIdIndex() {
+        List<String> plan = planOfStatementSentFor("/order?productId=2&page=1&size=20", 0, 2, 20, 20);
+
+        assertThat(lineAbove(plan, PRODUCT_ID_ORDER_ID_SCAN)).contains("Limit");
+    }
+
+    @Test
+    void productFilteredCursorSeeksTheProductIdOrderIdIndex() {
+        List<String> plan = planOfStatementSentFor("/order?productId=2&after=5000&size=20", 0, 2, 5000, 21);
+
+        assertThat(lineAbove(plan, PRODUCT_ID_ORDER_ID_SCAN)).contains("Limit");
+        assertThat(plan)
+                .anySatisfy(line -> assertThat(line).contains("Index Cond: ((product_id = 2) AND (order_id > 5000))"));
+    }
+
+    @Test
+    void productFilteredCountReadsTheProductIdOrderIdIndexWithoutTheOrderTable() {
+        List<String> plan = planOfStatementSentFor("/order?productId=2&page=1&size=20", 1, 2);
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("idx_order_product_product_id_order_id"));
+        assertThat(plan).noneSatisfy(line -> assertThat(line).contains("on \"order\""));
+    }
+
+    private static String lineAbove(List<String> plan, String node) {
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains(node));
+        int index = IntStream.range(0, plan.size())
+                .filter(i -> plan.get(i).contains(node))
+                .findFirst()
+                .getAsInt();
+        return plan.get(index - 1);
     }
 
     private List<String> planOfStatementSentFor(String uri, int statement, Object... values) {
