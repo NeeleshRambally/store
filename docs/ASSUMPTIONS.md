@@ -286,6 +286,13 @@ delivered.
   the service answered it with a 500. 3.0.0 also states, in the descriptions of the five
   numeric query parameters, that an empty value or one made only of whitespace counts as
   absent, as the service already served it.
+- Within 3.0.0 the service enforces the request media type the contract declares: a `POST`
+  whose `Content-Type` is not `application/json` (a form encoding, text, or a JSON-based type
+  such as `application/vnd.api+json`, which it used to read and store) or that has none is a
+  415 decided before the body is read. A body without a `Content-Type` used to be treated as
+  `application/octet-stream`: a 415, or a 413 when its declared length was over the bound, and
+  a 400 `malformed_body` when it was empty. A client that sends `application/json`, with or
+  without a `charset`, as the contract requires, needs no change.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
@@ -352,7 +359,7 @@ delivered.
 - Neither Spring Boot nor Tomcat bounds a JSON body by default: Tomcat's 2 MB
   `server.tomcat.max-http-form-post-size` applies to form-parameter parsing only, so an
   oversized `description` used to be parsed into memory before `@Size` rejected it.
-  `RequestBodyLimitFilter` now rejects any body over
+  `RequestBodyLimitFilter` now rejects a JSON body over
   `REQUEST_MAX_BODY_BYTES` (64 KiB by default, at least 1 KiB) with a 413 problem detail
   (`Request body exceeds 65536 bytes`) before it is parsed: by the declared `Content-Length`
   when there is one, otherwise by counting the bytes of a chunked body as they are read. The
@@ -364,6 +371,31 @@ delivered.
   `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitIT` (declared and chunked), the contract
   case, the Cucumber scenario and the container smoke test pin it; there is no 411, because a
   chunked body is legal HTTP/1.1 and is what the test client sends.
+- The filter bounds a body only while it is read through the request's stream, and a
+  form-encoded body was not: for a form `POST` without a query string Spring's
+  `ServletServerHttpRequest` builds the body from the request parameters, so Tomcat read and
+  parsed it itself, up to that 2 MB form limit, into an array sized from the declared
+  `Content-Length` before the first byte arrived, and Spring answered 415 only after that.
+  Measured on the jar of bae63db (2026-10-20, JDK 17.0.14, `-Xmx154m`, a throwaway PostgreSQL
+  16.2): a `POST /customer` declaring 1,900,000 form bytes and sending 8 KiB had no answer
+  within 5 s and its 415 72 ms after the rest was sent, where the same declaration as JSON had
+  its 413 after 2 ms; a thread dump showed the request in Tomcat's `readPostBodyFully`, called
+  from `ServletServerHttpRequest.getBody()` while the `@RequestBody` argument was resolved; and
+  20 such requests that had sent 1 KiB each raised the live byte arrays (`jcmd
+  GC.class_histogram`) from 10.4 MB to 49.6 MB, about 1.96 MB a request, so a few dozen slow
+  clients could fill the image's 154 MiB heap. The three `POST`s now consume `application/json`
+  only, so any other `Content-Type` is a 415 decided when the request is mapped and the body is
+  never read: the same 20 requests were each answered at once, and with their connections held
+  open the live byte arrays grew by 0.26 MB in all. Tomcat's form limit follows
+  `REQUEST_MAX_BODY_BYTES` as well, so a component that asks for a `POST`'s parameters
+  (Spring's hidden-method filter or request-detail logging, which both had Tomcat read the
+  1,900,000 bytes again despite `consumes`) gets no form body over the bound parsed; zero is
+  not an option, since Spring Boot ignores a limit of 0 and Tomcat keeps 2 MB.
+  `RequestBodyLimitIT` sends 8 KiB of a declared 1,900,000-byte form body to each `POST` and
+  requires the 415 within 5 s, and reads the limit back from the running connector; the
+  controller slices pin the 415 and its `Accept: application/json` for a form, a JSON-based
+  type and a missing `Content-Type`, `FailClosedConfigurationTest` the link to the variable,
+  and a Cucumber scenario the 415 of an order sent as a form.
 - The invariant is enforced for orders created through the API from this release. The seed
   changeset runs only under the `seed` context, so in a production database an order that
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such

@@ -85,7 +85,7 @@ included (see Configuration). More data can be generated with the script describ
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
-| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail |
+| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's form-parameter limit (`server.tomcat.max-http-form-post-size`) on both connectors, so no form body over it is parsed (see API) |
 | `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (the logger inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
@@ -589,11 +589,31 @@ go to DEBUG, and the others in the next 24 hours are written at DEBUG only. A di
 body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
 `size`, include an `errors` array with the offending field names and the constraint messages. A
 path id that is not in canonical decimal form is a 400 problem detail. Requests never carry
-an id; an unknown property is a 400 that names it (see the input rules below). A request body over
-`REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds
-65536 bytes`), judged by the declared `Content-Length` before any byte is read or by the bytes
-counted while a chunked body is read; Tomcat appends `Connection: close` to the 413 and
-discards the unread remainder, up to its 2 MB swallow limit. An order carries between 1 and 100
+an id; an unknown property is a 400 that names it (see the input rules below). Each `POST`
+reads only `application/json` (`consumes`; a `charset` parameter is accepted): a body with
+another `Content-Type`, such as a form encoding, text or a JSON-based type like
+`application/vnd.api+json`, or with none, is a 415 problem detail decided when the request is
+mapped, before the body is read. The 415 carries `Accept: application/json`, and its detail
+names the type that was sent (`Content-Type 'text/plain;charset=UTF-8' is not supported.`),
+says `Content-Type is missing.` or, for a value that is not a media type, says `Could not parse
+Content-Type.` A JSON body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is
+a 413 problem detail (`Request body exceeds 65536 bytes`), judged by the declared
+`Content-Length` before any byte is read or by the bytes counted while a chunked body is read;
+Tomcat appends `Connection: close` to the 413. After the 413 or the 415 Tomcat discards the
+unread remainder, up to its 2 MB swallow limit, on the request's thread, so a client that then
+sends nothing holds that thread until Tomcat's 60 s connection timeout, while none of the body
+is kept. A form body used to escape the bound: Spring builds a form `POST`'s body from the
+request parameters, so Tomcat parsed the body itself, past `RequestBodyLimitFilter`'s bounded
+stream and up to its 2 MB form limit, and a `POST` declaring 1,900,000 form bytes was answered
+only once all of them had arrived (`docs/ASSUMPTIONS.md`, "Products", gives the measurement).
+Tomcat's form limit (`server.tomcat.max-http-form-post-size`) therefore follows
+`REQUEST_MAX_BODY_BYTES` on both connectors, because whatever asks for a `POST`'s parameters
+still has Tomcat parse a form body, `consumes` or not: Spring's hidden-method filter
+(`spring.mvc.hiddenmethod.filter.enabled`) and request-detail logging
+(`spring.mvc.log-request-details` with the `DispatcherServlet` at DEBUG) both made Tomcat read a
+1,900,000-byte form body again. Over the limit Tomcat does not read the body at all. The
+property cannot switch form parsing off with 0: Spring Boot skips a zero and Tomcat keeps its
+2 MB default. An order carries between 1 and 100
 products, each id at most once: a repeated id is a 400 naming `productIds`, not a silent
 de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
 the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
@@ -617,8 +637,8 @@ the wording of `detail`:
 | `method_not_allowed` | 405 | A method the path does not support |
 | `not_acceptable` | 406 | An `Accept` header naming no media type the endpoint produces |
 | `conflict` | 409 | A write that a database constraint rejects |
-| `payload_too_large` | 413 | A body over `REQUEST_MAX_BODY_BYTES` |
-| `unsupported_media_type` | 415 | A body that is not `application/json` |
+| `payload_too_large` | 413 | A JSON body over `REQUEST_MAX_BODY_BYTES` |
+| `unsupported_media_type` | 415 | A `POST` whose `Content-Type` is missing or is not `application/json`, decided before the body is read |
 | `internal_error` | 500 | An unexpected failure (no `detail`) |
 | `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT`, except a session that the database terminates while a `POST`'s insert is flushed at commit, which is `internal_error`; also a by-id read or a `POST`'s insert attempted after the `TX_TIMEOUT` deadline (with `Retry-After`; see Operations) |
 | `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a query issued after that deadline (with `Retry-After`) |
@@ -739,10 +759,12 @@ Request input is strict rather than coerced (ADR 0002):
   `customerId` was dropped as well). The by-id reads and the `POST`s bind no query parameter, so
   a dropped one cannot change what they do: the service never has Tomcat parse their query
   string, and `/order/1?customerId=1%` is order 1, just as an unknown parameter is ignored.
-  Parsing a `POST`'s parameters would also have Tomcat read a form-encoded body itself. A `%` in
-  a search word is sent as `%25`. Bytes that are not UTF-8 are not a parse failure: Tomcat
-  decodes `%FF` to U+FFFD, which `customerId` rejects as not decimal (`invalid_parameter`) and
-  `name` searches for. The same malformed escapes in the path are Tomcat's HTML 400 (above).
+  Parsing a `POST`'s parameters would also have Tomcat read a form-encoded body itself, which
+  is why a form `POST` is rejected before anything asks for them (see the body bound above).
+  A `%` in a search word is sent as `%25`. Bytes that are not UTF-8 are not a parse failure:
+  Tomcat decodes `%FF` to U+FFFD, which `customerId` rejects as not decimal
+  (`invalid_parameter`) and `name` searches for. The same malformed escapes in the path are
+  Tomcat's HTML 400 (above).
 
 Every operation answers in `application/json`, a problem detail in `application/problem+json`,
 and the three controllers declare both media types as `produces`. An `Accept` header that admits
@@ -808,7 +830,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   interceptor are registered for the API paths only
 * `RequestBodyLimitFilter` enforces `REQUEST_MAX_BODY_BYTES` and, like `RequestIdFilter`, is a
   `@Component` filter registered on the API connector only: the management connector's child
-  context does not inherit it, and the actuator takes no request bodies
+  context does not inherit it, and the actuator takes no request bodies. Tomcat's form limit,
+  which follows the same variable, is set on both connectors, as Spring Boot applies its Tomcat
+  settings to the management server too
 * Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`):
   one object per line with nested members, `"log":{"level":...,"logger":...}`,
   `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (the service name and version come
