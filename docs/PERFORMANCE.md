@@ -168,17 +168,17 @@ the 100 of a full page it rates `idx_order_customer_id`, 11 pages against 41, as
 seed on 2026-10-20 with the jar of `062b418`, with sequential scans disabled and each index
 dropped in turn in a rolled-back transaction; the same before any `ANALYZE` or `VACUUM` and after
 either or both).
-The statement's work is proportional to the orders of the
-parents on the page, bounded in count by `size` and unbounded per parent: `count(*) over
-(partition by customer_id)` reads every order of each parent to produce `orderCount`, so a
-customer with a million orders costs a million index entries on every page it appears on even
-though the response carries twenty of them (on the production-sized table of "Filtered pages",
-the window for the first page of products, which holds the ten best-sellers, reads their
-1,010,000 order lines from 3,930 buffers of `idx_order_product_product_id_order_id` and sorts
-them, spilling to temporary files under the default 4 MB `work_mem`: 457 to 483 ms, measured as
-described there). If a parent's orders ever grow without bound, the
-remedy is a cached or approximate `orderCount`, not a different window. What is bounded now:
-rows per page (`size`, at most 100), orders per customer and order ids per product
+The statement's work is proportional to the orders of the parents on the page, bounded in count by
+`size` and unbounded per parent: `count(*) over (partition by customer_id)` reads every order of
+each parent to produce `orderCount`, so a customer with a million orders costs a million index
+entries on every page it appears on even though the response carries twenty of them (on the
+production-sized table of "Filtered pages", measured as described there with the jar of `062b418` on
+2026-10-20, the window for the first page of products, which holds the ten best-sellers, reads their
+1,010,000 order lines from 3,930 buffers of `idx_order_product_product_id_order_id` and sorts them,
+spilling to temporary files under the default 4 MB `work_mem`, in 457 to 483 ms; the buffers are the
+figure to compare, because the times vary with the host and its load). If a parent's orders ever
+grow without bound, the remedy is a cached or approximate `orderCount`, not a different window. What
+is bounded now: rows per page (`size`, at most 100), orders per customer and order ids per product
 (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
 The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
 statements per page. The bound's effect on the body, "before" measured on `1da6fa0` the same way
@@ -575,7 +575,8 @@ products' nested order ids reads it index-only (3,930 buffers for the twenty pro
 first page, which include the ten best-sellers, instead of 30,702). Through the service's
 Liquibase, run as the `migrate` job runs it with the jar of `062b418` on 2026-10-20 after the
 three changesets had been reverted by hand, the two builds took 307 to 447 ms and 584 to 736 ms
-on this table and the drop 4 to 5 ms in five runs (ADR 0009).
+on this table and the drop 4 to 5 ms in five runs, times that vary with the host and its load
+(ADR 0009).
 
 `MigrationIT` pins the "after" plans with sequential scans disabled. Unlike the other pins it
 does not `EXPLAIN` a hand-written copy: it sends a filtered request, captures the statements it
