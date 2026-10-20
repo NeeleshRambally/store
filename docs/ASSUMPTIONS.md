@@ -165,15 +165,16 @@ delivered.
 - Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; a request whose
   `If-None-Match` matches is answered with `304 Not Modified` and no body. Caches may store a
   response but must revalidate it. `POST` responses carry no ETag. See ADR 0007.
-- Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail; a
-  request that never reaches the `DispatcherServlet`, and a 404 on the management connector, get
-  Boot's default error body instead. Validation failures list the offending fields, for a
-  request body and for a query parameter alike (`name`, `after`, `page`, `size`), and so does a
-  body that does not bind: an unknown property, a value of the wrong JSON type or an integer
-  outside the 64-bit range is named by its path (`productIds[0]`), while a body Jackson cannot
-  parse (malformed JSON, a repeated property, content after the object, a number of more than
-  1,000 digits) is `Failed to read request` without `errors`; nothing else about the failure is
-  exposed. A whitespace-only `name` or `description` is a validation failure, and the
+- Every error handled by Spring MVC is an RFC 7807 problem detail, on the management connector as
+  well; a request that Tomcat rejects before the servlet filters (a request line and headers over
+  8 KB, or a path holding `%00`, `%2F` or bytes that are not UTF-8) gets Tomcat's HTML 400 page
+  instead, without `X-Request-Id` (`docs/DESIGN.md`, API). Validation failures list the offending
+  fields, for a request body and for a query parameter alike (`name`, `after`, `page`, `size`),
+  and so does a body that does not bind: an unknown property, a value of the wrong JSON type or an
+  integer outside the 64-bit range is named by its path (`productIds[0]`), while a body Jackson
+  cannot parse (malformed JSON, a repeated property, content after the object, a number of more
+  than 1,000 digits) is `Failed to read request` without `errors`; nothing else about the failure
+  is exposed. A whitespace-only `name` or `description` is a validation failure, and the
   specification says so (its `pattern` requires a character that is not whitespace) so that a
   client built from it rejects the same value.
 - A problem detail is identified by its `code` extension member (`validation_failed`,
@@ -568,7 +569,9 @@ delivered.
 - Every response carries an `X-Request-Id` (echoed when well-formed, generated otherwise) that
   is also in the MDC of every log line of that request, so a client-quoted id finds the logs;
   the contract declares it as required on every response and the contract check enforces it.
-  Every request on the API port writes one access line (method, route template, status and
+  The exception is the 400 Tomcat sends itself for a request it rejects before the servlet
+  filters, which carries no id and writes no access line (`docs/DESIGN.md`, API). Every other
+  request on the API port writes one access line (method, route template, status and
   duration; never the query string or the body), so a quoted id always finds at least that
   line. An ingress usually logs requests too; the line stays on by default because the service
   cannot tell whether one does, and `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` removes it.
