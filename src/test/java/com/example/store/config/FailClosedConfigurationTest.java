@@ -105,6 +105,15 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void shutdownDrainsRequestsInFlightForUpToTwentySeconds() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("server.shutdown")).isEqualTo("graceful");
+        assertThat(environment.getProperty("spring.lifecycle.timeout-per-shutdown-phase"))
+                .isEqualTo("20s");
+    }
+
+    @Test
     void databaseTimeoutsFollowTheirVariables() {
         StandardEnvironment environment =
                 environmentWith(Map.of("DB_STATEMENT_TIMEOUT", "0", "DB_SOCKET_TIMEOUT", "0", "TX_TIMEOUT", "30s"));
