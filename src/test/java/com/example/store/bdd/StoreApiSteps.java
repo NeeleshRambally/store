@@ -122,6 +122,17 @@ public class StoreApiSteps {
         capture(restTemplate.postForEntity("/order", new HttpEntity<>(parts, headers), String.class));
     }
 
+    @When("I send {word} {string} with a {int}-byte form body")
+    public void sendFormBody(String method, String path, int bytes) throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        capture(restTemplate.exchange(
+                path,
+                HttpMethod.valueOf(method),
+                new HttpEntity<>("name=" + "a".repeat(bytes - 5), headers),
+                String.class));
+    }
+
     @When("I create an order {string} for customer {int} with {int} products")
     public void createOrderWithManyProducts(String description, int customerId, int productCount) throws Exception {
         post(
