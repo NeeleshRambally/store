@@ -462,8 +462,8 @@ delivered.
   detail (`method_not_allowed`), or the 404 (`not_found`) of the unknown path, in 1.4 to 4.3 ms
   after a first, cold one in 14.4 ms, with no ERROR line, and the 100 connections each had their
   405 while their bodies were still incomplete. `RequestBodyLimitIT` sends 8 KiB of a declared
-  60,000- and 1,900,000-byte form to each of the four and 70,000 chunked bytes to
-  `PUT /customer`, and requires the 405 or 404 problem detail within 5 s;
+  60,000- and 1,900,000-byte form to each of the four and requires the 405 or 404 problem detail
+  within 5 s, and sends 70,000 chunked bytes to `PUT /customer`, which must be a 405;
   `FailClosedConfigurationTest` pins the property and a Cucumber scenario the 405 of a
   70,000-byte form `PUT /customer`.
 - The invariant is enforced for orders created through the API from this release. The seed

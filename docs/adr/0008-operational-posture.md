@@ -200,16 +200,22 @@ nothing in a response or a log line identified the request a client was asking a
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
   rule, the access and creation lines, the latency buckets, the grace periods and the `preStop`
-  delay; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`,
-  `AccessLogIT` and `CreationLogIT` pin them, `GlobalExceptionHandlerTests`,
-  `GlobalExceptionHandlerLogTest` and `DatabaseFailureIT` the 503s of a lost and of a slow
+  delay. `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`,
+  `AccessLogIT` and `CreationLogIT` pin the probe bodies, the info endpoint, the request id, the
+  two lines and the buckets, `AccessLogFilterTest` the status logged for an exception that escapes
+  the filter chain, `FailClosedConfigurationTest` the graceful shutdown and its 20 s phase, and
+  `GracefulShutdownIT` the drain; no test pins the 30 s `stop_grace_period` of `compose.yaml`, and
+  the `preStop` delay is deployment guidance that no test can pin. `GlobalExceptionHandlerTests`,
+  `GlobalExceptionHandlerLogTest` and `DatabaseFailureIT` pin the 503s of a lost and of a slow
   database and the 500 of a session terminated at a `POST`'s commit,
-  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and `RequestBodyLimitIT` pin
-  the body bound, `FailClosedStartupIT` the fail-closed start-up, `GracefulShutdownIT` the
-  drain, and `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's
-  exit code, the hardening of the `migrate` and `store` containers, the address of every
-  published port and the runtime role's grants on the started stack, plus the 405 problem
-  detail of `DELETE /order/1` and the ECS access line of a `GET /order/1`.
+  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and `RequestBodyLimitIT` the
+  body bound, `RequestBodyLimitIT` also the two Tomcat timeouts on both connectors,
+  `FailClosedConfigurationTest` the switched-off form-content filter and the timeout settings,
+  `FailClosedStartupIT` the fail-closed start-up, and `scripts/smoke-test.sh` checks the `db`
+  component, the 413, the migration job's exit code, the hardening of the `migrate` and `store`
+  containers, the address of every published port and the runtime role's grants on the started
+  stack, plus the 405 problem detail of `DELETE /order/1` and the ECS access line of a
+  `GET /order/1`.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
   capabilities, no privilege escalation and a memory limit without swap, sized to the
