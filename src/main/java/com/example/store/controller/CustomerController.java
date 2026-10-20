@@ -63,7 +63,7 @@ public class CustomerController {
         return customerService.findById(id);
     }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<CustomerDTO> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {
         CustomerDTO created = customerService.create(request);
         return ResponseEntity.created(URI.create("/customer/" + created.id())).body(created);

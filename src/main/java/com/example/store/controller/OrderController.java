@@ -57,7 +57,7 @@ public class OrderController {
         return orderService.findById(id);
     }
 
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<OrderDTO> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         OrderDTO created = orderService.create(request);
         return ResponseEntity.created(URI.create("/order/" + created.id())).body(created);

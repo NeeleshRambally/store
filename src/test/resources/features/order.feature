@@ -107,6 +107,14 @@ Feature: Order management
     And the response problem code is "not_acceptable"
     And the number of orders described as "Requested as XML" is unchanged
 
+  Scenario: An order sent as a form is rejected and the response names JSON
+    Given the orders described as "Sent as a form" are counted
+    When I create an order "Sent as a form" for customer 5 with products 2 and 8 as a form
+    Then the response status is 415
+    And the response problem code is "unsupported_media_type"
+    And the response names "application/json" as the only accepted media type
+    And the number of orders described as "Sent as a form" is unchanged
+
   Scenario: An order body that repeats a property is rejected
     When I create an order with payload:
       """

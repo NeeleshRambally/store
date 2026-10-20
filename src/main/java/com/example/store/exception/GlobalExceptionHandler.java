@@ -23,6 +23,8 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.transaction.TransactionTimedOutException;
+import org.springframework.util.StringUtils;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -137,6 +139,15 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                     .body(problem(HttpStatus.PAYLOAD_TOO_LARGE, "payload_too_large", tooLarge.getMessage()));
         }
         return ResponseEntity.status(status).headers(headers).body(unreadableBody(ex.getCause(), status));
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHttpMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException ex, HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        if (!StringUtils.hasLength(request.getHeader(HttpHeaders.CONTENT_TYPE))) {
+            ex.getBody().setDetail("Content-Type is missing.");
+        }
+        return super.handleHttpMediaTypeNotSupported(ex, headers, status, request);
     }
 
     @Override
