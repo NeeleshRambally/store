@@ -148,8 +148,10 @@ delivered.
   unknown customer or product, is a 200 with an empty page, not a 404. They work in both paging
   modes under the same `sort` whitelist and cost the same statements as the unfiltered list. An
   index that leads with the filtered id and ends with the order id serves each of them, so a
-  page in id order reads its offset and its own entries and a cursor page only its own entries
-  (measured on 1,000,000 orders in `docs/PERFORMANCE.md`, "Filtered pages"). The two cannot be
+  page in id order reads its offset and its own entries and a cursor page only its own entries,
+  except that the planner reads all of a customer's orders and sorts them when they are few, or
+  for a deep page of a customer with many (measured on 1,000,000 orders in
+  `docs/PERFORMANCE.md`, "Filtered pages"). The two cannot be
   combined (`customerId and productId cannot be combined`, 400): a client that wants the orders
   of one customer containing one product filters the smaller list itself, which keeps the
   query shapes to the two indexed ones. These endpoints are the uncapped lists behind the
