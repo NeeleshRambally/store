@@ -79,7 +79,8 @@ nothing in a response or a log line identified the request a client was asking a
   statement timeout. `docs/DESIGN.md`, Configuration, gives the measured bounds. Liquibase runs
   on the same pool, so the `migrate` job sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` to
   `0`, and a Kubernetes `Job` needs the same: an index build or a data migration on a large
-  table may outlast any request limit, and a cancelled changeset stops the rollout.
+  table may outlast any request limit, and a cancelled changeset stops the rollout. ADR 0009
+  records how the index changesets lock their tables while they build.
 - **Stop grace covers the drain.** `server.shutdown: graceful` with a 20 s phase timeout is
   matched by `stop_grace_period: 30s` on the Compose service, and a Kubernetes deployment
   needs `terminationGracePeriodSeconds` of at least the same (its default is 30 s). Readiness

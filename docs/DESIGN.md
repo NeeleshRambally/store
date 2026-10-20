@@ -839,9 +839,13 @@ probes and metrics are reachable from inside the cluster but never from the publ
   grants. The job runs with `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` set to `0`, because
   Liquibase uses the service's pool and its timeouts (see Configuration). A Kubernetes rollout
   runs the image as a `Job` or init container ahead of the deployment, with the same two
-  variables. `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008 records
-  the split, which changeset needs a privileged role, and the `down -v` step for a volume
-  created before the job existed
+  variables. Changesets 3, 4 and 7 index existing tables with a plain `CREATE INDEX`, which
+  holds every write to the table until the changeset commits (changeset 7 took about a second
+  on 1,000,000 orders), so applying them to a populated database needs a write window; ADR 0009
+  records the measured builds and the concurrent form that every new index changeset uses.
+  `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008 records the split,
+  which changeset needs a privileged role, and the `down -v` step for a volume created before
+  the job existed
 * The image runs the layered jar as the non-root user 65532 on
   `gcr.io/distroless/java17-debian13:nonroot`, pinned by digest: Eclipse Temurin 17.0.20.1,
   installed as the Debian package `temurin-17-jre`, among 25 Debian 13 packages, with no shell,
