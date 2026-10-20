@@ -173,7 +173,8 @@ nothing in a response or a log line identified the request a client was asking a
 - **One access line per request.** `AccessLogFilter` writes one INFO line on
   `com.example.store.access` for every request on the API connector that reaches the filters
   (not one Tomcat rejects before them, such as an oversized header), with the method, the
-  route template, the status and the duration, never the raw path, the query string or the
+  route template, the status the client receives (the 500 Tomcat sends when an exception
+  escapes the filters) and the duration, never the raw path, the query string or the
   body (a search word is a query parameter). Without it most requests write no line at the
   shipped levels (a successful read, a 304, a 400, a 404, a 413 and a 415 log nothing), so a
   request id a client quotes would find nothing; with it every id finds at least that line.
