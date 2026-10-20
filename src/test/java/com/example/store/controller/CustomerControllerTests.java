@@ -19,6 +19,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -145,6 +146,28 @@ class CustomerControllerTests {
                 .andExpect(status().isNotAcceptable())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("not_acceptable"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsABodyWithoutAContentType() throws Exception {
+        mockMvc.perform(post("/customer").content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(header().string(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.detail").value("Content-Type is missing."))
+                .andExpect(jsonPath("$.code").value("unsupported_media_type"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAFormEncodedBodyAndNamesJsonAsTheAcceptedType() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .content("name=Form+Customer"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.code").value("unsupported_media_type"));
         verify(customerService, never()).create(any());
     }
 
