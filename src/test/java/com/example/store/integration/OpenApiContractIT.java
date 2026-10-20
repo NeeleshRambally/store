@@ -204,6 +204,26 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void pageAboveTheBoundMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("page", "21474837", "size", "100"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json().get("errors").get(0).get("field").asText())
+                .isEqualTo("page");
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void pageAtTheBoundMatchesTheContract() {
+        Interaction interaction = get("/order", Map.of("page", "21474836", "size", "100"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("content")).isEmpty();
+        assertConforms(interaction);
+    }
+
+    @Test
     void pageSizeBeyondThirtyTwoBitsMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("size", "3000000000"));
 
