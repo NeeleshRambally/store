@@ -153,17 +153,20 @@ with the orders per customer and per product even though the statement count was
 child query is now a native window query: `row_number() over (partition by customer_id order by
 id desc)` keeps the newest `NESTED_ORDERS_LIMIT` orders of each customer on the page and
 `count(*) over (partition by customer_id)` supplies `orderCount`, in one statement; the same
-shape over `order_product` serves the products. The statement is served by
-`idx_order_customer_id` when the page's customers own a small share of the order table
-(`MigrationIT.customerOrderWindowIsServedByTheCustomerIdIndex` pins a `Bitmap Index Scan` for
-three customers with sequential scans disabled), and the product shape reads
-`idx_order_product_product_id_order_id`
-(`MigrationIT.productOrderWindowIsServedByTheProductIdOrderIdIndex`); a `size=100` page on the
+shape over `order_product` serves the products and reads `idx_order_product_product_id_order_id`
+(`MigrationIT.productOrderWindowIsServedByTheProductIdOrderIdIndex`). A `size=100` page on the
 100-customer seed legitimately scans the whole table, because those customers own all of it
 (measured on 2026-10-19 on the seed with the jar of `f0b1595`, and the same on 2026-10-20 with
-changeset 8: unaided, the statement for the 20 customers of the default page is a
-`Bitmap Index Scan on idx_order_customer_id` returning their 1,941 orders, and for all 100
-customers a `Seq Scan on "order"`). The statement's work is proportional to the orders of the
+changeset 8: unaided, the statement for all 100 customers is a `Seq Scan on "order"`, and for the
+20 customers of the default page a `Bitmap Index Scan on idx_order_customer_id` returning their
+1,941 orders). `MigrationIT.customerOrderWindowForTheDefaultPageIsServedByTheCustomerIdIndex` pins
+that bitmap scan of `idx_order_customer_id` for the default page with sequential scans disabled.
+Changeset 8's `idx_order_customer_id_id` also leads with `customer_id`: for one to five customers
+the planner costs the two indexes the same and reads `idx_order_customer_id_id`, and from six to
+the 100 of a full page it rates `idx_order_customer_id`, 11 pages against 41, as cheaper (on the
+seed on 2026-10-20 with changeset 8, with sequential scans disabled and each index dropped in turn
+in a rolled-back transaction; the same before any `ANALYZE` or `VACUUM` and after either or both).
+The statement's work is proportional to the orders of the
 parents on the page, bounded in count by `size` and unbounded per parent: `count(*) over
 (partition by customer_id)` reads every order of each parent to produce `orderCount`, so a
 customer with a million orders costs a million index entries on every page it appears on even

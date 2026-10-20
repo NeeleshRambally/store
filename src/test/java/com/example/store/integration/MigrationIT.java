@@ -14,6 +14,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -127,14 +128,18 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void customerOrderWindowIsServedByTheCustomerIdIndex() {
+    void customerOrderWindowForTheDefaultPageIsServedByTheCustomerIdIndex() {
+        String defaultPageCustomerIds =
+                IntStream.rangeClosed(1, 20).mapToObj(String::valueOf).collect(Collectors.joining(", "));
         List<String> plan = explainWithoutSeqScan("EXPLAIN SELECT customer_id, id, description, total FROM"
                 + " (SELECT o.customer_id, o.id, o.description,"
                 + " row_number() OVER (PARTITION BY o.customer_id ORDER BY o.id DESC) AS rn,"
                 + " count(*) OVER (PARTITION BY o.customer_id) AS total"
-                + " FROM \"order\" o WHERE o.customer_id IN (1, 2, 3)) t WHERE rn <= 20 ORDER BY customer_id, id");
+                + " FROM \"order\" o WHERE o.customer_id IN (" + defaultPageCustomerIds + ")) t"
+                + " WHERE rn <= 20 ORDER BY customer_id, id");
 
-        assertThat(plan).anySatisfy(line -> assertThat(line).contains("Bitmap Index Scan on idx_order_customer_id"));
+        assertThat(plan)
+                .anySatisfy(line -> assertThat(line).containsPattern("Bitmap Index Scan on idx_order_customer_id\\s"));
     }
 
     @Test
