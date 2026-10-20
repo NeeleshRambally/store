@@ -81,14 +81,24 @@ nothing in a response or a log line identified the request a client was asking a
   `0`, and a Kubernetes `Job` needs the same: an index build or a data migration on a large
   table may outlast any request limit, and a cancelled changeset stops the rollout. ADR 0009
   records how the index changesets lock their tables while they build.
-- **Stop grace covers the drain.** `server.shutdown: graceful` with a 20 s phase timeout is
-  matched by `stop_grace_period: 30s` on the Compose service, and a Kubernetes deployment
-  needs `terminationGracePeriodSeconds` of at least the same (its default is 30 s). Readiness
-  flips to `REFUSING_TRAFFIC` on shutdown, so an orchestrator routes new connections away
-  while in-flight requests complete. The drain is documented but not observed by a test: the
-  API has no slow request to hold open while a shutdown is signalled, so a test could only
-  show that an idle server stops, which the configuration already states. The fail-closed
-  start-up, by contrast, is observed by `FailClosedStartupIT`.
+- **Stop grace covers the drain.** `server.shutdown: graceful` lets the requests in flight
+  when the stop signal arrives finish, for at most the 20 s phase timeout
+  (`spring.lifecycle.timeout-per-shutdown-phase`), and is matched by `stop_grace_period: 30s`
+  on the Compose service. Readiness turns `OUT_OF_SERVICE` when the drain begins (503 on the
+  management port, while liveness stays 200), but the API connector closes its listening
+  socket at the same moment, so the flip moves no traffic away: a connection opened after the
+  signal is refused, not served. In Kubernetes, deleting a pod marks its endpoints as not
+  ready while the kubelet starts stopping the container, and kube-proxy and the ingress act on
+  that a moment later, so the deployment delays the signal with a `preStop` hook that sleeps
+  (the `sleep` handler, Kubernetes 1.30 and later, since the image has no shell for an `exec`
+  hook), and its `terminationGracePeriodSeconds`, which counts from the start of the hook,
+  covers the delay, the 20 s phase and a margin (`docs/DESIGN.md`, Operations, gives the
+  sizing). `GracefulShutdownIT` observes the drain: it closes a second application on the
+  shared database while a `GET /order?size=5` waits for a lock on `order`, sees a new
+  connection refused, readiness answer 503 and liveness 200 while the request is held, and
+  the request answered 200 once the lock is released; with `server.shutdown: immediate` the
+  held request's connection is reset instead. `FailClosedConfigurationTest` pins both
+  properties, and `FailClosedStartupIT` observes the fail-closed start-up the same way.
 - **The Compose services are hardened.** `store` and `migrate` run with `read_only: true`
   and `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` are the only
   writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`,
@@ -152,17 +162,17 @@ nothing in a response or a log line identified the request a client was asking a
 
 ## Consequences
 - `docs/DESIGN.md`, "Operations", documents the probe bodies, the info endpoint, the request-id
-  rule, the access and creation lines, the latency buckets and the grace periods; `ActuatorIT`,
-  `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`, `AccessLogIT` and
-  `CreationLogIT` pin them, `GlobalExceptionHandlerTests`, `GlobalExceptionHandlerLogTest` and
-  `DatabaseFailureIT` the 503s of a lost and of a slow database and the 500 of a session
-  terminated at a `POST`'s commit,
-  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and
-  `RequestBodyLimitIT` pin the body bound, `FailClosedStartupIT` the fail-closed start-up, and
-  `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's exit code,
-  the hardening of the `migrate` and `store` containers, the address of every published port
-  and the runtime role's grants on the started stack, plus the 405 problem detail of
-  `DELETE /order/1` and the ECS access line of a `GET /order/1`.
+  rule, the access and creation lines, the latency buckets, the grace periods and the `preStop`
+  delay; `ActuatorIT`, `RequestIdFilterTests`, `RequestIdFilterMdcTest`, `RequestIdIT`,
+  `AccessLogIT` and `CreationLogIT` pin them, `GlobalExceptionHandlerTests`,
+  `GlobalExceptionHandlerLogTest` and `DatabaseFailureIT` the 503s of a lost and of a slow
+  database and the 500 of a session terminated at a `POST`'s commit,
+  `RequestBodyLimitFilterSliceTests`, `RequestBodyLimitFilterTest` and `RequestBodyLimitIT` pin
+  the body bound, `FailClosedStartupIT` the fail-closed start-up, `GracefulShutdownIT` the
+  drain, and `scripts/smoke-test.sh` checks the `db` component, the 413, the migration job's
+  exit code, the hardening of the `migrate` and `store` containers, the address of every
+  published port and the runtime role's grants on the started stack, plus the 405 problem
+  detail of `DELETE /order/1` and the ECS access line of a `GET /order/1`.
 - The Compose stack is the only runnable deployment shipped, so its hardening is the
   reference for any other environment: a read-only root with a writable `/tmp`, no
   capabilities, no privilege escalation and a memory limit without swap, sized to the
