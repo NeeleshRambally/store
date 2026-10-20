@@ -545,8 +545,9 @@ less ordered than that of a single-column index. `idx_order_product_product_id` 
 changeset 8: the new index serves every statement that used it, and the window query behind the
 products' nested order ids reads it index-only (3,930 buffers for the twenty products of the
 first page, which include the ten best-sellers, instead of 30,702). Through the service's
-Liquibase, as the `migrate` job runs it, the two builds took 674 ms and 1,024 ms on this table
-and the drop 3 ms (ADR 0009).
+Liquibase, run as the `migrate` job runs it with the jar of `062b418` on 2026-10-20 after the
+three changesets had been reverted by hand, the two builds took 307 to 447 ms and 584 to 736 ms
+on this table and the drop 4 to 5 ms in five runs (ADR 0009).
 
 `MigrationIT` pins the "after" plans with sequential scans disabled. Unlike the other pins it
 does not `EXPLAIN` a hand-written copy: it sends a filtered request, captures the statements it
