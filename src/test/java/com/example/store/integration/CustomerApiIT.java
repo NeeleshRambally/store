@@ -7,6 +7,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
@@ -312,6 +314,32 @@ class CustomerApiIT extends AbstractIntegrationTest {
                 .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
                 .extracting(error -> error.get("field"))
                 .containsExactly("name");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page=21474837", "page=107374183", "name=a&page=107374183"})
+    void rejectsAPageAboveTheBound(String query) {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/customer?" + query), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties()).containsEntry("code", "validation_failed");
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("page");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"page=21474836&size=100", "name=a&page=21474836&size=100"})
+    void servesThePageAtTheBoundAsAnEmptyPage(String query) {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity(URI.create(restTemplate.getRootUri() + "/customer?" + query), JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(response.getBody().get("page").asInt()).isEqualTo(21474836);
+        assertThat(response.getBody().get("totalElements").asLong()).isPositive();
     }
 
     @Test

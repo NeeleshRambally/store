@@ -381,6 +381,23 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getAllRejectsAPageAboveTheBound() throws Exception {
+        when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
+        when(customerService.search(any(), any())).thenReturn(new PageImpl<>(List.of()));
+
+        mockMvc.perform(get("/customer").param("page", "21474837"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("validation_failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be less than or equal to 21474836"));
+        mockMvc.perform(get("/customer").param("name", "a").param("page", "21474837"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"));
+        verify(customerService, never()).findAll(any());
+        verify(customerService, never()).search(any(), any());
+    }
+
+    @Test
     void getAllRejectsAZeroSize() throws Exception {
         when(customerService.findAll(any())).thenReturn(new PageImpl<>(List.of()));
 

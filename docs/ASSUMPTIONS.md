@@ -76,6 +76,14 @@ delivered.
   decoded) passed validation as 2 or 3 while the resolver, unable to parse them, served page 0,
   and `size=0x10` passed as 16 and was served as 20. Every value the binding accepts is one the
   resolver reads as the same number.
+- `page` is also bounded above, at 21474836 (`maximum` in the specification); a larger page is a
+  400 naming `page`. Spring Data passes the offset, `page` times `size`, to JPA's
+  `setFirstResult` as an `int` and throws once it exceeds 2,147,483,647, and the product
+  filter's native query takes it as an `int` as well, so a page that deep was a 500 with a stack
+  trace in the log (`/order?page=107374183` at the default size 20). 21474836 is the largest
+  page whose offset fits at the largest size, 100, so the bound does not depend on `size`; at a
+  smaller size it also refuses pages whose offset would fit, but every such page skips at least
+  21,474,837 elements. Deep positions are reached with `after`, which has no such bound.
 - Every numeric parameter is an integer in canonical decimal form, not only `page` and `size`:
   ASCII digits with no plus sign and no leading zeros, and a minus sign only before a non-zero
   digit, so that each number has one spelling. The path `id` of the three by-id reads and the
@@ -253,6 +261,13 @@ delivered.
   a 500, except a session that the database terminates while a `POST`'s insert is committed (as
   a restart does), which is still a 500 (`docs/DESIGN.md`, Operations). A 2.0.0 client that
   handles a code it does not know by its status, as the contract requires, needs no change.
+- `3.0.0` bounds `page` at 21474836 (`maximum` in the specification); a larger page is a 400
+  naming `page` (`validation_failed`). The bound narrows what 2.1.0 accepted, which is why the
+  major version changes, but a client that pages no further than `totalPages`, or walks deep
+  lists with `after`, needs no change: a refused page skips at least 21,474,837 elements even at
+  size 1, so it was empty on any shorter list, and once `page` times `size` passed
+  2,147,483,647 (from page 107374183 at the default size 20, from page 21474837 at size 100)
+  the service answered it with a 500.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
@@ -498,6 +513,11 @@ delivered.
   not declare it; a second validator that injects nothing accepted a `POST` body carrying an
   `id` on all three paths (an empty report where an `additionalProperties` error was expected)
   until the schemas declared the rule.
+- `page` declares `maximum: 21474836`. The captured 400 of `page=21474837&size=100` failed with
+  `Expecting value to be true but was false` until the maximum was declared, because the
+  validator accepted the request, and a captured 200 of `page=21474836&size=100` pins the bound
+  itself: a `maximum` of 21474835 fails it with
+  `Numeric instance is greater than the required maximum (maximum: 21474835, found: 21474836)`.
 
 ## Delivery
 - Every change arrives on a branch and goes through a pull request, which is merged once both

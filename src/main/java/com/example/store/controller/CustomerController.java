@@ -8,6 +8,7 @@ import com.example.store.dto.PageResponse;
 import com.example.store.service.CustomerService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 
@@ -45,7 +46,7 @@ public class CustomerController {
                             message = "must be a single word without whitespace or control characters")
                     String name,
             @RequestParam(required = false) @Min(0) Long after,
-            @RequestParam(required = false) @Min(0) Integer page,
+            @RequestParam(required = false) @Min(0) @Max(21474836) Integer page,
             @RequestParam(required = false) @Min(1) Integer size,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         if (after == null) {

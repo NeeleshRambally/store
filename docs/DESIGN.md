@@ -506,9 +506,9 @@ each whitelisted sort column together with `id` (`idx_order_description_id`,
 `idx_product_description_id`, `idx_customer_name_id`).
 
 ## API
-The contract is documented in `OpenAPI.yaml`, version 2.1.0; the version is the contract's own,
+The contract is documented in `OpenAPI.yaml`, version 3.0.0; the version is the contract's own,
 not the build's, and `docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what
-a client written against the delivered 1.0 has to change.
+a client written against the delivered 1.0, or against 2.1.0, has to change.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -637,7 +637,14 @@ Request input is strict rather than coerced (ADR 0002):
 - `page` below 0 and `size` below 1 are 400s naming the parameter
   (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
   resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default
-  20). A `size` above 100 is still capped at 100.
+  20). A `size` above 100 is still capped at 100. `page` above 21474836 is a 400 naming `page`
+  (`must be less than or equal to 21474836`): the offset of a page, `page` times `size`, reaches
+  the query as a 32-bit `int` (JPA's `setFirstResult`, and the `int` offset of the product
+  filter's native query), and 21474836 is the largest page whose offset fits at the largest
+  size, 100. A page whose offset passed 2,147,483,647 used to be a 500:
+  `/order?page=107374183` at the default size failed with Spring Data's
+  `Page offset exceeds Integer.MAX_VALUE`, and the same page of the product filter with an
+  integer overflow. Positions further on are reached with `after`.
 - Every numeric parameter is an integer in canonical decimal form: the path `id` of the three
   by-id reads and the query parameters `after`, `customerId`, `productId`, `page` and `size` are
   written in ASCII digits with no plus sign and no leading zeros, and a minus sign only before a

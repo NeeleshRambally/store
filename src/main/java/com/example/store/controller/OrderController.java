@@ -9,6 +9,7 @@ import com.example.store.dto.PageResponse;
 import com.example.store.service.OrderService;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 
 import lombok.RequiredArgsConstructor;
@@ -41,7 +42,7 @@ public class OrderController {
             @RequestParam(required = false) @Min(1) Long customerId,
             @RequestParam(required = false) @Min(1) Long productId,
             @RequestParam(required = false) @Min(0) Long after,
-            @RequestParam(required = false) @Min(0) Integer page,
+            @RequestParam(required = false) @Min(0) @Max(21474836) Integer page,
             @RequestParam(required = false) @Min(1) Integer size,
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         OrderFilter filter = new OrderFilter(customerId, productId);

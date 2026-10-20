@@ -604,6 +604,24 @@ class OrderControllerTests {
     }
 
     @Test
+    void getAllRejectsAPageAboveTheBound() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("page", "21474837"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("validation_failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("page"))
+                .andExpect(jsonPath("$.errors[0].message").value("must be less than or equal to 21474836"));
+        mockMvc.perform(get("/order")
+                        .param("productId", "2")
+                        .param("page", "21474837")
+                        .param("size", "100"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("page"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
     void getAllRejectsAZeroSize() throws Exception {
         when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
 

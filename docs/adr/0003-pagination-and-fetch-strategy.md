@@ -17,7 +17,9 @@ dominate latency.
 - Both list endpoints are paged. The response is a `PageResponse` envelope
   (`content`, `page`, `size`, `totalElements`, `totalPages`). The default page size is 20,
   the maximum is 100 (larger values are capped, not rejected), and the default sort is `id`
-  so pages are stable under `LIMIT/OFFSET`.
+  so pages are stable under `LIMIT/OFFSET`. The page index is at most 21474836 (a larger one
+  is a 400), the largest whose offset fits the `int` that JPA's `setFirstResult` takes at size
+  100; positions further on are reached with the cursor of "Keyset pagination" below.
 - `GET /order` joins the customer in the page query. A to-one join does not multiply rows, so
   the database applies the limit; the products of the page are loaded with one further
   `where id in (...)` query: 3 statements for a full page (page + count + products).

@@ -407,6 +407,44 @@ class OrderApiIT extends AbstractIntegrationTest {
                 .containsExactly("page");
     }
 
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "page=21474837",
+                "page=107374183",
+                "page=21474837&size=100",
+                "customerId=1&page=107374183",
+                "productId=2&page=107374183"
+            })
+    void rejectsAPageAboveTheBound(String query) {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/order?" + query), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties()).containsEntry("code", "validation_failed");
+        assertThat(response.getBody().getProperties().get("errors"))
+                .asInstanceOf(InstanceOfAssertFactories.list(Map.class))
+                .extracting(error -> error.get("field"))
+                .containsExactly("page");
+    }
+
+    @ParameterizedTest
+    @ValueSource(
+            strings = {
+                "page=21474836&size=100",
+                "customerId=1&page=21474836&size=100",
+                "productId=2&page=21474836&size=100"
+            })
+    void servesThePageAtTheBoundAsAnEmptyPage(String query) {
+        ResponseEntity<JsonNode> response =
+                restTemplate.getForEntity(URI.create(restTemplate.getRootUri() + "/order?" + query), JsonNode.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().get("content")).isEmpty();
+        assertThat(response.getBody().get("page").asInt()).isEqualTo(21474836);
+        assertThat(response.getBody().get("totalElements").asLong()).isPositive();
+    }
+
     @Test
     void rejectsAPageWhosePlusSignDecodesToASpace() {
         ResponseEntity<ProblemDetail> response =
