@@ -17,6 +17,7 @@ spring:
         socketTimeout: ${DB_SOCKET_TIMEOUT:15}
         cancelSignalTimeout: 3
         tcpKeepAlive: true
+        logServerErrorDetail: false
   jpa:
     open-in-view: false
     hibernate:
