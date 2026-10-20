@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -103,6 +104,22 @@ public class StoreApiSteps {
         form.add("productIds", String.valueOf(firstProduct));
         form.add("productIds", String.valueOf(secondProduct));
         capture(restTemplate.postForEntity("/order", new HttpEntity<>(form, headers), String.class));
+    }
+
+    @When("I create an order {string} for customer {int} with product {int} as multipart with a {int}-byte file")
+    public void createOrderAsMultipart(String description, int customerId, int productId, int fileBytes)
+            throws Exception {
+        HttpHeaders fileHeaders = new HttpHeaders();
+        fileHeaders.setContentDisposition(
+                ContentDisposition.formData().name("file").filename("order.bin").build());
+        MultiValueMap<String, Object> parts = new LinkedMultiValueMap<>();
+        parts.add("description", description);
+        parts.add("customerId", String.valueOf(customerId));
+        parts.add("productIds", String.valueOf(productId));
+        parts.add("file", new HttpEntity<>(new byte[fileBytes], fileHeaders));
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
+        capture(restTemplate.postForEntity("/order", new HttpEntity<>(parts, headers), String.class));
     }
 
     @When("I create an order {string} for customer {int} with {int} products")

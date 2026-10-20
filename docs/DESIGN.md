@@ -85,7 +85,7 @@ included (see Configuration). More data can be generated with the script describ
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
-| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's form-parameter limit (`server.tomcat.max-http-form-post-size`) on both connectors, so no form body over it is parsed (see API) |
+| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON request body accepted (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors, so no such body over it is parsed; a multipart body is not parsed at all (see API) |
 | `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (the logger inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
@@ -591,9 +591,9 @@ body or of a query parameter such as `name`, `after`, `customerId`, `productId`,
 path id that is not in canonical decimal form is a 400 problem detail. Requests never carry
 an id; an unknown property is a 400 that names it (see the input rules below). Each `POST`
 reads only `application/json` (`consumes`; a `charset` parameter is accepted): a body with
-another `Content-Type`, such as a form encoding, text or a JSON-based type like
-`application/vnd.api+json`, or with none, is a 415 problem detail decided when the request is
-mapped, before the body is read. The 415 carries `Accept: application/json`, and its detail
+another `Content-Type`, such as a URL-encoded or multipart form, text or a JSON-based type
+like `application/vnd.api+json`, or with none, is a 415 problem detail decided when the request
+is mapped, before the body is read. The 415 carries `Accept: application/json`, and its detail
 names the type that was sent (`Content-Type 'text/plain;charset=UTF-8' is not supported.`),
 says `Content-Type is missing.` or, for a value that is not a media type, says `Could not parse
 Content-Type.` A JSON body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is
@@ -602,13 +602,21 @@ a 413 problem detail (`Request body exceeds 65536 bytes`), judged by the declare
 Tomcat appends `Connection: close` to the 413. After the 413 or the 415 Tomcat discards the
 unread remainder, up to its 2 MB swallow limit, on the request's thread, so a client that then
 sends nothing holds that thread until Tomcat's 60 s connection timeout, while none of the body
-is kept. A form body used to escape the bound: Spring builds a form `POST`'s body from the
-request parameters, so Tomcat parsed the body itself, past `RequestBodyLimitFilter`'s bounded
-stream and up to its 2 MB form limit, and a `POST` declaring 1,900,000 form bytes was answered
-only once all of them had arrived (`docs/ASSUMPTIONS.md`, "Products", gives the measurement).
-Tomcat's form limit (`server.tomcat.max-http-form-post-size`) therefore follows
+is kept. Two kinds of body used to escape the bound, because they were parsed past
+`RequestBodyLimitFilter`'s bounded stream. Spring builds a URL-encoded form `POST`'s body from
+the request parameters, so Tomcat parsed the body itself, up to its 2 MB form limit, and a
+`POST` declaring 1,900,000 form bytes was answered only once all of them had arrived. Spring's
+`DispatcherServlet` parsed any `multipart/*` request, whatever its method, before it mapped
+it, up to Spring Boot's multipart limits (1 MB a part, 10 MB a request) and spooling the parts
+to files under `java.io.tmpdir` (the Compose stack's memory-backed `/tmp`), so a `POST`
+declaring 9,000,000 multipart bytes and sending 8 KiB had no answer within 5 s
+(`docs/ASSUMPTIONS.md`, "Products", gives both measurements). Multipart support is switched
+off (`spring.servlet.multipart.enabled: false`), as the API takes no multipart body: no
+multipart resolver is registered and no servlet has a multipart configuration, so neither
+Spring nor Tomcat parses a multipart body, and it is a 415 like any other type. Tomcat's limit
+for a URL-encoded form (`server.tomcat.max-http-form-post-size`) follows
 `REQUEST_MAX_BODY_BYTES` on both connectors, because whatever asks for a `POST`'s parameters
-still has Tomcat parse a form body, `consumes` or not: Spring's hidden-method filter
+still has Tomcat parse such a body, `consumes` or not: Spring's hidden-method filter
 (`spring.mvc.hiddenmethod.filter.enabled`) and request-detail logging
 (`spring.mvc.log-request-details` with the `DispatcherServlet` at DEBUG) both made Tomcat read a
 1,900,000-byte form body again. Over the limit Tomcat does not read the body at all. The

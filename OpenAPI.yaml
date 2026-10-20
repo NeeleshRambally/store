@@ -789,9 +789,10 @@ components:
             code: payload_too_large
     UnsupportedMediaType:
       description: >-
-        The Content-Type is missing or is not application/json (for example a form encoding,
-        text or a JSON-based type such as application/vnd.api+json), so the request was rejected
-        when it was mapped and its body was not read; the Accept header names application/json
+        The Content-Type is missing or is not application/json (for example a URL-encoded or
+        multipart form, text or a JSON-based type such as application/vnd.api+json), so the
+        request was rejected when it was mapped and its body was not read; the Accept header names
+        application/json
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'

@@ -113,6 +113,13 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void multipartParsingIsSwitchedOff() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("spring.servlet.multipart.enabled")).isEqualTo("false");
+    }
+
+    @Test
     void shutdownDrainsRequestsInFlightForUpToTwentySeconds() {
         StandardEnvironment environment = environmentWith(Map.of());
 

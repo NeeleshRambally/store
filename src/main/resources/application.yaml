@@ -35,6 +35,9 @@ spring:
     web:
       pageable:
         max-page-size: 100
+  servlet:
+    multipart:
+      enabled: false
   cache:
     type: ${CACHE_TYPE:caffeine}
     cache-names: orders,products
