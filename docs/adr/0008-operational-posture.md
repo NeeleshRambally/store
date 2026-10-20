@@ -141,7 +141,8 @@ nothing in a response or a log line identified the request a client was asking a
   collector in scope, a trace id without a backend is noise, and the header is exactly where a
   gateway's or a tracer's id attaches when one arrives.
 - **One access line per request.** `AccessLogFilter` writes one INFO line on
-  `com.example.store.access` for every request on the API connector, with the method, the
+  `com.example.store.access` for every request on the API connector that reaches the filters
+  (not one Tomcat rejects before them, such as an oversized header), with the method, the
   route template, the status and the duration, never the raw path, the query string or the
   body (a search word is a query parameter). Without it most requests write no line at the
   shipped levels (a successful read, a 304, a 400, a 404, a 413 and a 415 log nothing), so a
@@ -192,8 +193,9 @@ nothing in a response or a log line identified the request a client was asking a
 - A client that sends its own id gets it back on every status, including 304, 413 and 500, and
   can quote it to operations; log lines of one request share `requestId` in the ECS JSON
   output, one object per line with nested `log`, `service` (name and version) and `ecs`
-  members and the MDC entries at the top level, and every request writes at least its access
-  line. The smoke test's `compose` mode proves it on the started image: `GET /order/1` sent
+  members and the MDC entries at the top level, and every request that reaches the filters
+  writes at least its access line. The smoke test's `compose` mode proves it on the started
+  image: `GET /order/1` sent
   with `X-Request-Id: smoke-<pid>` must leave its access line, with that `requestId`, the route
   and the `service` name and version, in the `store` container's output. A data-integrity
   conflict is logged at WARN by SQL state and constraint name only, with the full cause at

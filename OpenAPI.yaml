@@ -8,7 +8,9 @@ info:
     below. A method that is not listed on a path (for example DELETE /order/1, which the
     pipeline's smoke test sends) answers a 405 problem detail with the code method_not_allowed;
     OpenAPI cannot declare a response for a method the contract does not define, so that case is
-    stated here instead. Every problem detail carries a code, the stable identity of the problem
+    stated here instead. A request the HTTP server rejects before that layer (a request line and
+    headers over 8 KB, or a path holding %00, %2F or bytes that are not UTF-8) gets a text/html 400
+    without X-Request-Id. Every problem detail carries a code, the stable identity of the problem
     (the values are listed in the ProblemDetail schema; type stays about:blank): branch on the
     code, never on the detail text, which may change. A client must accept a code it does not
     know and handle it by the status, because adding a code is a minor version of this contract;
