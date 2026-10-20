@@ -224,6 +224,20 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void emptyOrBlankNumericQueryValuesAreServedAsAbsent() {
+        Interaction interaction = get("/order", Map.of("customerId", "", "after", " ", "page", "", "size", "\t"));
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.OK);
+        assertThat(interaction.json().get("page").asInt()).isZero();
+        assertThat(interaction.json().get("size").asInt()).isEqualTo(20);
+        assertThat(VALIDATOR.validateRequest(interaction.request()).getMessages())
+                .extracting(ValidationReport.Message::getKey)
+                .hasSize(4)
+                .containsOnly("validation.request.parameter.missing");
+        assertResponseConforms(interaction);
+    }
+
+    @Test
     void pageSizeBeyondThirtyTwoBitsMatchesTheContract() {
         Interaction interaction = get("/order", Map.of("size", "3000000000"));
 

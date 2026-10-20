@@ -454,7 +454,9 @@ components:
         stays within the 32-bit range at the largest size, 100; positions further on are reached
         with after. A value below 0 or above 21474836 is rejected with 400 naming page; a value
         that is not written in ASCII decimal digits without a plus sign or leading zeros (such as
-        0x2, +1, 01 or -0) or one outside the 32-bit range is rejected with 400 as well.
+        0x2, +1, 01 or -0) or one outside the 32-bit range is rejected with 400 as well. An empty
+        value or one made only of whitespace (page= or page=%20) counts as absent: page 0 is
+        returned.
       schema:
         type: integer
         format: int32
@@ -469,7 +471,8 @@ components:
         schema carries no maximum; the size echoed in the response is the effective one. A value
         below 1 is rejected with 400 naming size; a value that is not written in ASCII decimal
         digits without a plus sign or leading zeros (such as 0x10, +5 or 05) or one outside the
-        32-bit range is rejected with 400 as well.
+        32-bit range is rejected with 400 as well. An empty value or one made only of whitespace
+        (size= or size=%09) counts as absent: the default 20 applies.
       schema:
         type: integer
         format: int32
@@ -488,7 +491,8 @@ components:
         rejected with 400 (see the cursorWithPage example of the BadRequest response). A value
         below 0 is rejected with 400 naming after; a value that is not written in ASCII decimal
         digits without a plus sign or leading zeros (such as 0x10, +1, 01 or -0) or one outside
-        the 64-bit range is rejected with 400 as well.
+        the 64-bit range is rejected with 400 as well. An empty value or one made only of
+        whitespace (after= or after=%20) counts as absent: the response is an offset Page.
       schema:
         type: integer
         format: int64
@@ -503,7 +507,9 @@ components:
         order (including an unknown customer) yields an empty page with totalElements 0, not a
         404. A value below 1 is rejected with 400 naming customerId; a value that is not written in
         ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
-        outside the 64-bit range is rejected with 400 as well.
+        outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
+        whitespace (customerId= or customerId=%20) counts as absent: the orders are not filtered
+        by customer.
         Cannot be combined with productId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
@@ -520,7 +526,9 @@ components:
         order (including an unknown product) yields an empty page with totalElements 0, not a
         404. A value below 1 is rejected with 400 naming productId; a value that is not written in
         ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
-        outside the 64-bit range is rejected with 400 as well.
+        outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
+        whitespace (productId= or productId=%20) counts as absent: the orders are not filtered by
+        product.
         Cannot be combined with customerId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
