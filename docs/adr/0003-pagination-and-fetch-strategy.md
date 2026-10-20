@@ -26,9 +26,10 @@ dominate latency.
   page.
 - The two child queries above are the original shape; today's are the native window query of
   "Nested collections" below over the row projections of ADR 0006, at the same counts.
-- 3 is the full-page cost and the maximum: Spring Data skips the count query when the first
-  page is shorter than `size`, and the services skip the child query when the page is empty, so
-  a short first page costs 2 and an empty one 1 (both pinned by `QueryCountIT`).
+- 3 is the full-page cost and the maximum: Spring Data skips the count query when a page is
+  shorter than `size`, unless it is an empty page after the first, whose total it cannot derive,
+  and the services skip the child query when the page is empty, so a short first page costs 2,
+  an empty first page 1 and an empty page beyond the end 2 (all three pinned by `QueryCountIT`).
   Fetch-joining a collection together with `Pageable` is deliberately avoided because Hibernate
   would page in memory after loading every row (`HHH90003004`).
 - Open-in-view is disabled. Services are transactional and return DTOs, so no lazy loading can

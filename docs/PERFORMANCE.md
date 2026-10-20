@@ -191,8 +191,8 @@ the ratio, the production database adds a network round trip to each statement):
 
 The first page costs the same in both modes; the saving is proportional to the depth. The
 cursor is the last id of the page (`nextCursor`), so a client walks the whole table in
-`ceil(n / size)` requests of constant cost, and `QueryCountIT` pins the 2 statements for all
-four cursor queries.
+`ceil(n / size)` requests of constant cost, and `QueryCountIT` pins the 2 statements of all six
+cursor queries: orders, customers, the name search, products and the two order filters.
 
 ## Sorted pages
 The whitelisted sort properties (`description` on orders and products, `name` on customers)
@@ -465,7 +465,8 @@ batch, and fails at 103 with `jdbc.batch_size: 1`, which prepares every join row
 
 ## Deliberately not done
 - **Caching the list pages.** The by-id reads are cached (above); the pages are not. A page
-  key would have to include page, size, sort, cursor and name filter, and every `POST /order`,
-  `POST /customer` or `POST /products` changes the totals of at least one list, so the entries
-  would be invalidated as fast as they are filled. The lists are already at most 2 or 3
-  statements and the HTTP revalidation covers the client that polls the same page.
+  key would have to include page, size, sort, cursor and the `name`, `customerId` and
+  `productId` filters, and every `POST /order`, `POST /customer` or `POST /products` changes the
+  totals of at least one list, so the entries would be invalidated as fast as they are filled.
+  The lists are already at most 2 or 3 statements and the HTTP revalidation covers the client
+  that polls the same page.
