@@ -63,7 +63,7 @@ advanced past the seeded ids, so the first insert failed outright.
 | HikariCP pool size configurable (`DB_POOL_SIZE`), connection and validation timeouts explicit (5 s, 2 s) | Predictable behaviour under load; fail fast when the database is unreachable |
 | Statement, socket and transaction timeouts on every connection (`DB_STATEMENT_TIMEOUT` 10 s on the server, `DB_SOCKET_TIMEOUT` 15 s, `TX_TIMEOUT` 15 s, `cancelSignalTimeout` 3 s) | A slow statement or a stalled remote database holds its connection and its request thread for a bounded time and then answers a retryable 503: after 10.0 s for a statement still waiting at the limit and after 15.0 to 18.1 s for a paused database, measured by hand on 2026-10-19 on the Compose stack built from the branch of #80, whose timeout settings and exception handler are those of `60529f6` (`docs/DESIGN.md`, Configuration, gives the method); no statement is added, so `QueryCountIT` is unchanged |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
-| `GET /order?customerId=` and `GET /order?productId=`: the page, count and products queries restricted to one customer or one product, each served by an index that leads with the filtered id and ends with the order id (changeset 8): the customer's page, cursor and count read `idx_order_customer_id_id` on `"order" (customer_id, id)`; a product's page in `id` order and its cursor take the page's order ids from `idx_order_product_product_id_order_id` on `order_product (product_id, order_id)` in a limited subquery before reading those orders, and its count reads that index alone | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; on 1,000,000 orders every filtered first page and cursor page in `id` order that was measured reads at most 172 buffers (an offset page still reads its offset), where the earlier plans walked up to 999,501 entries of `order_pkey` for a product (up to 163 ms) or read all 1,000 orders of a large account on every page (see "Filtered pages" below); `MigrationIT` pins the plans of the statements the application sends |
+| `GET /order?customerId=` and `GET /order?productId=`: the page, count and products queries restricted to one customer or one product, each served by an index that leads with the filtered id and ends with the order id (changeset 8): the customer's count reads `idx_order_customer_id_id` on `"order" (customer_id, id)`, as do, in id order, the first page and cursor of a customer with many orders, while the planner reads all the orders of a customer with only a few, and of a large one for a deeper offset page, through one of the two `customer_id` indexes and sorts them; a product's page in `id` order and its cursor take the page's order ids from `idx_order_product_product_id_order_id` on `order_product (product_id, order_id)` in a limited subquery before reading those orders, and its count reads that index alone | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; on 1,000,000 orders every filtered first page and cursor page in `id` order that was measured reads at most 172 buffers (an offset page still reads at least its offset), where the earlier plans walked up to 999,501 entries of `order_pkey` for a product (up to 163 ms) or read all 1,000 orders of a large account on every page (see "Filtered pages" below); `MigrationIT` pins the plans of the statements the application sends |
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows, a filtered cursor into the index of its filter (see "Deep pages" and "Filtered pages" below and ADR 0003) |
 | Weak `ETag` and `Cache-Control: no-cache` on every API `GET`; a matching `If-None-Match` is answered with `304 Not Modified` and no body | A client or intermediary that re-reads an unchanged resource receives headers only (see "Caching" below and ADR 0007) |
 | Caffeine cache in front of `GET /order/{id}` and `GET /products/{id}` (`@Cacheable`, 60 s TTL, 10,000 entries, cache advice outside the transaction advice); `products` entries are evicted after `POST /order` commits | A repeated by-id read within the TTL runs no statement and opens no Hibernate session |
@@ -487,7 +487,8 @@ above id 900,000). Products 11 to 1,010 each sell in one run of 1,000 consecutiv
 (product 11 in orders 1 to 1,000, product 1,010 in the last 1,000), and products 1,011 to 1,210
 have 5 orders each, 1,000 ids apart (product 1,011 in orders 500 to 4,500, product 1,210 in
 995,500 to 999,500). Customers and products with few orders at old ids were cheap before and
-stay so (customer 1: 8, 8 and 4 buffers for its page, cursor and count; product 1,011: 77
+stay so (customer 1: 8, 8 and 4 buffers for its page, cursor and count, the page and the cursor
+reading its five orders through `idx_order_customer_id` and sorting them; product 1,011: 77
 buffers before, 44 after). The rest:
 
 | Request | Before | After |
@@ -513,14 +514,16 @@ statement also changed plan with the statistics sample (product 10 above).
 
 Changeset 8 adds `idx_order_customer_id_id` on `"order" (customer_id, id)` and
 `idx_order_product_product_id_order_id` on `order_product (product_id, order_id)`, in the
-concurrent form of ADR 0009. The customer statements are unchanged: the page and the cursor read
-the customer's entries in id order and stop after the page, and the count is an index-only scan.
-For products the index was not enough by itself. With it, the statements of `992cd7e` still
-merge-joined `order_pkey` from the first id for product 10 (900,199 entries, 10,263 buffers, 83
-to 91 ms), because nothing tells the planner that a frequent product's orders are recent, and
-the cursor's `o1_0.id>?` stays on `"order"`, because PostgreSQL carries an equality across the
-join but not a range, so the cursor after product 1's median order id still read its first
-146,471 index entries (614 buffers, 10.2 to 10.5 ms). A product page in id order and the
+concurrent form of ADR 0009. The customer statements are unchanged: the count is an index-only
+scan of the new index, and a large account's first page and cursor read its entries in id order
+and stop after the page, while a customer with only a few orders has them read through
+`idx_order_customer_id` and sorted (deeper offset pages are covered below). For products the
+index was not enough by itself. With it, the statements of `992cd7e` still merge-joined
+`order_pkey` from the first id for product 10 (900,199 entries, 10,263 buffers, 83 to 91 ms),
+because nothing tells the planner that a frequent product's orders are recent, and the cursor's
+`o1_0.id>?` stays on `"order"`, because PostgreSQL carries an equality across the join but not a
+range, so the cursor after product 1's median order id still read its first 146,471 index
+entries (614 buffers, 10.2 to 10.5 ms). A product page in id order and the
 product cursor therefore take the page's order ids from the index first, in a subquery with its
 own order, limit and offset, and then read those orders and their customers:
 
@@ -537,22 +540,27 @@ cursor and count from 29, 31 and 57 buffers to 15, 16 and 3, and product 2's pag
 to 103 to 108 buffers (55 to 106 before, now without the walk of `order_pkey`) in at most
 0.061 ms, its count from 512 buffers to 5.
 
-What the filters still cost: an offset page reads its offset (a large account's page 49 reads
-all of its 1,000 orders, 1,007 buffers, 0.42 to 0.50 ms, and product 10's page 50 above); a
-count reads every entry of its customer or product, 38 to 39 ms for product 1; and a filtered
-page sorted by `description` either sorts the filtered orders (a large account's page: 1,007
-buffers, 0.45 to 0.76 ms) or walks `idx_order_description_id` until the page is full, which for
-a product probes `idx_order_product_product_id_order_id` once per order walked (product 11:
-about 163,500 buffers, varying by a few hundred because parallel workers share the walk, 35 to
-45 ms; product 10: 404,374 buffers, 111 to 122 ms). With the indexes as they were before
-changeset 8, restored in a rolled-back transaction, the same two pages read as many buffers but
-probe `pk_order_product`, where the entries of the orders walked spread over the whole 90 MB
-index, so about a fifth of those buffers missed the default 128 MB of shared buffers and were
-read in from the operating system (115 to 143 ms and 376 to 409 ms). A page in descending id
-order read at most 164 buffers for every customer and product measured. For a product it keeps
-the join, which could walk `order_pkey` backwards from the newest order for a frequently ordered
-product whose orders all hold old ids, the mirror image of product 10; this table has no such
-product.
+What the filters still cost: an offset page reads at least its offset. Customer 2,000's pages
+walk `idx_order_customer_id_id` in id order up to page 16 (47 buffers for page 1, 228 for page
+10), and from page 17 on the planner reads all of its 1,000 orders through
+`idx_order_customer_id` and sorts them (1,007 buffers for pages 25 and 49, 0.42 to 0.50 ms for
+page 49; a generic plan walks `idx_order_customer_id_id` instead, 529 and 1,011 buffers). On the
+seed, customer 1's pages after the first read all 96 of its orders through a bitmap scan of
+`idx_order_customer_id_id` and sort them (58 buffers, against 15 for its first page). Product
+10's page 50 is in the table above. A count reads every entry of its customer or product, 38 to
+39 ms for product 1; and a filtered page sorted by `description` either sorts the filtered
+orders (a large account's page: 1,007 buffers, 0.45 to 0.76 ms) or walks
+`idx_order_description_id` until the page is full, which for a product probes
+`idx_order_product_product_id_order_id` once per order walked (product 11: about 163,500
+buffers, varying by a few hundred because parallel workers share the walk, 35 to 45 ms;
+product 10: 404,374 buffers, 111 to 122 ms). With the indexes as they were before changeset 8,
+restored in a rolled-back transaction, the same two pages read as many buffers but probe
+`pk_order_product`, where the entries of the orders walked spread over the whole 90 MB index, so
+about a fifth of those buffers missed the default 128 MB of shared buffers and were read in from
+the operating system (115 to 143 ms and 376 to 409 ms). A page in descending id order read at
+most 164 buffers for every customer and product measured. For a product it keeps the join,
+which could walk `order_pkey` backwards from the newest order for a frequently ordered product
+whose orders all hold old ids, the mirror image of product 10; this table has no such product.
 
 `idx_order_customer_id` stays: without it the planner walks `idx_order_description_id` for a
 large account's page sorted by description (customer 2,000: 18,542 entries, 18,660 buffers, 8.1
