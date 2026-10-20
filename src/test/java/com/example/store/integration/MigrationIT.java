@@ -138,6 +138,18 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void productOrderWindowIsServedByTheProductIdOrderIdIndex() {
+        List<String> plan = explainWithoutSeqScan("EXPLAIN SELECT product_id, order_id, total FROM"
+                + " (SELECT op.product_id, op.order_id,"
+                + " row_number() OVER (PARTITION BY op.product_id ORDER BY op.order_id DESC) AS rn,"
+                + " count(*) OVER (PARTITION BY op.product_id) AS total"
+                + " FROM order_product op WHERE op.product_id IN (1, 2, 3)) t WHERE rn <= 20"
+                + " ORDER BY product_id, order_id");
+
+        assertThat(plan).anySatisfy(line -> assertThat(line).contains("idx_order_product_product_id_order_id"));
+    }
+
+    @Test
     void customerFilteredPageIsReadInIdOrderFromTheCustomerIdIdIndex() {
         List<String> plan = planOfStatementSentFor("/order?customerId=1&size=20", 0, 1, 20);
 
@@ -251,7 +263,8 @@ class MigrationIT extends AbstractIntegrationTest {
                 "SELECT indexdef FROM pg_indexes WHERE tablename = 'order_product'", String.class);
 
         assertThat(indexes).anySatisfy(definition -> assertThat(definition).contains("(order_id, product_id)"));
-        assertThat(indexes).anySatisfy(definition -> assertThat(definition).contains("(product_id)"));
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition).contains("(product_id, order_id)"));
+        assertThat(indexes).noneSatisfy(definition -> assertThat(definition).endsWith("(product_id)"));
     }
 
     @Test
