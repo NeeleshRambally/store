@@ -132,15 +132,24 @@ nothing in a response or a log line identified the request a client was asking a
   file), but `store` fails with `Unable to start web server`, because Tomcat creates its
   base directory under `java.io.tmpdir` and the read-only root refuses it, and readiness is
   never reached.
-- **Request size.** `RequestBodyLimitFilter` (ordered right after `RequestIdFilter`, API
-  connector only) wraps every request so that a declared `Content-Length` over
-  `REQUEST_MAX_BODY_BYTES` (64 KiB by default) fails before a byte is read and a chunked body
-  fails once more than the bound has been counted; both surface as a 413 problem detail with
-  the request id, and malformed JSON stays a 400. No Spring Boot property bounds a JSON body on
-  Tomcat (`max-http-form-post-size` is form parsing, `max-swallow-size` the post-abort swallow,
-  `max-http-request-header-size` the headers), which is why the filter exists. The largest
-  valid request is about 2 KB; Tomcat closes the connection after the 413 and swallows the
-  unread remainder up to 2 MB. There is no 411: chunked bodies are legal and common.
+- **Request size.** The three `POST`s consume `application/json` only, so a body of another
+  media type, a form encoding included, or one without a `Content-Type` is a 415 problem detail
+  when the request is mapped and is never read. `RequestBodyLimitFilter` (ordered right after
+  `RequestIdFilter`, API connector only) wraps every request so that a declared
+  `Content-Length` over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) fails before a byte is read
+  and a chunked body fails once more than the bound has been counted; both surface as a 413
+  problem detail with the request id, and malformed JSON stays a 400. No Spring Boot property
+  bounds a JSON body on Tomcat (`max-http-form-post-size` is form parsing, `max-swallow-size`
+  the post-abort swallow, `max-http-request-header-size` the headers), which is why the filter
+  exists. The filter bounds only what is read through the request's stream, while Tomcat
+  parses a form body itself whenever something asks for a `POST`'s parameters, as Spring did to
+  build the 415 of a form `POST` before the `POST`s declared what they consume: such a body was
+  read into memory, up to Tomcat's 2 MB form limit, before it was rejected. So
+  `max-http-form-post-size` follows `REQUEST_MAX_BODY_BYTES` on both connectors as well, and no
+  form body over the bound is parsed even where something such as Spring's hidden-method
+  filter asks for the parameters. The largest valid request is about 2 KB; Tomcat closes the
+  connection after the 413 and swallows the unread remainder of a 413 or a 415 up to 2 MB.
+  There is no 411: chunked bodies are legal and common.
 - **Request ids, not tracing.** `RequestIdFilter` runs before every other filter, echoes an
   inbound `X-Request-Id` that matches `[A-Za-z0-9._-]{1,128}` and otherwise mints a UUID; the
   value is set on the response before the chain runs and put in the MDC as `requestId` until
