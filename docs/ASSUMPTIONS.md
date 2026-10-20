@@ -80,8 +80,8 @@ delivered.
   ASCII digits with no plus sign and no leading zeros, and a minus sign only before a non-zero
   digit, so that each number has one spelling. The path `id` of the three by-id reads and the
   `after`, `customerId` and `productId` query parameters are bound by the same editor, which
-  checks the raw text against `0|-?[1-9][0-9]*` before it parses it with `Long.valueOf`, an
-  empty or blank query value counting as absent. A value in hexadecimal (`0x1`, `#1`), with
+  checks the untrimmed text against `0|-?[1-9][0-9]*` before it parses it with `Long.valueOf`,
+  an empty or blank query value counting as absent. A value in hexadecimal (`0x1`, `#1`), with
   whitespace around or inside its digits (` 1`, a `1` followed by a tab, `1 0`), with a plus
   sign, a leading zero or a minus sign before 0 (`+1`, `01`, `-0`) or with a digit outside
   ASCII (U+0661, an Arabic-Indic one, or U+FF11, a fullwidth one) is the type-mismatch 400
@@ -93,8 +93,12 @@ delivered.
   after id 16, and `customerId=0x1` filtered by customer 1. `Long.valueOf` on its own read the
   other forms as the number their digits spell: `/order/%2B1`, `/order/01`, `/order/%D9%A1` and
   `/order/%EF%BC%91` returned order 1 and `customerId=%2B1` filtered by customer 1, so one id
-  had several spellings, each of which a gateway in front of the service (ADR 0002) would have
-  had to normalise before it compared ids.
+  had several decimal spellings, each of which a gateway in front of the service (ADR 0002)
+  would have had to normalise before it compared ids. The editor sees the text after the path
+  and the query string have been percent-decoded and the `;` parameters of each path segment
+  removed, so `/order/%31` and `/order/1;x=1` return order 1 and `customerId=%31` filters by
+  customer 1: such a gateway still has to decode a request as the service does before it
+  compares ids.
 - Every query parameter except `sort` is single-valued. A repeated one is a 400
   (`'customerId' must not be repeated`, with the parameter in `errors`), checked by an
   interceptor before the parameters are bound, so the repetition is reported even when a value

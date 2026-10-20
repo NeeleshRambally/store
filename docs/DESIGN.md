@@ -649,9 +649,12 @@ Request input is strict rather than coerced (ADR 0002):
   `Failed to convert 'id' with value: '0x1'`) without `errors`, while a negative value reaches
   the range check of its parameter (`page=-1` is a 400 naming `page`). An empty or blank query
   value counts as absent, and a blank path id is a 400 as well
-  (`Required path variable 'id' is not present.`). `DecimalParameterBinding` checks the raw text
-  against `0|-?[1-9][0-9]*` and only then parses it with `Long.valueOf` or `Integer.valueOf`, so
-  a value outside the range is still rejected by the parse. The parse alone reads a leading `+`
+  (`Required path variable 'id' is not present.`). `DecimalParameterBinding` checks the
+  untrimmed text against `0|-?[1-9][0-9]*` and only then parses it with `Long.valueOf` or
+  `Integer.valueOf`, so a value outside the range is still rejected by the parse. The editor
+  sees the text after the path and the query string have been percent-decoded and the `;`
+  parameters of each path segment removed, so `/order/%31` and `/order/1;x=1` are order 1
+  (ADR 0002 says what that means for a gateway). The parse alone reads a leading `+`
   or zero and a decimal digit outside ASCII as the number written (`/order/%2B1`, `/order/01`,
   `/order/%D9%A1` and `/order/%EF%BC%91` used to return order 1), and Spring's own number
   conversion strips every whitespace character and reads `0x` and `#` as hexadecimal:
