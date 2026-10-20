@@ -173,7 +173,10 @@ secrets:
 ```
 Name the files after the variables, never after the properties: a file named
 `spring.datasource.password` replaces the property itself, so it silently overrides
-`DB_PASSWORD`, and only `SPRING_DATASOURCE_PASSWORD` would still beat it.
+`DB_PASSWORD`. The import sits just above the packaged `application.yaml`, so a profile-specific
+or external configuration file still beats it, as do `SPRING_DATASOURCE_PASSWORD`, a system
+property and a command-line argument. Both `.gitignore` and `.dockerignore` list `db_password.txt`
+and `.env`, so a local secret file stays out of Git and out of the image's build context.
 
 `DB_URL` also carries the driver's TLS settings. The default URL names a local database and sets
 none, so PgJDBC uses `sslmode=prefer`: TLS when the server offers it, without checking the
