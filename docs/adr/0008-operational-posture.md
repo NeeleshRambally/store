@@ -88,24 +88,25 @@ nothing in a response or a log line identified the request a client was asking a
   service covers both. Readiness turns `OUT_OF_SERVICE` when the drain begins (503 on the
   management port, while liveness stays 200), but the API connector closes its listening
   socket at the same moment, so the flip moves no traffic away: a connection opened after the
-  signal is refused, not served, and a keep-alive connection that is idle at the signal stays
-  open, but the next request sent on it is not processed: the connection closes without a
-  response, so a client that pools its connections gets no answer to that request, a `POST`
-  included. In Kubernetes, deleting a pod marks its endpoints as not ready while the kubelet
-  starts stopping the container, and kube-proxy and the ingress act on that a moment later, so
-  the deployment delays the signal with a `preStop` hook that sleeps (the `sleep` handler,
-  Kubernetes 1.30 and later, since the image has no shell for an `exec` hook). The delay moves
-  new connections only, since kube-proxy keeps a connection on the pod it was opened to. The
-  deployment's `terminationGracePeriodSeconds`, which counts from the start of the hook, covers
-  the delay, the 20 s phase, Tomcat's 5 s and a margin (`docs/DESIGN.md`, Operations, gives the
-  sizing and the measurements). `GracefulShutdownIT` observes the drain: it closes a second
-  application on the shared database while a `GET /order?size=5` waits for a lock on `order`,
-  sees a new connection refused, readiness answer 503 and liveness 200 while the request is
-  held, and the request answered 200 once the lock is released; with
-  `server.shutdown: immediate` the held request's connection is reset instead. It sends no
-  request on a connection that was idle at the signal; that case was observed by hand.
-  `FailClosedConfigurationTest` pins both properties, and `FailClosedStartupIT` observes the
-  fail-closed start-up the same way.
+  signal is refused, not served (through Docker Desktop's published port the client sees an
+  empty reply instead), and a keep-alive connection that is idle at the signal stays open, but
+  the next request sent on it is not processed: the connection closes without a response, so a
+  client that pools its connections gets no answer to that request, a `POST` included. In
+  Kubernetes, deleting a pod marks its endpoints as not ready while the kubelet starts stopping
+  the container, and kube-proxy and the ingress act on that a moment later, so the deployment
+  delays the signal with a `preStop` hook that sleeps (the `sleep` handler, Kubernetes 1.30 and
+  later, since the image has no shell for an `exec` hook). The delay moves new connections
+  only, since kube-proxy keeps a connection on the pod it was opened to. The deployment's
+  `terminationGracePeriodSeconds`, which counts from the start of the hook, covers the delay,
+  the 20 s phase, Tomcat's 5 s and a margin (`docs/DESIGN.md`, Operations, gives the sizing,
+  the measurements and what a client of the Compose stack sees). `GracefulShutdownIT` observes
+  the drain: it closes a second application on the shared database while a
+  `GET /order?size=5` waits for a lock on `order`, sees a new connection refused, readiness
+  answer 503 and liveness 200 while the request is held, and the request answered 200 once the
+  lock is released; with `server.shutdown: immediate` the held request's connection is reset
+  instead. It sends no request on a connection that was idle at the signal; that case was
+  observed by hand. `FailClosedConfigurationTest` pins both properties, and
+  `FailClosedStartupIT` observes the fail-closed start-up the same way.
 - **The Compose services are hardened.** `store` and `migrate` run with `read_only: true`
   and `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` are the only
   writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`,

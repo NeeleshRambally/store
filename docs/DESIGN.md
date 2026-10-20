@@ -864,8 +864,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `DatabaseTimeoutsIT` reads the setting back from the pool
 * Shutdown is graceful: on `SIGTERM` the requests in flight get up to 20 s to finish
   (`server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase: 20s`). The drain
-  begins by closing the API connector's listening socket, so from then on a new connection to
-  8080 is refused, while the management port keeps answering, readiness with 503
+  begins by closing the API connector's listening socket, so from then on the service refuses a
+  new connection to 8080 (through Docker Desktop's published port a client sees an empty reply
+  instead, see below), while the management port keeps answering, readiness with 503
   (`OUT_OF_SERVICE`) and liveness with 200, until the requests in flight have finished; the
   management server, the API server and the pool stop after them. A keep-alive connection that
   is idle when the drain begins is not closed but stays open until the API server stops, and a
@@ -903,6 +904,14 @@ probes and metrics are reachable from inside the cluster but never from the publ
   thread dump at 22.6 s showed the shutdown waiting for Tomcat's request threads, the pool
   closed at 25.0 s, the stuck thread then logged a 503 access line, and the process exited 25.2
   and 25.3 s after the signal in two runs
+* In the Compose stack a client reaches 8080 through Docker's published port, which on Docker
+  Desktop does not pass the refusal on: on Docker Desktop 4.38.0 (engine 27.5.1, macOS,
+  2026-10-20, two runs), with the jar built from 7d4ff7c in the runtime image, a new connection
+  to the published port during the drain completed its handshake and was then closed without a
+  byte (`curl` exit 52, an empty reply, where a refused connection is exit 7; `nc -z`
+  succeeded), while the same connection from inside the container's network namespace was
+  refused, and the published port refused only once the container had exited. Keep-alive
+  connections through the published port behaved as described above
 * A Kubernetes deployment needs a delay before that signal. Deleting a pod marks its endpoints
   as not ready while the kubelet starts stopping the container, and kube-proxy and the ingress
   act on that a moment later, so without a delay connections still arrive after the drain has
