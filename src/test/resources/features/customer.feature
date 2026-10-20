@@ -50,6 +50,11 @@ Feature: Customer management
     Then the response status is 400
     And the response problem detail is "Failed to convert 'after' with value: '1 0'"
 
+  Scenario: An empty page number and a blank page size count as absent
+    When I request customers with the query "page=&size=%09"
+    Then the response status is 200
+    And the page reports page 0, size 20 and at least 100 total elements
+
   Scenario: Sorting by an unknown property is rejected
     When I request customers sorted by "nope"
     Then the response status is 400

@@ -267,7 +267,9 @@ delivered.
   lists with `after`, needs no change: a refused page skips at least 21,474,837 elements even at
   size 1, so it was empty on any shorter list, and once `page` times `size` passed
   2,147,483,647 (from page 107374183 at the default size 20, from page 21474837 at size 100)
-  the service answered it with a 500.
+  the service answered it with a 500. 3.0.0 also states, in the descriptions of the five
+  numeric query parameters, that an empty value or one made only of whitespace counts as
+  absent, as the service already served it.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
@@ -518,6 +520,13 @@ delivered.
   validator accepted the request, and a captured 200 of `page=21474836&size=100` pins the bound
   itself: a `maximum` of 21474835 fails it with
   `Numeric instance is greater than the required maximum (maximum: 21474835, found: 21474836)`.
+- An empty or blank numeric query value, which the service serves as absent, cannot be declared
+  in the schema: the validator reports `customerId=` as
+  `Parameter 'customerId' is required but is missing.` (`validation.request.parameter.missing`),
+  and still does with `allowEmptyValue: true`, which swagger-request-validator 2.46.1 applies to
+  string and array parameters only. The five parameter descriptions therefore state the rule,
+  and a contract case records the validator's four reports for `customerId=`, `after=%20`,
+  `page=` and `size=%09` next to the server's 200, whose response conforms.
 
 ## Delivery
 - Every change arrives on a branch and goes through a pull request, which is merged once both
