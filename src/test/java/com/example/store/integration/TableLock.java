@@ -12,7 +12,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-// Locks a table from its own connection and cancels or terminates the backend of a request that waits for it.
+// Locks a table from its own connection and holds, cancels or terminates the backend of a request that waits for it.
 public final class TableLock implements AutoCloseable {
 
     private static final String WAITING_BACKEND =
@@ -36,6 +36,12 @@ public final class TableLock implements AutoCloseable {
             statement.execute("lock table " + table + " in access exclusive mode");
         }
         return new TableLock(holder, connect(container), table);
+    }
+
+    public <T> CompletableFuture<T> holdWaiting(Supplier<T> request) throws SQLException, InterruptedException {
+        CompletableFuture<T> response = CompletableFuture.supplyAsync(request);
+        waitingBackend();
+        return response;
     }
 
     public <T> T cancelWaiting(Supplier<T> request) throws Exception {
