@@ -11,6 +11,7 @@ import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import ch.qos.logback.classic.Level;
@@ -91,6 +92,31 @@ class AccessLogIT extends AbstractIntegrationTest {
         ILoggingEvent line = lineOf("access-405");
         assertThat(line.getFormattedMessage()).matches("DELETE UNKNOWN 405 \\d+ ms");
         assertThat(members(line)).containsEntry("route", "UNKNOWN");
+    }
+
+    @Test
+    void aBodyTypeNoHandlerConsumesIsLoggedWithTheUnknownRoute() {
+        HttpHeaders headers = withRequestId("access-415");
+        headers.setContentType(MediaType.TEXT_PLAIN);
+
+        ResponseEntity<String> response =
+                restTemplate.exchange("/order", HttpMethod.POST, new HttpEntity<>("an order", headers), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        ILoggingEvent line = lineOf("access-415");
+        assertThat(line.getFormattedMessage()).matches("POST UNKNOWN 415 \\d+ ms");
+        assertThat(members(line)).containsEntry("route", "UNKNOWN");
+    }
+
+    @Test
+    void aResponseTypeNoHandlerProducesIsLoggedWithTheUnknownRoute() {
+        HttpHeaders headers = withRequestId("access-406");
+        headers.setAccept(List.of(MediaType.APPLICATION_XML));
+
+        ResponseEntity<String> response = exchange(HttpMethod.GET, "/order/1", headers);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_ACCEPTABLE);
+        assertThat(lineOf("access-406").getFormattedMessage()).matches("GET UNKNOWN 406 \\d+ ms");
     }
 
     @Test
