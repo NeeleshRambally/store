@@ -418,7 +418,7 @@ ETag filter (row 2's bound is the one `CompressionIT` asserts), and row 3 is the
 
 The ETag filter is shallow: the controller and the service still run on a conditional request,
 so a 304 saves response bytes and client parsing, not server work; the service cache is what
-saves the round trip. The filter also buffers the whole response body in memory to hash it
+saves the round trips. The filter also buffers the whole response body in memory to hash it
 before the first byte is written, on every `GET` it covers, whether or not the client sent
 `If-None-Match`: one extra copy of the body per request, at most the 106 KB of
 `GET /customer?size=100`. That is accepted because the pages are bounded (above), so the copy is

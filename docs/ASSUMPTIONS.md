@@ -652,8 +652,9 @@ revision), what was done, and where the reasoning lives.
   repositories directly): `spring.jpa.open-in-view: false` and transactional services that
   return DTOs; ADR 0003.
 - `default_batch_fetch_size: 10` (`application.yaml:13`), which turned each list request into 11
-  round trips: the list endpoints run a fixed number of statements per page and the property is
-  raised to 100 as a safety net only; `docs/PERFORMANCE.md` and ADR 0003.
+  statements, so at least 11 round trips to the remote database: the list endpoints run a fixed
+  number of statements per page and the property is raised to 100 as a safety net only;
+  `docs/PERFORMANCE.md` and ADR 0003.
 - No time limit on any database call (`application.yaml:2-5` sets only the URL and the
   credentials): PgJDBC waits for an answer forever by default, so a stalled or silently dropped
   connection to the remote database held its pool slot and its request thread with no limit.
