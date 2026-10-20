@@ -113,6 +113,14 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void tomcatDropsAStalledRequestAfterTenSecondsAndAnIdleConnectionAfterSixty() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("server.tomcat.connection-timeout")).isEqualTo("10s");
+        assertThat(environment.getProperty("server.tomcat.keep-alive-timeout")).isEqualTo("60s");
+    }
+
+    @Test
     void multipartParsingIsSwitchedOff() {
         StandardEnvironment environment = environmentWith(Map.of());
 
