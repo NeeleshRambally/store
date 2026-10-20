@@ -246,12 +246,12 @@ runs, in one task and in one JVM:
   rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated product id, a
   fractional `customerId`, a numeric product `description`, a NUL in each request string, a
   client-supplied `id`, and an order body that repeats a property or has content after it);
-  the 400 of a non-numeric id on the three by-id paths and of a hexadecimal one on
-  `/order/{id}`, of an unknown sort property on `/order` and `/products`, of a cursor combined
+  the 400 of a non-numeric id on the three by-id paths and of a hexadecimal or zero-padded one
+  on `/order/{id}`, of an unknown sort property on `/order` and `/products`, of a cursor combined
   with a page, of a negative `after` and of one whose digits a space splits, of a negative or
-  hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 and of
-  `customerId` combined with `productId` on `/order`, and of a multi-word `name` and of a
-  `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
+  hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 or in fullwidth
+  digits and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` and
+  of a `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
   and U+2028, are accepted by both); the 404 of an unknown order, product and customer and of
   an order for an unknown customer; the 406 of each of the nine operations for
   `Accept: application/xml`; the 413 of an oversized body and the 415 of a `POST /order` sent as
@@ -555,8 +555,8 @@ as an oversized header) and a 404 on the management connector get Boot's default
 (`{"timestamp","status","error","path"}`) instead. Validation failures, whether of a request
 body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
 `size`, include an `errors` array with the offending field names and the constraint messages. A
-path id that is not a decimal integer is a 400 problem detail. Requests never carry an id; an
-unknown property is a 400 that names it (see the input rules below). A request body over
+path id that is not in canonical decimal form is a 400 problem detail. Requests never carry
+an id; an unknown property is a 400 that names it (see the input rules below). A request body over
 `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail (`Request body exceeds
 65536 bytes`), judged by the declared `Content-Length` before any byte is read or by the bytes
 counted while a chunked body is read; Tomcat appends `Connection: close` to the 413 and
@@ -574,7 +574,7 @@ the wording of `detail`:
 | `code` | Status | Raised for |
 |---|---|---|
 | `validation_failed` | 400 | A body field or a query parameter that breaks a constraint, or a body value of the wrong JSON type or beyond the 64-bit range; `errors` names each |
-| `invalid_parameter` | 400 | A path or query parameter that does not convert (`GET /order/abc`, `GET /order/0x1`, `page=abc`), or a repeated single-valued query parameter (named in `errors`) |
+| `invalid_parameter` | 400 | A path or query parameter that does not convert (`GET /order/abc`, `GET /order/0x1`, `GET /order/01`, `page=abc`), or a repeated single-valued query parameter (named in `errors`) |
 | `unknown_property` | 400 | A body property the request does not define (named in `errors`) |
 | `malformed_body` | 400 | A body that is not one readable JSON object (malformed JSON, another JSON value, a repeated property, content after the object) |
 | `invalid_sort` | 400 | A `sort` property outside the endpoint's list |
@@ -638,23 +638,29 @@ Request input is strict rather than coerced (ADR 0002):
   (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
   resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default
   20). A `size` above 100 is still capped at 100.
-- Every numeric parameter is a decimal integer: the path `id` of the three by-id reads and the
-  query parameters `after`, `customerId`, `productId`, `page` and `size`. Any other value (`abc`,
-  `0x1`, `#1`, `1 0`, or digits with a leading or trailing space or tab; a leading space is also
-  what the unencoded plus of `page=+2` decodes to) and a value outside the 64-bit range (32-bit
-  for `page` and `size`) are the type-mismatch 400 (`invalid_parameter`, with the detail
-  `Failed to convert 'id' with value: '0x1'`) without `errors`. An empty or blank query value
-  counts as absent, and a blank path id is a 400 as well
-  (`Required path variable 'id' is not present.`). `DecimalParameterBinding` parses each
-  parameter with `Long.valueOf` or `Integer.valueOf` on the raw text, as Spring Data's resolver
-  parses `page` and `size`, so a leading `+` or zero and a non-ASCII decimal digit still read as
-  the number written (`/order/%2B1`, `/order/01` and `/order/%D9%A1`, an Arabic-Indic one, are
-  order 1). Spring's own number conversion strips every whitespace character and reads `0x` and
-  `#` as hexadecimal: `/order/0x1` and `/order/%231` used to return order 1 and `/order/1%200`
-  order 10, an id the client never sent, and `page=0x2` passed validation as 2 while the
-  resolver, which falls back to page 0 or size 20 when it cannot parse the raw text, served
-  page 0. The binding registers an editor on the binder, not a converter, because the binder
-  retries a failed conversion with its default number editor, which parses the same lenient way.
+- Every numeric parameter is an integer in canonical decimal form: the path `id` of the three
+  by-id reads and the query parameters `after`, `customerId`, `productId`, `page` and `size` are
+  written in ASCII digits with no plus sign and no leading zeros, and a minus sign only before a
+  non-zero digit, so each number has one spelling, the one `Long.toString` writes. Any other
+  value (`abc`, `0x1`, `#1`, `1 0`, `+1`, `01`, `-0`, a digit outside ASCII such as U+0661 or
+  U+FF11, or digits with a leading or trailing space or tab; a leading space is also what the
+  unencoded plus of `page=+2` decodes to) and a value outside the 64-bit range (32-bit for
+  `page` and `size`) are the type-mismatch 400 (`invalid_parameter`, with the detail
+  `Failed to convert 'id' with value: '0x1'`) without `errors`, while a negative value reaches
+  the range check of its parameter (`page=-1` is a 400 naming `page`). An empty or blank query
+  value counts as absent, and a blank path id is a 400 as well
+  (`Required path variable 'id' is not present.`). `DecimalParameterBinding` checks the raw text
+  against `0|-?[1-9][0-9]*` and only then parses it with `Long.valueOf` or `Integer.valueOf`, so
+  a value outside the range is still rejected by the parse. The parse alone reads a leading `+`
+  or zero and a decimal digit outside ASCII as the number written (`/order/%2B1`, `/order/01`,
+  `/order/%D9%A1` and `/order/%EF%BC%91` used to return order 1), and Spring's own number
+  conversion strips every whitespace character and reads `0x` and `#` as hexadecimal:
+  `/order/0x1` and `/order/%231` used to return order 1 and `/order/1%200` order 10, an id the
+  client never sent, and `page=0x2` passed validation as 2 while the resolver, which falls back
+  to page 0 or size 20 when it cannot parse the raw text, served page 0. The resolver reads
+  every value the binding accepts as the same number. The binding registers an editor on the
+  binder, not a converter, because the binder retries a failed conversion with its default
+  number editor, which parses the same lenient way.
 - Every query parameter an endpoint binds as a single value (`name`, `customerId`,
   `productId`, `after`, `page`, `size`) is a 400 when repeated, with the detail
   `'name' must not be repeated` and an `errors` entry for it, where Spring used to keep the first

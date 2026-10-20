@@ -128,9 +128,10 @@ paths:
           in: path
           required: true
           description: >-
-            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
-            with whitespace around or between them) or one outside the 64-bit range is rejected
-            with 400.
+            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
+            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
+            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
+            around or between them) or one outside the 64-bit range is rejected with 400.
           schema:
             type: integer
             format: int64
@@ -266,9 +267,10 @@ paths:
           in: path
           required: true
           description: >-
-            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
-            with whitespace around or between them) or one outside the 64-bit range is rejected
-            with 400.
+            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
+            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
+            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
+            around or between them) or one outside the 64-bit range is rejected with 400.
           schema:
             type: integer
             format: int64
@@ -393,9 +395,10 @@ paths:
           in: path
           required: true
           description: >-
-            A value that is not a decimal integer (such as abc, the hexadecimal 0x1, or digits
-            with whitespace around or between them) or one outside the 64-bit range is rejected
-            with 400.
+            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
+            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
+            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
+            around or between them) or one outside the 64-bit range is rejected with 400.
           schema:
             type: integer
             format: int64
@@ -447,8 +450,8 @@ components:
       in: query
       description: >-
         Zero-based page index. A value below 0 is rejected with 400 naming page; a value that is
-        not a decimal integer (such as 0x2) or one outside the 32-bit range is rejected with 400
-        as well.
+        not written in ASCII decimal digits without a plus sign or leading zeros (such as 0x2, +1,
+        01 or -0) or one outside the 32-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int32
@@ -460,8 +463,9 @@ components:
       description: >-
         Page size. Values above 100 are accepted and capped at 100 rather than rejected, so the
         schema carries no maximum; the size echoed in the response is the effective one. A value
-        below 1 is rejected with 400 naming size; a value that is not a decimal integer or one
-        outside the 32-bit range is rejected with 400 as well.
+        below 1 is rejected with 400 naming size; a value that is not written in ASCII decimal
+        digits without a plus sign or leading zeros (such as 0x10, +5 or 05) or one outside the
+        32-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int32
@@ -478,8 +482,9 @@ components:
         page size is still size (default 20, capped at 100). after cannot be combined with page
         (other than 0) or with a sort whose first property is not id ascending: such a request is
         rejected with 400 (see the cursorWithPage example of the BadRequest response). A value
-        below 0 is rejected with 400 naming after; a value that is not a decimal integer (such as
-        0x10) or one outside the 64-bit range is rejected with 400 as well.
+        below 0 is rejected with 400 naming after; a value that is not written in ASCII decimal
+        digits without a plus sign or leading zeros (such as 0x10, +1, 01 or -0) or one outside
+        the 64-bit range is rejected with 400 as well.
       schema:
         type: integer
         format: int64
@@ -492,8 +497,9 @@ components:
       description: >-
         Only the orders placed by this customer, in both paging modes. An id that matches no
         order (including an unknown customer) yields an empty page with totalElements 0, not a
-        404. A value below 1 is rejected with 400 naming customerId; a value that is not a decimal
-        integer (such as 0x1) or one outside the 64-bit range is rejected with 400 as well.
+        404. A value below 1 is rejected with 400 naming customerId; a value that is not written in
+        ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
+        outside the 64-bit range is rejected with 400 as well.
         Cannot be combined with productId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
@@ -508,8 +514,9 @@ components:
       description: >-
         Only the orders that contain this product, in both paging modes. An id that matches no
         order (including an unknown product) yields an empty page with totalElements 0, not a
-        404. A value below 1 is rejected with 400 naming productId; a value that is not a decimal
-        integer (such as 0x1) or one outside the 64-bit range is rejected with 400 as well.
+        404. A value below 1 is rejected with 400 naming productId; a value that is not written in
+        ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
+        outside the 64-bit range is rejected with 400 as well.
         Cannot be combined with customerId: such a request is rejected with 400 (see the
         combinedFilters example of the BadRequest response).
       schema:
