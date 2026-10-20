@@ -18,11 +18,11 @@ web test and provide no actual protection.
   rejection of unknown JSON properties and of a property repeated in a body (the gateway and
   the service could otherwise read different values from it), validated query parameters that
   are rejected when repeated, numeric path and query parameters accepted only in canonical
-  decimal form (ASCII digits with no plus sign or leading zeros, so a gateway rule written for an
-  id cannot be sidestepped by another spelling of it, and never read in hexadecimal or with
-  their whitespace removed), problem-detail responses that never leak exception messages or
-  stack traces, actuator exposure limited to `health`, `info` and `prometheus` with health
-  details hidden, and a container image that runs as a non-root user.
+  decimal form (ASCII digits with no plus sign or leading zeros, so each id has one decimal
+  spelling, and never read in hexadecimal or with their whitespace removed), problem-detail
+  responses that never leak exception messages or stack traces, actuator exposure limited to
+  `health`, `info` and `prometheus` with health details hidden, and a container image that runs
+  as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`). It is tracked as
   [issue #70](https://github.com/neeleshambally/store/issues/70), due before 2027-03-31, after
@@ -50,5 +50,12 @@ web test and provide no actual protection.
   publishes the API, the actuator and the database on 127.0.0.1 unless `STORE_BIND_ADDRESS`
   names another address, and its smoke test fails when a published port is bound to any
   address other than that one.
+- A gateway rule written for a path or an id holds only if the gateway reads the request as the
+  service does. The service percent-decodes the path and the query string and drops the `;`
+  parameters of each path segment before it matches the route and binds an id, so `/order/%31`,
+  `/%6Frder/1` and `/order/1;x=1` return order 1 and `customerId=%31` filters by customer 1:
+  the canonical decimal form applies to the decoded value only. A gateway that applies such a
+  rule must decode the path and the query in the same way before it compares them, or reject a
+  path that carries a percent-encoded octet or a `;` parameter.
 - Tests remain free of security fixtures, which keeps the slice and acceptance tests focused on
   behaviour; they will gain a JWT fixture when authentication lands.
