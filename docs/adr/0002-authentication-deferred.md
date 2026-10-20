@@ -17,9 +17,10 @@ web test and provide no actual protection.
   id, nor a number or a boolean into text, and request text carries no control characters),
   rejection of unknown JSON properties and of a property repeated in a body (the gateway and
   the service could otherwise read different values from it), validated query parameters that
-  are rejected when repeated, numeric path and query parameters accepted only in canonical
-  decimal form (ASCII digits with no plus sign or leading zeros, so each id has one decimal
-  spelling, and never read in hexadecimal or with their whitespace removed), problem-detail
+  are rejected when repeated or when the query string cannot be parsed in full, numeric path and
+  query parameters accepted only in canonical decimal form (ASCII digits with no plus sign or
+  leading zeros, so each id has one decimal spelling, and never read in hexadecimal or with
+  their whitespace removed), problem-detail
   responses that never leak exception messages or stack traces, actuator exposure limited to
   `health`, `info` and `prometheus` with health details hidden, and a container image that runs
   as a non-root user.
@@ -56,6 +57,11 @@ web test and provide no actual protection.
   `/%6Frder/1` and `/order/1;x=1` return order 1 and `customerId=%31` filters by customer 1:
   the canonical decimal form applies to the decoded value only. A gateway that applies such a
   rule must decode the path and the query in the same way before it compares them, or reject a
-  path that carries a percent-encoded octet or a `;` parameter.
+  path that carries a percent-encoded octet or a `;` parameter. Tomcat drops a query parameter
+  it cannot decode, so a gateway that read `customerId=1%` as customer 1 would have scoped a
+  request that the service answered with every order; the list endpoints therefore reject a
+  query string that Tomcat cannot parse in full with a 400 (`invalid_parameter`), whichever
+  parameter it affects, rather than serve the request without it (`docs/DESIGN.md`, input
+  rules).
 - Tests remain free of security fixtures, which keeps the slice and acceptance tests focused on
   behaviour; they will gain a JWT fixture when authentication lands.

@@ -117,6 +117,17 @@ delivered.
   parameter is still ignored, repeated or not. `sort` stays repeatable, since each occurrence
   adds a sort property, and `name` is bound as one string rather than a list, so `?name=a,b`
   searches for `a,b` as one word.
+- A query string that Tomcat cannot parse in full is a 400 on the list endpoints
+  (`invalid_parameter`, `The query string could not be parsed`, no `errors`). Tomcat drops a
+  parameter whose percent escape it cannot decode (a `%` that is not followed by two hexadecimal
+  digits: `customerId=1%`, `name=50%`) and a value without a name (`=1`), so the service used to
+  answer as if the parameter had not been sent: `/order?customerId=1%` listed every order and
+  `/customer?name=50%` every customer. A gateway in front of the service (ADR 0002) that read
+  `customerId=1%` as customer 1 would have scoped a request that the service answered with every
+  order. The check runs on every endpoint that binds a query parameter, before the repetition
+  check, and rejects the request whichever parameter failed, because Tomcat does not report
+  which one it dropped; the by-id reads and the `POST`s bind none, so their query string is
+  never parsed and is still ignored. A `%` in a search word is sent as `%25`.
 - `sort` accepts only the properties listed in `OpenAPI.yaml` for each endpoint (`id` and
   `description` for orders and products, `id` and `name` for customers). Anything else, including
   nested paths such as `customer.name`, is a 400 problem detail with the detail
@@ -250,8 +261,10 @@ delivered.
     ASCII) is a 400 instead of being read in hexadecimal, with its whitespace removed or as the
     number its digits spell; a query parameter other than `sort` that is repeated is a 400
     instead of being read as its first value (a repeated `name` as the values joined by
-    commas); and a C0 control character or DEL in `name` is a 400, where a NUL was a 409 and
-    the other controls were searched for.
+    commas); a C0 control character or DEL in `name` is a 400, where a NUL was a 409 and
+    the other controls were searched for; and a query string with a `%` that is not followed by
+    two hexadecimal digits is a 400 on the list endpoints, where the parameter it held was
+    dropped and the list was served without it.
   - Every error that Spring MVC handles on the API port is an RFC 7807 problem detail with a
     `code` to branch on, where 1.0 declared no error response; a client must accept a code it
     does not know.
@@ -300,7 +313,9 @@ delivered.
   a client built from `^\S+$` would reject a query the server accepts; contract cases send
   `a\u00a0b` and a word with U+0085 and U+2028 (both sides accept them) and a word with a NUL
   (both reject it). The empty query (`?name=`) is a 400, not an unfiltered list.
-- LIKE wildcards in the query (`%`, `_`) are escaped and matched literally. `CustomerApiIT` pins
+- LIKE wildcards in the query (`%`, `_`) are escaped and matched literally; a `%` is sent
+  percent-encoded as `%25`, because a bare one that starts no escape leaves a query string that
+  Tomcat cannot parse, a 400 (see API contract). `CustomerApiIT` pins
   the word-boundary and wildcard claims against PostgreSQL rather than against a mock: `n-P`
   and `O'N` find `Jean-Pierre O'Neil`, `%` finds `Hundred%Percent`, and `r_S` finds
   `Under_Score` but not the decoy `Under Score`, which an unescaped `_` would match.
