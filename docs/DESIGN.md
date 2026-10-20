@@ -203,8 +203,8 @@ included, so the guard stops start-up with `spring.liquibase.contexts is blank` 
 `spring.liquibase.enabled` is `false` (the Compose `store` service); the failure block is
 printed as plain text rather than JSON because logging is not yet initialised at that point
 (the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see
-Operations) is documented but not observed by a test, because the API has no slow request to hold
-open while a shutdown is signalled; ADR 0008 says the same.
+Operations) is observed the same way: `GracefulShutdownIT` starts a second application on the
+shared database and closes it while one of its requests waits for a table lock.
 
 ## Development workflow
 Every change goes through a pull request and is merged into `main` once both CI jobs are green
@@ -698,7 +698,8 @@ separate management connector, 8081 by default (`MANAGEMENT_PORT`), and is absen
 probes and metrics are reachable from inside the cluster but never from the public network.
 * `GET :8081/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`;
   liveness is Spring's `LivenessState`; readiness combines `ReadinessState` (which flips to
-  `ACCEPTING_TRAFFIC` once the context has started and back on shutdown) with the database
+  `ACCEPTING_TRAFFIC` once the context has started and back when shutdown begins; that flip
+  alone moves no traffic away, see the shutdown entries below) with the database
   indicator, so a replica that has lost its database is taken out of rotation, and the body
   names its components without details
   (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`);
@@ -861,9 +862,38 @@ probes and metrics are reachable from inside the cluster but never from the publ
   commit, terminates one and violates a foreign key, and finds none of the names and
   descriptions it sent in any line logged at the shipped levels, stack traces included;
   `DatabaseTimeoutsIT` reads the setting back from the pool
-* Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
-  stop grace for it, and a Kubernetes deployment needs the same margin in
-  `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
+* Shutdown is graceful: on `SIGTERM` the requests in flight get up to 20 s to finish
+  (`server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase: 20s`). The drain
+  begins by closing the API connector's listening socket, so from then on a new connection to
+  8080 is refused, while the management port keeps answering, readiness with 503
+  (`OUT_OF_SERVICE`) and liveness with 200, until the requests in flight have finished; the
+  management server, the API server and the pool stop after them. A request still running when
+  the 20 s are up loses its connection without a response, and Tomcat then waits up to 5 s for
+  its thread before the pool closes, so a `POST` cut there may still have been committed (the
+  `POST`s are not idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows
+  the status its handler set. The 30 second stop grace of `compose.yaml` covers those 20 and
+  5 s. `GracefulShutdownIT` observes the sequence on a second application started on the shared
+  database: while a `GET /order?size=5` waits for a lock on `order` and the application closes,
+  a new connection is refused, readiness answers 503 and liveness 200, and the request is
+  answered 200 once the lock is released (with `server.shutdown: immediate` its connection is
+  reset instead); `FailClosedConfigurationTest` pins both properties. A `SIGTERM` to the jar
+  built from 977abd1 showed the same on 2026-10-20 (Java 17 on macOS against PostgreSQL 16.2,
+  the same held request, the signal 1.1 s after it started): a new connection 0.56 s after the
+  signal was refused, readiness answered 503 and liveness 200, the held request was answered
+  200 when the lock was released 3.4 s after the signal, and the pool closed 13 ms after the
+  drain had finished; with the phase timeout lowered to 2 s the held request got an empty reply
+  2.0 s after the signal, and Tomcat waited 1.3 s more for its thread, which still finished and
+  logged a 200, before the process exited 3.5 s after the signal
+* A Kubernetes deployment needs a delay before that signal. Deleting a pod marks its endpoints
+  as not ready while the kubelet starts stopping the container, and kube-proxy and the ingress
+  act on that a moment later, so without a delay connections still arrive after the drain has
+  closed the API port, and they are refused: readiness turning `OUT_OF_SERVICE` moves no
+  traffic away by itself. The image has no shell for an `exec` hook, so the delay is the
+  `sleep` handler (`lifecycle.preStop.sleep.seconds`, enabled by default from Kubernetes 1.30),
+  and `terminationGracePeriodSeconds` (30 s by default), which counts from the start of the
+  hook, must cover the delay, the 20 s phase and the 5 s for a request cut at its end, plus a
+  margin, for example a 10 s delay with `terminationGracePeriodSeconds: 40`; otherwise the
+  drain is cut short by `SIGKILL`
 * A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
   process exits during start-up and the orchestrator reports a crash, not a running service
   on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data and blank is refused
