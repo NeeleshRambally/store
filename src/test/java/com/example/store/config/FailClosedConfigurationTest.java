@@ -120,6 +120,14 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void formContentFilterIsSwitchedOff() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("spring.mvc.formcontent.filter.enabled"))
+                .isEqualTo("false");
+    }
+
+    @Test
     void shutdownDrainsRequestsInFlightForUpToTwentySeconds() {
         StandardEnvironment environment = environmentWith(Map.of());
 

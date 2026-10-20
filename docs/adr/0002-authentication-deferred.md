@@ -33,10 +33,11 @@ web test and provide no actual protection.
   follows it as [issue #71](https://github.com/neeleshambally/store/issues/71), due before
   2027-04-30, because a key is unique only within one client's requests and the service has no
   client identity until that phase.
-- Request bodies are bounded by the service itself, not only by the gateway: a JSON body over
-  `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail before it is parsed, and
-  a body of any other media type is a 415 before it is read (ADR 0008, "Request size"). The
-  gateway should bound bodies as well, but the service does not rely on it.
+- Request bodies are bounded by the service itself, not only by the gateway: a `POST`'s JSON
+  body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail before it is
+  parsed, a body of any other media type is a 415 before it is read, and a body sent with a
+  method no endpoint takes is a 405 before it is read (ADR 0008, "Request size"). The gateway
+  should bound bodies as well, but the service does not rely on it.
 - Rate limiting and per-client quotas, CORS and the security response headers that Spring
   Security would add (`Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`)
   are gateway responsibilities in this phase; the service implements none of them. With the

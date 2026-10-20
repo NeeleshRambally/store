@@ -23,6 +23,11 @@ Feature: Customer management
     And the response problem lists a validation error for "id"
     And customer 5 is still named "Jean Daniel"
 
+  Scenario: A form body sent with a method the API does not offer is refused without being read
+    When I send PUT "/customer" with a 70000-byte form body
+    Then the response status is 405
+    And the response problem code is "method_not_allowed"
+
   Scenario: Browse customers page by page
     When I request customers with page 1 and size 5
     Then the response status is 200

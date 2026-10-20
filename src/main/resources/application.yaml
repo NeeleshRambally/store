@@ -35,6 +35,10 @@ spring:
     web:
       pageable:
         max-page-size: 100
+  mvc:
+    formcontent:
+      filter:
+        enabled: false
   servlet:
     multipart:
       enabled: false
