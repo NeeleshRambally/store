@@ -26,6 +26,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -414,6 +415,31 @@ class OrderControllerTests {
                         .content("{\"broken\":"))
                 .andExpect(status().isNotAcceptable())
                 .andExpect(jsonPath("$.code").value("not_acceptable"));
+    }
+
+    @Test
+    void createRejectsAFormEncodedBodyAndNamesJsonAsTheAcceptedType() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .content("description=Form+order&customerId=1&productIds=2"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.code").value("unsupported_media_type"));
+        verify(orderService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAJsonBodySentAsAnotherJsonMediaType() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType("application/vnd.api+json")
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(header().string(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.code").value("unsupported_media_type"));
+        verify(orderService, never()).create(any());
     }
 
     @Test

@@ -13,6 +13,8 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -88,6 +90,19 @@ public class StoreApiSteps {
                         "productIds",
                         List.of(firstProduct, secondProduct))),
                 headers);
+    }
+
+    @When("I create an order {string} for customer {int} with products {int} and {int} as a form")
+    public void createOrderAsAForm(String description, int customerId, int firstProduct, int secondProduct)
+            throws Exception {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+        MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
+        form.add("description", description);
+        form.add("customerId", String.valueOf(customerId));
+        form.add("productIds", String.valueOf(firstProduct));
+        form.add("productIds", String.valueOf(secondProduct));
+        capture(restTemplate.postForEntity("/order", new HttpEntity<>(form, headers), String.class));
     }
 
     @When("I create an order {string} for customer {int} with {int} products")
@@ -481,6 +496,11 @@ public class StoreApiSteps {
     @Then("the response problem code is {string}")
     public void responseProblemCodeIs(String code) {
         assertThat(body.path("code").asText()).isEqualTo(code);
+    }
+
+    @Then("the response names {string} as the only accepted media type")
+    public void responseNamesTheOnlyAcceptedMediaType(String mediaType) {
+        assertThat(response.getHeaders().getAccept()).containsExactly(MediaType.parseMediaType(mediaType));
     }
 
     @Then("the response asks to retry after {int} seconds")

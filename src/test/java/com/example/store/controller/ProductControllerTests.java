@@ -17,6 +17,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -121,6 +122,18 @@ class ProductControllerTests {
                 .andExpect(status().isNotAcceptable())
                 .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
                 .andExpect(jsonPath("$.code").value("not_acceptable"));
+        verify(productService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAFormEncodedBodyAndNamesJsonAsTheAcceptedType() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_FORM_URLENCODED)
+                        .content("description=Form+product"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string(HttpHeaders.ACCEPT, MediaType.APPLICATION_JSON_VALUE))
+                .andExpect(jsonPath("$.code").value("unsupported_media_type"));
         verify(productService, never()).create(any());
     }
 
