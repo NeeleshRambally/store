@@ -83,8 +83,9 @@ nothing in a response or a log line identified the request a client was asking a
   records how the index changesets lock their tables while they build.
 - **Stop grace covers the drain.** `server.shutdown: graceful` lets the requests in flight
   when the stop signal arrives finish, for at most the 20 s phase timeout
-  (`spring.lifecycle.timeout-per-shutdown-phase`), and is matched by `stop_grace_period: 30s`
-  on the Compose service. Readiness turns `OUT_OF_SERVICE` when the drain begins (503 on the
+  (`spring.lifecycle.timeout-per-shutdown-phase`); Tomcat then waits up to 5 s more for the
+  thread of a request cut at the end of the phase, and `stop_grace_period: 30s` on the Compose
+  service covers both. Readiness turns `OUT_OF_SERVICE` when the drain begins (503 on the
   management port, while liveness stays 200), but the API connector closes its listening
   socket at the same moment, so the flip moves no traffic away: a connection opened after the
   signal is refused, not served, and a keep-alive connection that is idle at the signal stays
@@ -96,14 +97,15 @@ nothing in a response or a log line identified the request a client was asking a
   Kubernetes 1.30 and later, since the image has no shell for an `exec` hook). The delay moves
   new connections only, since kube-proxy keeps a connection on the pod it was opened to. The
   deployment's `terminationGracePeriodSeconds`, which counts from the start of the hook, covers
-  the delay, the 20 s phase and a margin (`docs/DESIGN.md`, Operations, gives the sizing and
-  the measurements). `GracefulShutdownIT` observes the drain: it closes a second application
-  on the shared database while a `GET /order?size=5` waits for a lock on `order`, sees a new
-  connection refused, readiness answer 503 and liveness 200 while the request is held, and
-  the request answered 200 once the lock is released; with `server.shutdown: immediate` the
-  held request's connection is reset instead. It sends no request on a connection that was
-  idle at the signal; that case was observed by hand. `FailClosedConfigurationTest` pins both
-  properties, and `FailClosedStartupIT` observes the fail-closed start-up the same way.
+  the delay, the 20 s phase, Tomcat's 5 s and a margin (`docs/DESIGN.md`, Operations, gives the
+  sizing and the measurements). `GracefulShutdownIT` observes the drain: it closes a second
+  application on the shared database while a `GET /order?size=5` waits for a lock on `order`,
+  sees a new connection refused, readiness answer 503 and liveness 200 while the request is
+  held, and the request answered 200 once the lock is released; with
+  `server.shutdown: immediate` the held request's connection is reset instead. It sends no
+  request on a connection that was idle at the signal; that case was observed by hand.
+  `FailClosedConfigurationTest` pins both properties, and `FailClosedStartupIT` observes the
+  fail-closed start-up the same way.
 - **The Compose services are hardened.** `store` and `migrate` run with `read_only: true`
   and `tmpfs: [/tmp]` (Tomcat's base directory and the JVM's `hsperfdata` are the only
   writes the image makes), `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`,
