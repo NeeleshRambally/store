@@ -45,6 +45,11 @@ Feature: Customer management
     Then the response status is 400
     And the response problem detail is "Failed to convert 'page' with value: ' 1'"
 
+  Scenario: A cursor whose digits are split by a space is rejected
+    When I request customers with the query "after=1%200"
+    Then the response status is 400
+    And the response problem detail is "Failed to convert 'after' with value: '1 0'"
+
   Scenario: Sorting by an unknown property is rejected
     When I request customers sorted by "nope"
     Then the response status is 400

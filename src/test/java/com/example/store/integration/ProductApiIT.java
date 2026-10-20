@@ -99,6 +99,14 @@ class ProductApiIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void rejectsAHexadecimalProductId() {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity("/products/0x2", ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: '0x2'");
+    }
+
+    @Test
     void listsProductsPageWithTheirOrderIds() {
         ResponseEntity<PageResponse<ProductDTO>> response =
                 restTemplate.exchange("/products?size=5", HttpMethod.GET, null, new ParameterizedTypeReference<>() {});

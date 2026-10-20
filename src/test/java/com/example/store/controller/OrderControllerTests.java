@@ -462,6 +462,37 @@ class OrderControllerTests {
     }
 
     @Test
+    void getByIdRejectsAHexadecimalId() throws Exception {
+        when(orderService.findById(any())).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/{id}", "0x1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '0x1'"));
+        verify(orderService, never()).findById(any());
+    }
+
+    @Test
+    void getByIdRejectsAnIdWithAHashPrefix() throws Exception {
+        when(orderService.findById(any())).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/{id}", "#1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '#1'"));
+        verify(orderService, never()).findById(any());
+    }
+
+    @Test
+    void getByIdRejectsAnIdWhoseDigitsAreSplitByASpace() throws Exception {
+        when(orderService.findById(any())).thenReturn(ORDER);
+
+        mockMvc.perform(get("/order/{id}", "1 0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '1 0'"));
+        verify(orderService, never()).findById(any());
+    }
+
+    @Test
     void getByIdWithANonJsonAcceptHeaderIsNotAcceptableBeforeTheLookup() throws Exception {
         when(orderService.findById(1L)).thenReturn(ORDER);
 
@@ -605,6 +636,52 @@ class OrderControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'size' with value: '0x10'"));
         verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAHexadecimalCursor() throws Exception {
+        when(orderService.findAfter(any(), any())).thenReturn(new CursorPageResponse<>(List.of(ORDER), 20, null));
+
+        mockMvc.perform(get("/order").param("after", "0x10"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'after' with value: '0x10'"));
+        verify(orderService, never()).findAfter(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAHexadecimalCustomerId() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("customerId", "0x1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'customerId' with value: '0x1'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllRejectsAProductIdWithAHashPrefix() throws Exception {
+        when(orderService.findAll(any(), any())).thenReturn(new PageImpl<>(List.of(ORDER)));
+
+        mockMvc.perform(get("/order").param("productId", "#2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'productId' with value: '#2'"));
+        verify(orderService, never()).findAll(any(), any());
+    }
+
+    @Test
+    void getAllTreatsAnEmptyOrBlankFilterAndCursorAsAbsent() throws Exception {
+        Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
+        when(orderService.findAll(NO_FILTER, pageable)).thenReturn(new PageImpl<>(List.of(ORDER), pageable, 1));
+
+        mockMvc.perform(get("/order")
+                        .param("customerId", "")
+                        .param("productId", " ")
+                        .param("after", " "))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        verify(orderService).findAll(NO_FILTER, pageable);
     }
 
     @Test

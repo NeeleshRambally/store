@@ -144,6 +144,16 @@ class ProductControllerTests {
     }
 
     @Test
+    void getByIdRejectsAHexadecimalId() throws Exception {
+        when(productService.findById(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(get("/products/{id}", "0x2"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '0x2'"));
+        verify(productService, never()).findById(any());
+    }
+
+    @Test
     void getAllReturnsPageOfProducts() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(productService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(PRODUCT), pageable, 100));
@@ -186,6 +196,16 @@ class ProductControllerTests {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("Failed to convert 'page' with value: '0x2'"));
         verify(productService, never()).findAll(any());
+    }
+
+    @Test
+    void getAllRejectsACursorWithAHashPrefix() throws Exception {
+        when(productService.findAfter(any())).thenReturn(new CursorPageResponse<>(List.of(PRODUCT), 20, null));
+
+        mockMvc.perform(get("/products").param("after", "#1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'after' with value: '#1'"));
+        verify(productService, never()).findAfter(any());
     }
 
     @Test
