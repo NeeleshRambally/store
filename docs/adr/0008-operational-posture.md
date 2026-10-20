@@ -186,8 +186,13 @@ nothing in a response or a log line identified the request a client was asking a
   line. The smoke test's `compose` mode proves it on the started image: `GET /order/1` sent
   with `X-Request-Id: smoke-<pid>` must leave its access line, with that `requestId`, the route
   and the `service` name and version, in the `store` container's output. A data-integrity
-  conflict is logged at WARN by SQL state and constraint name only, never with the driver
-  message that quotes the request's values; the full cause is at DEBUG.
+  conflict is logged at WARN by SQL state and constraint name only, with the full cause at
+  DEBUG. PgJDBC runs with `logServerErrorDetail: false`, so no driver message quotes the
+  request's values: a failed entry of a batched insert reads `<unknown>` where it would quote
+  the insert with the posted name or description, and the server's detail (the key of a
+  violated constraint, the failing row) is left out, which is the price, while the constraint
+  name survives in the server's primary message. `FailedInsertLogIT` finds none of the text
+  sent in the lines that a cancelled, a terminated and a constraint-violating insert write.
 - A deployment that changes a database timeout keeps their order: the socket timeout above the
   statement timeout and above the slowest legitimate statement, or a slow statement loses its
   connection instead of being cancelled. `DatabaseTimeoutsIT` reads the values back from the

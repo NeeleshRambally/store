@@ -734,8 +734,9 @@ probes and metrics are reachable from inside the cluster but never from the publ
   the `store` output with `"logger":"com.example.store.access"`, `"requestId":"smoke-<pid>"`,
   `"route":"/order/{id}"` and `"service":{"name":"store","version":"`, looking up to five times
   a second apart, because the ETag filter flushes the response before the line is written. A
-  data-integrity conflict is logged at WARN by SQL state and constraint name, never with the
-  driver message that quotes the request's values (the full cause is at DEBUG)
+  data-integrity conflict is logged at WARN by SQL state and constraint name (the full cause is
+  at DEBUG), and neither line quotes the request's values, which the driver leaves out of its
+  messages (see the failed statements below)
 * Every request on the API port writes one INFO line on the logger `com.example.store.access`
   when it completes, for example `GET /order/{id} 200 3 ms`: the method, the route, the status
   and the duration in whole milliseconds, so a cache hit usually logs 0 ms. In the ECS output
@@ -816,9 +817,8 @@ probes and metrics are reachable from inside the cluster but never from the publ
   each 503 at WARN by the class name of its most specific cause only (the driver message can
   carry hosts or SQL; the full cause is at DEBUG), while Hibernate's `SqlExceptionHelper` still
   logs the SQL state of a failed statement at WARN and the driver message at ERROR
-  (`ERROR: canceling statement due to statement timeout`); for a `POST`'s batched insert that
-  message, like the exception in the 500's ERROR line, quotes the statement with its values,
-  which PgJDBC writes into the message of a failed batch entry. The ingress therefore sees a 503
+  (`ERROR: canceling statement due to statement timeout`), without the values the request sent
+  (next entry). The ingress therefore sees a 503
   with `Retry-After` for each timed-out acquisition, and readiness reports `db` DOWN while no
   connection can be obtained, but only after the same 5 s `connection-timeout`, so probe
   timeouts must exceed it; a replica is then also taken out of rotation. All of them recover
@@ -834,6 +834,22 @@ probes and metrics are reachable from inside the cluster but never from the publ
   `GlobalExceptionHandlerLogTest` the WARN lines of an unobtainable connection and of a timeout,
   and `OpenApiContractIT` the declaration on every operation and the two real responses against
   the `ServiceUnavailable` examples
+* A failed statement is logged without the values the request sent. PgJDBC runs with
+  `logServerErrorDetail: false` (`application.yaml`), so its exception messages hold the
+  server's severity and primary message only: a failed entry of a `POST`'s batched insert reads
+  `Batch entry 0 <unknown> was aborted:` followed by the server's message, where it would
+  otherwise quote the insert with the posted name or description, and the server's detail, hint
+  and position (the key of a violated constraint, the failing row) are left out, so the full
+  cause logged at DEBUG lacks them too. That covers the `SqlExceptionHelper` lines above, the
+  stack trace of the 500's ERROR line and the WARN line in which HikariCP marks a terminated
+  connection broken; Hibernate's own messages show the statement with `?` for each value. A
+  violated constraint is still named, because PostgreSQL puts the name in the primary message,
+  which is where Hibernate reads it for the 409's line. The price is the detail itself: a
+  failure leaves its SQL state, the server's primary message and the statement with `?` in the
+  log, never the key or the row. `FailedInsertLogIT` cancels the insert of each `POST` at its
+  commit, terminates one and violates a foreign key, and finds none of the names and
+  descriptions it sent in any line logged at the shipped levels, stack traces included;
+  `DatabaseTimeoutsIT` reads the setting back from the pool
 * Shutdown is graceful with a 20 second drain; `compose.yaml` gives the container a 30 second
   stop grace for it, and a Kubernetes deployment needs the same margin in
   `terminationGracePeriodSeconds` (the default is 30 s) or the drain is cut short by `SIGKILL`
