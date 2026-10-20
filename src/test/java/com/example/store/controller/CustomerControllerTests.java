@@ -190,6 +190,17 @@ class CustomerControllerTests {
     }
 
     @Test
+    void getByIdRejectsAnIdWithALeadingZero() throws Exception {
+        when(customerService.findById(any())).thenReturn(new CustomerDTO(1L, "John Doe", List.of(), 0));
+
+        mockMvc.perform(get("/customer/{id}", "01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '01'"));
+        verify(customerService, never()).findById(any());
+    }
+
+    @Test
     void getAllReturnsPageOfCustomers() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(customerService.findAll(pageable))

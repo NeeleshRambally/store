@@ -154,6 +154,17 @@ class ProductControllerTests {
     }
 
     @Test
+    void getByIdRejectsAnIdInFullwidthDigits() throws Exception {
+        when(productService.findById(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(get("/products/{id}", "\uFF12"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_parameter"))
+                .andExpect(jsonPath("$.detail").value("Failed to convert 'id' with value: '\uFF12'"));
+        verify(productService, never()).findById(any());
+    }
+
+    @Test
     void getAllReturnsPageOfProducts() throws Exception {
         Pageable pageable = PageRequest.of(0, 20, Sort.by("id"));
         when(productService.findAll(pageable)).thenReturn(new PageImpl<>(List.of(PRODUCT), pageable, 100));

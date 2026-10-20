@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -243,6 +244,29 @@ class OrderApiIT extends AbstractIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"after=0x10", "after=%2316", "after=1%200", "customerId=0x1", "productId=%232"})
     void rejectsAQueryNumberThatIsNotADecimalInteger(String query) {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/order?" + query), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties())
+                .containsEntry("code", "invalid_parameter")
+                .doesNotContainKey("errors");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"%2B1, +1", "01, 01", "%D9%A1, \u0661", "%EF%BC%91, \uFF11"})
+    void rejectsAnOrderIdThatIsNotInCanonicalDecimalForm(String encoded, String id) {
+        ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
+                URI.create(restTemplate.getRootUri() + "/order/" + encoded), ProblemDetail.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getProperties()).containsEntry("code", "invalid_parameter");
+        assertThat(response.getBody().getDetail()).isEqualTo("Failed to convert 'id' with value: '" + id + "'");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"customerId=%2B1", "productId=02", "after=-0", "page=%D9%A1", "size=%EF%BC%95"})
+    void rejectsAQueryNumberThatIsNotInCanonicalDecimalForm(String query) {
         ResponseEntity<ProblemDetail> response = restTemplate.getForEntity(
                 URI.create(restTemplate.getRootUri() + "/order?" + query), ProblemDetail.class);
 
