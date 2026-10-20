@@ -287,12 +287,14 @@ delivered.
   numeric query parameters, that an empty value or one made only of whitespace counts as
   absent, as the service already served it.
 - Within 3.0.0 the service enforces the request media type the contract declares: a `POST`
-  whose `Content-Type` is not `application/json` (a form encoding, text, or a JSON-based type
-  such as `application/vnd.api+json`, which it used to read and store) or that has none is a
-  415 decided before the body is read. A body without a `Content-Type` used to be treated as
-  `application/octet-stream`: a 415, or a 413 when its declared length was over the bound, and
-  a 400 `malformed_body` when it was empty. A client that sends `application/json`, with or
-  without a `charset`, as the contract requires, needs no change.
+  whose `Content-Type` is not `application/json` (a URL-encoded or multipart form, text, or a
+  JSON-based type such as `application/vnd.api+json`, which it used to read and store) or that
+  has none is a 415 decided before the body is read. A body without a `Content-Type` used to be
+  treated as `application/octet-stream`: a 415, or a 413 when its declared length was over the
+  bound, and a 400 `malformed_body` when it was empty. A multipart body used to be parsed before
+  it was answered, with a 415, or with a 413 when it was longer than the bound. A client that
+  sends `application/json`, with or without a `charset`, as the contract requires, needs no
+  change.
 
 ## Order by id (README task 1)
 - `GET /order/{id}` returns the order with its customer and its products (ascending by id) in a
@@ -384,8 +386,8 @@ delivered.
   20 such requests that had sent 1 KiB each raised the live byte arrays (`jcmd
   GC.class_histogram`) from 10.4 MB to 49.6 MB, about 1.96 MB a request, so a few dozen slow
   clients could fill the image's 154 MiB heap. The three `POST`s now consume `application/json`
-  only, so any other `Content-Type` is a 415 decided when the request is mapped and the body is
-  never read: the same 20 requests were each answered at once, and with their connections held
+  only, so a form body is a 415 decided when the request is mapped and is never read: the same
+  20 requests were each answered at once, and with their connections held
   open the live byte arrays grew by 0.26 MB in all. Tomcat's form limit follows
   `REQUEST_MAX_BODY_BYTES` as well, so a component that asks for a `POST`'s parameters
   (Spring's hidden-method filter or request-detail logging, which both had Tomcat read the
@@ -396,6 +398,34 @@ delivered.
   controller slices pin the 415 and its `Accept: application/json` for a form, a JSON-based
   type and a missing `Content-Type`, `FailClosedConfigurationTest` the link to the variable,
   and a Cucumber scenario the 415 of an order sent as a form.
+- A multipart body escaped the bound as well, and `consumes` did not stop it: Spring Boot turns
+  multipart support on by default, and Spring's `DispatcherServlet` then parses any request
+  whose `Content-Type` starts with `multipart/`, whatever its method, before it maps it, reading
+  through Tomcat rather than the bounded stream, up to Spring Boot's limits of 1 MB a part and
+  10 MB a request, and spooling each part to a file in Tomcat's work directory under
+  `java.io.tmpdir`, which the Compose stack keeps on its memory-backed `/tmp`. Measured on the
+  jar of bae63db (2026-10-20, the same environment): a `POST /order` declaring 9,000,000
+  `multipart/form-data` bytes and sending 8 KiB had no answer within 5 s, and neither had the
+  same request to `/products`, one to `/customer` as `multipart/mixed` or a `GET /order` that
+  carried such a body; five such `POST`s that had each sent 900 KiB of a file part held five
+  `upload_*.tmp` files of 4,607,910 bytes in all until they disconnected; a complete body was
+  parsed before it was answered, with a 415 for a 1,000-byte field, a 413
+  `Request body exceeds 65536 bytes` for a 100,000-byte field or a 900,000-byte file, from the
+  filter's check of the declared length once Spring went on to read the body, and a 413
+  `Maximum upload size exceeded` for a 1,500,000-byte field or file, from the 1 MB limit, which
+  applies to every part, not only to files; and on the management port, whose servlet has no
+  multipart configuration, the parse failed and a multipart `POST` was a 500 `internal_error`
+  logged at ERROR. Multipart support is now switched off
+  (`spring.servlet.multipart.enabled: false`), since the API takes no multipart body: no
+  multipart resolver is registered and no servlet gets a multipart configuration, so Tomcat also
+  leaves a multipart body unparsed when something reads the parameters. With it off, in the same
+  environment, the same `POST`s were 415s within 15 ms, the held ones wrote no file, each
+  complete body above was a 415, the `GET` had its 200, the management port answered 405, and a
+  multipart `POST` stayed a 415 within 14 ms with the hidden-method filter and request-detail
+  logging switched on. `RequestBodyLimitIT` sends 8 KiB of a declared 9,000,000-byte multipart
+  body to each `POST` and requires the 415 within 5 s, `FailClosedConfigurationTest` pins the
+  property, `ActuatorIT` the management port's 405, and a Cucumber scenario the 415 of an order
+  sent as multipart with a 1,100,000-byte file, which the part limit used to make a 413.
 - The invariant is enforced for orders created through the API from this release. The seed
   changeset runs only under the `seed` context, so in a production database an order that
   pre-dates changeset 5 has no `order_product` rows and is returned with `products: []`; such

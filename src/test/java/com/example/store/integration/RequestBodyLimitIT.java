@@ -2,6 +2,7 @@ package com.example.store.integration;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -76,14 +77,38 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
     @ParameterizedTest
     @ValueSource(strings = {"/order", "/customer", "/products"})
     void aFormEncodedBodyIsUnsupportedWithoutWaitingForTheRestOfIt(String path) throws IOException {
+        assertUnsupportedBeforeTheRestIsSent(
+                path, "application/x-www-form-urlencoded", 1_900_000, "description=" + "a".repeat(8192));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/order, multipart/form-data", "/customer, multipart/mixed", "/products, multipart/form-data"})
+    void aMultipartBodyIsUnsupportedWithoutWaitingForTheRestOfIt(String path, String type) throws IOException {
+        assertUnsupportedBeforeTheRestIsSent(
+                path,
+                type + "; boundary=order-part",
+                9_000_000,
+                "--order-part\r\nContent-Disposition: form-data; name=\"file\"; filename=\"order.bin\"\r\n\r\n"
+                        + "a".repeat(8192));
+    }
+
+    @Test
+    void tomcatRefusesToParseAFormBodyOverTheBound() {
+        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
+
+        assertThat(server.getTomcat().getConnector().getMaxPostSize()).isEqualTo(LIMIT);
+    }
+
+    private void assertUnsupportedBeforeTheRestIsSent(
+            String path, String contentType, int declaredLength, String firstBytes) throws IOException {
         try (Socket socket = new Socket("localhost", port)) {
             socket.setSoTimeout(5_000);
             socket.getOutputStream()
                     .write(("POST " + path + " HTTP/1.1\r\n"
                                     + "Host: localhost\r\n"
-                                    + "Content-Type: application/x-www-form-urlencoded\r\n"
-                                    + "Content-Length: 1900000\r\n\r\n"
-                                    + "description=" + "a".repeat(8192))
+                                    + "Content-Type: " + contentType + "\r\n"
+                                    + "Content-Length: " + declaredLength + "\r\n\r\n"
+                                    + firstBytes)
                             .getBytes(StandardCharsets.US_ASCII));
             InputStream response = socket.getInputStream();
 
@@ -95,13 +120,6 @@ class RequestBodyLimitIT extends AbstractIntegrationTest {
             assertThat(new String(response.readNBytes(length), StandardCharsets.UTF_8))
                     .contains("\"code\":\"unsupported_media_type\"");
         }
-    }
-
-    @Test
-    void tomcatRefusesToParseAFormBodyOverTheBound() {
-        TomcatWebServer server = (TomcatWebServer) context.getWebServer();
-
-        assertThat(server.getTomcat().getConnector().getMaxPostSize()).isEqualTo(LIMIT);
     }
 
     private static String head(InputStream response) throws IOException {
