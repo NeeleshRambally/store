@@ -17,11 +17,12 @@ web test and provide no actual protection.
   id, nor a number or a boolean into text, and request text carries no control characters),
   rejection of unknown JSON properties and of a property repeated in a body (the gateway and
   the service could otherwise read different values from it), validated query parameters that
-  are rejected when repeated, numeric path and query parameters accepted only as decimal
-  integers (never read in hexadecimal or with their whitespace removed), problem-detail
-  responses that never leak exception messages or stack traces, actuator exposure limited to
-  `health`, `info` and `prometheus` with health details hidden, and a container image that runs
-  as a non-root user.
+  are rejected when repeated, numeric path and query parameters accepted only in canonical
+  decimal form (ASCII digits with no plus sign or leading zeros, so a gateway rule written for an
+  id cannot be sidestepped by another spelling of it, and never read in hexadecimal or with
+  their whitespace removed), problem-detail responses that never leak exception messages or
+  stack traces, actuator exposure limited to `health`, `info` and `prometheus` with health
+  details hidden, and a container image that runs as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`). It is tracked as
   [issue #70](https://github.com/neeleshambally/store/issues/70), due before 2027-03-31, after
