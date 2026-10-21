@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 // Claims the key in a transaction of its own, runs the create and records its response in a second one, so the
@@ -65,21 +66,23 @@ public class IdempotentRequests {
             return action.get();
         }
         String client = clientIdentity.id();
+        UUID token = UUID.randomUUID();
         String fingerprint = RequestFingerprint.of(writer, path, request);
-        StoredKey live = ownTransaction.execute(status -> claimOrLiveRow(client, key, fingerprint, path));
+        StoredKey live = ownTransaction.execute(status -> claimOrLiveRow(client, key, token, fingerprint, path));
         if (live != null) {
             return replay(live, fingerprint, responseType);
         }
         try {
-            return createTransaction.execute(status -> record(client, key, action.get()));
+            return createTransaction.execute(status -> record(client, key, token, path, action.get()));
         } catch (RuntimeException ex) {
-            release(client, key);
+            release(client, key, token);
             throw ex;
         }
     }
 
-    private StoredKey claimOrLiveRow(String client, IdempotencyKey key, String fingerprint, String path) {
-        if (store.claim(client, key.value(), fingerprint, path, properties.ttl(), properties.staleAfter()) == 1) {
+    private StoredKey claimOrLiveRow(String client, IdempotencyKey key, UUID token, String fingerprint, String path) {
+        if (store.claim(client, key.value(), token, fingerprint, path, properties.ttl(), properties.staleAfter())
+                == 1) {
             return null;
         }
         return store.find(client, key.value()).orElseThrow(IdempotencyRequestInProgressException::new);
@@ -100,20 +103,28 @@ public class IdempotentRequests {
         return response.body(read(stored.responseBody(), responseType));
     }
 
-    private <T> ResponseEntity<T> record(String client, IdempotencyKey key, ResponseEntity<T> response) {
+    private <T> ResponseEntity<T> record(
+            String client, IdempotencyKey key, UUID token, String path, ResponseEntity<T> response) {
         URI location = response.getHeaders().getLocation();
-        store.complete(
+        int recorded = store.complete(
                 client,
                 key.value(),
+                token,
                 response.getStatusCode().value(),
                 location == null ? null : location.toString(),
                 write(response.getBody()));
+        if (recorded == 0) {
+            log.warn(
+                    "Idempotency key for {} taken over while its request was still running; the create is rolled back",
+                    path);
+            throw new IdempotencyRequestInProgressException();
+        }
         return response;
     }
 
-    private void release(String client, IdempotencyKey key) {
+    private void release(String client, IdempotencyKey key, UUID token) {
         try {
-            ownTransaction.executeWithoutResult(status -> store.release(client, key.value()));
+            ownTransaction.executeWithoutResult(status -> store.release(client, key.value(), token));
         } catch (RuntimeException releaseFailure) {
             log.warn(
                     "Idempotency key not released after a failed request: {}",

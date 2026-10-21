@@ -7,6 +7,7 @@ import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.ProductDTO;
 import com.example.store.exception.IdempotencyRequestInProgressException;
+import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.CustomerService;
 import com.example.store.service.IdempotencyKeyPurge;
 import com.example.store.service.IdempotentRequests;
@@ -52,6 +53,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -245,8 +247,9 @@ class IdempotencyIT extends AbstractIntegrationTest {
         String key = "stale-" + UUID.randomUUID();
         String name = "Stale key " + UUID.randomUUID();
         jdbcTemplate.update(
-                "insert into idempotency_key (client_id, idempotency_key, request_fingerprint, request_path, status,"
-                        + " created_at, expires_at) values ('anonymous', ?, ?, '/customer', 'IN_PROGRESS',"
+                "insert into idempotency_key (client_id, idempotency_key, claim_token, request_fingerprint,"
+                        + " request_path, status, created_at, expires_at)"
+                        + " values ('anonymous', ?, gen_random_uuid(), ?, '/customer', 'IN_PROGRESS',"
                         + " now() - interval '31 seconds', now() + interval '1 day')",
                 key,
                 "0".repeat(64));
@@ -264,8 +267,9 @@ class IdempotencyIT extends AbstractIntegrationTest {
         String key = "fresh-" + UUID.randomUUID();
         String name = "Fresh key " + UUID.randomUUID();
         jdbcTemplate.update(
-                "insert into idempotency_key (client_id, idempotency_key, request_fingerprint, request_path, status,"
-                        + " created_at, expires_at) values ('anonymous', ?, ?, '/customer', 'IN_PROGRESS',"
+                "insert into idempotency_key (client_id, idempotency_key, claim_token, request_fingerprint,"
+                        + " request_path, status, created_at, expires_at)"
+                        + " values ('anonymous', ?, gen_random_uuid(), ?, '/customer', 'IN_PROGRESS',"
                         + " now() - interval '5 seconds', now() + interval '1 day')",
                 key,
                 fingerprint("/customer", new CreateCustomerRequest(name)));
@@ -331,6 +335,85 @@ class IdempotencyIT extends AbstractIntegrationTest {
         assertThat(post("/customer", body, key).getHeaders().getFirst("Idempotent-Replayed"))
                 .isEqualTo("true");
         assertThat(rows("customer", "name", body.get("name").toString())).isEqualTo(1L);
+    }
+
+    @Test
+    void aKeyTakenOverWhileItsRequestStillRunsRollsThatRequestBackAndCreatesOnce() throws Exception {
+        IdempotencyKey key = new IdempotencyKey("taken-" + UUID.randomUUID());
+        CreateCustomerRequest request = new CreateCustomerRequest("Taken over " + UUID.randomUUID());
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        CompletableFuture<ResponseEntity<CustomerDTO>> first = CompletableFuture.supplyAsync(
+                () -> idempotentRequests.execute(key, "/customer", request, CustomerDTO.class, () -> {
+                    started.countDown();
+                    await(released);
+                    CustomerDTO created = customerService.create(request);
+                    return ResponseEntity.created(URI.create("/customer/" + created.id()))
+                            .body(created);
+                }));
+        assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
+        ageBeyondTheStaleWindow(key.value());
+
+        ResponseEntity<String> second = post("/customer", Map.of("name", request.name()), key.value());
+        released.countDown();
+
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(second.getHeaders().getFirst("Idempotent-Replayed")).isNull();
+        assertThat(first)
+                .failsWithin(Duration.ofSeconds(10))
+                .withThrowableOfType(ExecutionException.class)
+                .withCauseInstanceOf(IdempotencyRequestInProgressException.class);
+        assertThat(rows("customer", "name", request.name())).isEqualTo(1L);
+        assertThat(storedStatus(key.value())).isEqualTo("COMPLETED");
+        ResponseEntity<String> replay = post("/customer", Map.of("name", request.name()), key.value());
+        assertThat(replay.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(json(replay).get("id").asLong())
+                .isEqualTo(json(second).get("id").asLong());
+    }
+
+    @Test
+    void aReleaseAfterATakeoverLeavesTheNewClaimInPlace() throws Exception {
+        IdempotencyKey key = new IdempotencyKey("kept-" + UUID.randomUUID());
+        CreateCustomerRequest request = new CreateCustomerRequest("Kept claim " + UUID.randomUUID());
+        CountDownLatch firstStarted = new CountDownLatch(1);
+        CountDownLatch firstReleased = new CountDownLatch(1);
+        CountDownLatch secondStarted = new CountDownLatch(1);
+        CountDownLatch secondReleased = new CountDownLatch(1);
+        CompletableFuture<ResponseEntity<CustomerDTO>> first = CompletableFuture.supplyAsync(
+                () -> idempotentRequests.execute(key, "/customer", request, CustomerDTO.class, () -> {
+                    firstStarted.countDown();
+                    await(firstReleased);
+                    throw new ResourceNotFoundException("Customer", 99L);
+                }));
+        assertThat(firstStarted.await(10, TimeUnit.SECONDS)).isTrue();
+        ageBeyondTheStaleWindow(key.value());
+        CompletableFuture<ResponseEntity<CustomerDTO>> second = CompletableFuture.supplyAsync(
+                () -> idempotentRequests.execute(key, "/customer", request, CustomerDTO.class, () -> {
+                    secondStarted.countDown();
+                    await(secondReleased);
+                    CustomerDTO created = customerService.create(request);
+                    return ResponseEntity.created(URI.create("/customer/" + created.id()))
+                            .body(created);
+                }));
+        assertThat(secondStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+        firstReleased.countDown();
+        assertThat(first)
+                .failsWithin(Duration.ofSeconds(10))
+                .withThrowableOfType(ExecutionException.class)
+                .withCauseInstanceOf(ResourceNotFoundException.class);
+
+        assertThat(storedStatus(key.value())).isEqualTo("IN_PROGRESS");
+        secondReleased.countDown();
+        assertThat(second).succeedsWithin(Duration.ofSeconds(10)).satisfies(response -> {
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+            assertThat(response.getHeaders().getFirst("Idempotent-Replayed")).isNull();
+        });
+        assertThat(rows("customer", "name", request.name())).isEqualTo(1L);
+        ResponseEntity<CustomerDTO> replay = idempotentRequests.execute(
+                key, "/customer", request, CustomerDTO.class, () -> fail("the replay must not create"));
+        assertThat(replay.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(replay.getBody()).isEqualTo(second.get().getBody());
     }
 
     @Test
@@ -456,12 +539,19 @@ class IdempotencyIT extends AbstractIntegrationTest {
         assertThat(rows("customer", "name", name)).isEqualTo(2L);
     }
 
+    private void ageBeyondTheStaleWindow(String key) {
+        jdbcTemplate.update(
+                "update idempotency_key set created_at = now() - interval '31 seconds'"
+                        + " where client_id = 'anonymous' and idempotency_key = ?",
+                key);
+    }
+
     private void insertCompletedKey(String key, String expiresAt) {
         jdbcTemplate.update(
-                "insert into idempotency_key (client_id, idempotency_key, request_fingerprint, request_path, status,"
-                        + " response_status, response_location, response_body, created_at, expires_at)"
-                        + " values ('anonymous', ?, ?, '/customer', 'COMPLETED', 201, '/customer/1', '{}', now(), "
-                        + expiresAt + ")",
+                "insert into idempotency_key (client_id, idempotency_key, claim_token, request_fingerprint,"
+                        + " request_path, status, response_status, response_location, response_body, created_at,"
+                        + " expires_at) values ('anonymous', ?, gen_random_uuid(), ?, '/customer', 'COMPLETED', 201,"
+                        + " '/customer/1', '{}', now(), " + expiresAt + ")",
                 key,
                 "0".repeat(64));
     }

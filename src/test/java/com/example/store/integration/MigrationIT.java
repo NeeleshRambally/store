@@ -297,6 +297,7 @@ class MigrationIT extends AbstractIntegrationTest {
                 .containsExactly(
                         "client_id character varying(255) not null",
                         "idempotency_key character varying(255) not null",
+                        "claim_token uuid not null",
                         "request_fingerprint character(64) not null",
                         "request_path character varying(255) not null",
                         "status character varying(16) not null",
