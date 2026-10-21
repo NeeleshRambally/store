@@ -53,27 +53,17 @@ class IdempotencyPropertiesTest {
                         .hasRootCauseInstanceOf(BindValidationException.class));
     }
 
-    @Test
-    void rejectsAStaleWindowShorterThanTheTransactionTimeout() {
+    @ParameterizedTest
+    @ValueSource(strings = {"PT0S", "-PT1S"})
+    void rejectsAStaleWindowThatIsNotPositive(String staleAfter) {
         runner.withPropertyValues(
                         "store.idempotency.ttl=PT24H",
-                        "store.idempotency.stale-after=PT14S",
+                        "store.idempotency.stale-after=" + staleAfter,
                         "store.idempotency.purge-interval=PT10M")
                 .run(context -> assertThat(context)
                         .hasFailed()
                         .getFailure()
                         .hasRootCauseInstanceOf(BindValidationException.class));
-    }
-
-    @Test
-    void acceptsAStaleWindowOfExactlyTheTransactionTimeout() {
-        runner.withPropertyValues(
-                        "store.idempotency.ttl=PT24H",
-                        "store.idempotency.stale-after=PT15S",
-                        "store.idempotency.purge-interval=PT10M")
-                .run(context -> assertThat(
-                                context.getBean(IdempotencyProperties.class).staleAfter())
-                        .isEqualTo(Duration.ofSeconds(15)));
     }
 
     @Test

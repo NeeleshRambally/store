@@ -2,6 +2,7 @@ package com.example.store.integration;
 
 import com.example.store.StoreApplication;
 import com.example.store.config.IdempotencyProperties;
+import com.example.store.config.IdempotencyStaleWindowGuard;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.IdempotencyKey;
@@ -91,6 +92,9 @@ class IdempotencyIT extends AbstractIntegrationTest {
 
     @Autowired
     private ScheduledTaskHolder scheduledTasks;
+
+    @Autowired
+    private IdempotencyStaleWindowGuard staleWindowGuard;
 
     @ParameterizedTest(name = "POST {0}")
     @MethodSource("keyedCreations")
@@ -499,7 +503,8 @@ class IdempotencyIT extends AbstractIntegrationTest {
     }
 
     @Test
-    void theSweepIsNotScheduledInAProcessWithoutAWebServer() {
+    void theSweepAndTheStaleWindowCheckStayOutOfAProcessWithoutAWebServer() {
+        assertThat(staleWindowGuard).isNotNull();
         SpringApplicationBuilder job =
                 new SpringApplicationBuilder(StoreApplication.class).web(WebApplicationType.NONE);
 
@@ -511,6 +516,8 @@ class IdempotencyIT extends AbstractIntegrationTest {
             assertThat(context.getBeansOfType(ScheduledTaskHolder.class)).isEmpty();
             assertThat(context.getBeansOfType(TaskScheduler.class)).isEmpty();
             assertThat(context.getBeansOfType(IdempotencyKeyPurge.class)).isEmpty();
+            assertThat(context.getBeansOfType(IdempotencyStaleWindowGuard.class))
+                    .isEmpty();
         }
     }
 

@@ -6,10 +6,11 @@ import org.springframework.validation.annotation.Validated;
 
 import java.time.Duration;
 
-// The stale window must cover the transaction timeout, so a request still running is never taken over.
+// The ttl, stale window and purge interval of the key store; IdempotencyStaleWindowGuard checks the window against
+// the timeouts at start-up.
 @Validated
 @ConfigurationProperties("store.idempotency")
 public record IdempotencyProperties(
         @DurationMin(nanos = 1) Duration ttl,
-        @DurationMin(seconds = 15) Duration staleAfter,
+        @DurationMin(nanos = 1) Duration staleAfter,
         @DurationMin(nanos = 1) Duration purgeInterval) {}
