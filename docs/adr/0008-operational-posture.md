@@ -28,7 +28,9 @@ nothing in a response or a log line identified the request a client was asking a
   afterwards (default privileges, so Liquibase's tables get the same `ar` grant; the runtime
   never touches them). It cannot `CREATE TABLE` (`permission denied for schema public`),
   `CREATE INDEX` (`must be owner`), `UPDATE` or `DELETE` (`permission denied for table`),
-  which is exactly the API's write surface: three `POST`s and no update or delete. That the
+  which is exactly the API's write surface: three `POST`s and no update or delete. The one
+  exception is the `idempotency_key` table, on which changeset 9 grants `UPDATE` and `DELETE`
+  to the role so that the key store can complete, release and purge keys (ADR 0010). That the
   runtime works under the restricted role is proven at start-up by `ddl-auto: validate` (the
   schema is read as `store_app`), by the readiness group's `db` component and by every smoke
   check: in `compose` mode `scripts/smoke-test.sh` asserts the `migrate` container's exit code

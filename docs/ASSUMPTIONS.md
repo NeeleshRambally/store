@@ -91,13 +91,20 @@ service accepts one reading only.
   `/customer/{id}`): relative because a gateway may rewrite the host, which RFC 9110 (section
   10.2.2) allows. The header is required on the three 201 responses and enforced by the contract
   check.
-- **The `POST`s are not idempotent.** Each inserts unconditionally, there are no unique constraints
-  and no `Idempotency-Key` header, so a retry after a timeout, or after the 503 of a lost database
-  (which does not say whether the write applied), creates a duplicate. This is a deferral: no
-  retrying client is in scope, and a correct implementation needs a key store with a TTL and the
-  original response to replay. [Issue #71](https://github.com/NeeleshRambally/store/issues/71), due
-  before 2027-04-30 and after [issue #70](https://github.com/NeeleshRambally/store/issues/70),
-  because a key is unique only within one client's requests.
+- **A `POST` may carry an `Idempotency-Key`.** Without it a `POST` inserts unconditionally, so a
+  retry after a timeout, or after the 503 of a lost database (which does not say whether the write
+  applied), creates a duplicate. With it, 1 to 255 visible ASCII characters compared exactly
+  (anything else is a 400, `invalid_idempotency_key`), the first request runs as usual and its
+  response is stored for 24 hours (`IDEMPOTENCY_TTL`); a repeat with the same key and body gets the
+  stored 201, `Location` and body back with `Idempotent-Replayed: true` and inserts nothing. The
+  same key with another body or on another path is a 422 (`idempotency_key_reused`); a repeat while
+  the first request still runs is a 409 (`idempotency_request_in_progress`, `Retry-After: 1`).
+  Error responses are never stored, so a key can be sent again after a 404 or a 503. A key is
+  scoped by a client identity that is `anonymous` for everyone until
+  [issue #70](https://github.com/NeeleshRambally/store/issues/70) supplies the token subject, so
+  clients must use random keys (UUIDs). Where the store lives, what a restart does to a claimed key
+  and how expired keys are removed is in ADR 0010, delivered under
+  [issue #71](https://github.com/NeeleshRambally/store/issues/71).
 - **`Accept` is checked before any work.** A request admitting neither `application/json` nor
   `application/problem+json` is a 406 at mapping time, because the controllers declare both as
   `produces`; before, Spring ran the handler and failed only when writing, after a `POST` had
@@ -223,7 +230,7 @@ service accepts one reading only.
 `OpenAPI.yaml` versions the contract in `info.version`, independently of the build (`1.0.0-SNAPSHOT`
 in `build.gradle`): a breaking change raises the major version, an addition such as a new `code` the
 minor. The specification said `1.0` while the API changed under it; `2.0.0` recorded those changes,
-and `2.1.0` and `3.0.0` followed.
+and `2.1.0`, `3.0.0` and `3.1.0` followed.
 
 **2.0.0.** A client written against 1.0, or against the service while its specification still said
 1.0, has to change in these ways:
@@ -279,6 +286,12 @@ used to read and store. Before, a body without a `Content-Type` was treated as
 `malformed_body` when empty), and a multipart body was parsed before its 415, or 413 when longer
 than the bound. A client that sends `application/json`, with or without a `charset`, needs no
 change.
+
+**3.1.0** adds the optional `Idempotency-Key` request header on the three `POST`s, the
+`Idempotent-Replayed` response header on their 201s, and the codes `invalid_idempotency_key` (400),
+`idempotency_request_in_progress` (409, with `Retry-After`) and `idempotency_key_reused` (422). A
+3.0.0 client that sends no key sees no change, and one that handles unknown codes by status needs
+no change either.
 
 ## Order by id (README task 1)
 
@@ -537,6 +550,11 @@ nothing in a response grows with the tables.
   three products went from 6 to 4 prepared statements plus one `nextval` per 50 orders; entities of
   one type flushed together become one batched insert per table. Ids are no longer gapless: a
   restart can skip up to 49.
+- **A keyed `POST` costs two statements more**: the claim of the key before the create and, in the
+  create's transaction, the completion that stores the response. `QueryCountIT` pins a keyed
+  `POST /customer` or `POST /products` at 3 and a keyed `POST /order` with three products at 6,
+  plus the block allocation; a replay or a 422 at 2 with no entity loaded; an unkeyed `POST`
+  unchanged (ADR 0010).
 - **Cache.** `GET /order/{id}` and `GET /products/{id}` are cached in memory for 60 s (`CACHE_TTL`;
   `CACHE_TYPE=none` disables): a repeated read runs no statement and opens no session (pinned).
   `orders` entries are never evicted, since an order never changes; `products` entries are evicted
@@ -660,7 +678,9 @@ actions, base images and Gradle distribution the pipeline downloads are pinned.
   `migrate` (no web server, schema owner `admin`, `seed` context) and starts `store` only after it
   exits 0. `store` connects as `store_app`, created by `scripts/postgres-init/01-roles.sql` with
   connect, `SELECT`, `INSERT` and sequence usage on everything `admin` creates and nothing else (a
-  `create table` and an `update` as `store_app` are denied), with `SPRING_LIQUIBASE_ENABLED=false`
+  `create table` and an `update` as `store_app` are denied) except `UPDATE` and `DELETE` on
+  `idempotency_key`, which changeset 9 grants to the role named by the Liquibase parameter
+  `runtimeRole` (ADR 0010), with `SPRING_LIQUIBASE_ENABLED=false`
   so no Liquibase bean exists at runtime. The two passwords stay inline as README-path development
   values; a deployment supplies credentials as variables or secret files in `/run/secrets`
   (`docs/DESIGN.md`, Configuration), and an `env_file` split is left open. `./gradlew bootRun` keeps
@@ -770,8 +790,8 @@ started stack.
 The smoke test runs on every build. The image just built migrates a fresh PostgreSQL as the
 `migrate` job, then starts under Compose as the restricted runtime role. It must become ready within
 120 seconds (`/actuator/health/readiness` reports `UP` with the `db` component) and must answer the
-API on 8080 (`GET /order/1`, `POST /customer`, `GET /products/2`, a cursor page, a 413 for an
-oversized body), with the actuator on 8081 only. In its `compose` mode the smoke test also reads,
+API on 8080 (`GET /order/1`, `POST /customer`, a `POST /customer` replayed by its `Idempotency-Key`,
+`GET /products/2`, a cursor page, a 413 for an oversized body), with the actuator on 8081 only. In its `compose` mode the smoke test also reads,
 with `docker inspect`, the `migrate` job's exit code, the hardening of both containers and the
 address of every published port. It checks the runtime role's grants in the database container, and
 requires a request's access line to appear in the container's ECS (Elastic Common Schema) JSON log

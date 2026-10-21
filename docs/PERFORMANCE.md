@@ -705,6 +705,12 @@ Ids come from sequences in blocks of 50, so inserts are deferred to flush and ba
 `POST /order` with three products went from 6 prepared statements to 4 (5 on the request that
 allocates the next block), and an order with 100 products costs the same.
 
+A `POST` sent with an `Idempotency-Key` (ADR 0010) runs two statements more: the claim of the key
+before the create and, in the create's transaction, the completion that stores the response.
+`QueryCountIT` pins a keyed `POST /customer` or `POST /products` at 3 prepared statements and a
+keyed `POST /order` with three products at 6, each plus the block allocation; a replay or a 422 at
+2 (the claim and the read of the stored row) with no entity loaded; an unkeyed `POST` is unchanged.
+
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch and, with
 `reWriteBatchedInserts=true`, sends it as one multi-row `INSERT`. "After" is pinned by
 `QueryCountIT` and `InsertBatchingIT`; "before" was counted on 2026-10-19 on `6163c42`, the
