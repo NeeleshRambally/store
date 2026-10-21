@@ -28,7 +28,8 @@ databaseChangeLog:
   - changeSet:
       id: 9-idempotency-key-runtime-grants
       author: developer@securitease.com
-      comment: The runtime role completes, releases and purges keys, so it needs UPDATE and DELETE on this one table; skipped where the role does not exist
+      comment: The runtime role completes, releases and purges keys, so it needs UPDATE and DELETE on this one table; skipped where the role does not exist and run again when the role name changes
+      runOnChange: true
       preConditions:
         - onFail: MARK_RAN
         - sqlCheck:
@@ -40,4 +41,11 @@ databaseChangeLog:
             sql: GRANT UPDATE, DELETE ON idempotency_key TO ${runtimeRole};
       rollback:
         - sql:
-            sql: REVOKE UPDATE, DELETE ON idempotency_key FROM ${runtimeRole};
+            splitStatements: false
+            sql: |
+              DO $$
+              BEGIN
+                IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${runtimeRole}') THEN
+                  EXECUTE 'REVOKE UPDATE, DELETE ON idempotency_key FROM ${runtimeRole}';
+                END IF;
+              END $$
