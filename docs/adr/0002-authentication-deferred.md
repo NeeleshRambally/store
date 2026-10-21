@@ -29,10 +29,10 @@ web test and provide no actual protection.
   [issue #70](https://github.com/NeeleshRambally/store/issues/70), due before 2027-03-31, after
   the Spring Boot 4.1 upgrade of [issue #57](https://github.com/NeeleshRambally/store/issues/57),
   so that the filter chain is written once, on the Spring Security line that Boot 4.1 manages.
-  The `Idempotency-Key` support that the `POST`s lack (`docs/ASSUMPTIONS.md`, API contract)
-  follows it as [issue #71](https://github.com/NeeleshRambally/store/issues/71), due before
-  2027-04-30, because a key is unique only within one client's requests and the service has no
-  client identity until that phase.
+  The `Idempotency-Key` support of [issue #71](https://github.com/NeeleshRambally/store/issues/71)
+  landed ahead of it (ADR 0010): a key is unique only within one client's requests, so the key
+  store is scoped by a `ClientIdentity` that answers `anonymous` for every caller until that phase
+  supplies the token subject, and clients must use random keys until then.
 - Request bodies are bounded by the service itself, not only by the gateway: a `POST`'s JSON
   body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 problem detail before it is
   parsed, a body of any other media type is a 415 before it is read, and a body sent with a
