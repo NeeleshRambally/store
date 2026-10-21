@@ -4,6 +4,7 @@ import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CreateOrderRequest;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectWriter;
 
 import org.junit.jupiter.api.Test;
 
@@ -18,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RequestFingerprintTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectWriter writer = objectMapper.writer();
 
     @Test
     void isTheSha256OfThePathAndTheCanonicalJsonOfTheRequest() throws Exception {
@@ -25,7 +27,7 @@ class RequestFingerprintTest {
                 .formatHex(MessageDigest.getInstance("SHA-256")
                         .digest("/customer\n{\"name\":\"Ada Lovelace\"}".getBytes(StandardCharsets.UTF_8)));
 
-        assertThat(RequestFingerprint.of(objectMapper, "/customer", new CreateCustomerRequest("Ada Lovelace")))
+        assertThat(RequestFingerprint.of(writer, "/customer", new CreateCustomerRequest("Ada Lovelace")))
                 .hasSize(64)
                 .isEqualTo(expected);
     }
@@ -38,8 +40,8 @@ class RequestFingerprintTest {
                 "{ \"productIds\" : [ 2, 8 ],\n  \"customerId\" : 1,\n  \"description\" : \"Engine\" }",
                 CreateOrderRequest.class);
 
-        assertThat(RequestFingerprint.of(objectMapper, "/order", spaced))
-                .isEqualTo(RequestFingerprint.of(objectMapper, "/order", compact));
+        assertThat(RequestFingerprint.of(writer, "/order", spaced))
+                .isEqualTo(RequestFingerprint.of(writer, "/order", compact));
     }
 
     @Test
@@ -48,22 +50,22 @@ class RequestFingerprintTest {
         CreateOrderRequest reordered = new CreateOrderRequest("Engine", 1L, List.of(8L, 2L));
         CreateOrderRequest renamed = new CreateOrderRequest("Engines", 1L, List.of(2L, 8L));
 
-        assertThat(RequestFingerprint.of(objectMapper, "/order", first))
-                .isNotEqualTo(RequestFingerprint.of(objectMapper, "/order", reordered))
-                .isNotEqualTo(RequestFingerprint.of(objectMapper, "/order", renamed));
+        assertThat(RequestFingerprint.of(writer, "/order", first))
+                .isNotEqualTo(RequestFingerprint.of(writer, "/order", reordered))
+                .isNotEqualTo(RequestFingerprint.of(writer, "/order", renamed));
     }
 
     @Test
     void changesWithThePath() {
         CreateCustomerRequest request = new CreateCustomerRequest("Ada Lovelace");
 
-        assertThat(RequestFingerprint.of(objectMapper, "/customer", request))
-                .isNotEqualTo(RequestFingerprint.of(objectMapper, "/products", request));
+        assertThat(RequestFingerprint.of(writer, "/customer", request))
+                .isNotEqualTo(RequestFingerprint.of(writer, "/products", request));
     }
 
     @Test
     void failsWhenTheRequestCannotBeWrittenAsJson() {
-        assertThatThrownBy(() -> RequestFingerprint.of(objectMapper, "/customer", new Object()))
+        assertThatThrownBy(() -> RequestFingerprint.of(writer, "/customer", new Object()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasCauseInstanceOf(JsonProcessingException.class);
     }
