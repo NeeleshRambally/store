@@ -18,7 +18,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class IdempotencyKeyStore {
 
-    static final String IN_PROGRESS = "IN_PROGRESS";
     static final String COMPLETED = "COMPLETED";
 
     private static final String CLAIM = "insert into idempotency_key (client_id, idempotency_key, claim_token,"
