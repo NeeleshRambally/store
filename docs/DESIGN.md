@@ -196,7 +196,8 @@ the unresolved placeholder as a literal, so the process fails at Liquibase's fir
 exits: `password authentication failed for user "${DB_USERNAME}"` when a server answers, `Connection
 refused` otherwise (HikariCP makes one attempt). No environment can start on the sample credentials
 by omission. `FailClosedStartupIT` observes it with a second, non-web application started without
-the two variables.
+the two variables; the test skips itself when `DB_USERNAME` is exported, because the variable would
+then supply the credentials it removes.
 
 A blank `LIQUIBASE_CONTEXTS` (or `SPRING_LIQUIBASE_CONTEXTS`) is caught before any connection by
 `LiquibaseContextsGuard`, an `EnvironmentPostProcessor` registered in `META-INF/spring.factories`.
@@ -209,9 +210,9 @@ application closed while one of its requests waits for a table lock.
 
 ## Development workflow
 Every change goes through a pull request, merged into `main` once both CI jobs are green and the
-pull request is approved. New behaviour starts with a failing test (unit, slice or integration) and,
-for API behaviour, a Cucumber scenario. Pull requests are rebase-merged, so each commit lands on
-`main` as written.
+pull request is approved; a ruleset on `main` enforces both. New behaviour starts with a failing
+test (unit, slice or integration) and, for API behaviour, a Cucumber scenario. Pull requests are
+rebase-merged, so each commit lands on `main` as written.
 
 ## Testing
 `./gradlew build` runs every tier in one task and one JVM: unit tests (JUnit 5, Mockito),
@@ -227,7 +228,7 @@ land in `build/reports`.
 
 Naming is one convention per tier, so the tier is never a single letter apart:
 * `*Test` runs without a Spring context (JUnit 5, Mockito, `ApplicationContextRunner`:
-  `NestedOrdersPropertiesTest`, `RequestBodyLimitPropertiesTest`).
+  `NestedOrdersPropertiesTest`, `RequestBodyLimitPropertiesTest`, `IdempotencyPropertiesTest`).
 * `*Tests` is a `@WebMvcTest` slice (all six).
 * `*IT` runs on the shared Testcontainers context that `AbstractIntegrationTest` declares;
   `CucumberIT`, through `CucumberSpringConfiguration`, is the acceptance suite on it.
@@ -298,8 +299,8 @@ and the coverage and SpotBugs reports are uploaded as the `reports` artifact.
 1. Builds the image once as `store:ci`, loaded into the runner's daemon and labelled with the
    commit's metadata.
 2. Scans it with Trivy, failing on a fixable `CRITICAL` or `HIGH` vulnerability. The findings table
-   goes to the job log, because code scanning and the Security tab are not available on a private
-   free-plan repository.
+   goes to the job log. Code scanning was not available while the repository was private, so the
+   results are not uploaded to the Security tab.
 3. Attaches an SPDX SBOM (software bill of materials) from Syft as the `sbom` artifact for 90 days
    (`retention-days: 90`; the action's own upload is off). `docs/ASSUMPTIONS.md`, "Delivery", says
    how to describe an image after that.
@@ -363,12 +364,11 @@ Gradle daemon or image pull therefore releases the runner within half an hour in
 six-hour default.
 
 ### Pulling the delivered image
-The package is private, so log in with a token that carries `read:packages`, then run the
+The package is public, so no login is needed. Run the
 image on the Compose network, where PostgreSQL answers as `postgres`. The network is
 `<project>_default`; the project name is the checkout directory unless `COMPOSE_PROJECT_NAME`
 sets another, so a clone named `store` gives `store_default`:
 ```shell
-docker login ghcr.io
 docker pull ghcr.io/neeleshrambally/store:latest
 docker compose up -d postgres
 docker run --rm --network store_default -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081:8081 \
@@ -376,6 +376,10 @@ docker run --rm --network store_default -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081
   -e DB_USERNAME=admin -e DB_PASSWORD=admin -e LIQUIBASE_CONTEXTS=seed \
   ghcr.io/neeleshrambally/store:latest
 ```
+The image is built for `linux/amd64` only, the runner's platform. On an arm64 machine, such as
+Apple silicon, Docker runs it under emulation with a platform warning; `docker compose up --build`
+builds a native image instead.
+
 The Compose network works on every engine; `host.docker.internal` is Docker Desktop's, and on
 Linux `--add-host host.docker.internal:host-gateway` resolves to the bridge gateway, where a
 port published on 127.0.0.1 does not listen. Run alone like this the image migrates
@@ -488,9 +492,9 @@ schema has these indexes:
 | `idx_idempotency_key_expires_at` | `idempotency_key (expires_at)` | The sweep that deletes expired keys |
 
 ## API
-The contract is `OpenAPI.yaml`, version 3.0.0, the contract's own version, not the build's;
+The contract is `OpenAPI.yaml`, version 3.1.0, the contract's own version, not the build's;
 `docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what a client written
-against the delivered 1.0, or against 2.1.0, has to change.
+against the delivered 1.0, or against 2.1.0 or 3.0.0, has to change.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -814,7 +818,7 @@ shutdown begins, which by itself moves no traffic away (see Shutdown). Readiness
 components without details
 (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`);
 `/actuator/health` stays detail-free. Neither probe proves the API connector answers; the pipeline's
-smoke test does (ADR 0008 records the trade-off).
+smoke test does.
 
 `GET :8081/actuator/info` reports `build.artifact`, `build.name`, `build.group` and `build.version`
 from `META-INF/build-info.properties`, generated without the build time so that a rebuild of
