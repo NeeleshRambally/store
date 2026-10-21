@@ -37,6 +37,7 @@ import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -44,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -113,27 +115,30 @@ class IdempotentRequestsTest {
     @Test
     void claimsTheKeyInItsOwnTransactionThenRecordsTheResponseWithTheCreate() {
         when(store.claim(
-                        "anonymous",
-                        "customer-7f3c",
-                        fingerprint,
-                        "/customer",
-                        Duration.ofHours(24),
-                        Duration.ofSeconds(30)))
+                        eq("anonymous"),
+                        eq("customer-7f3c"),
+                        any(),
+                        eq(fingerprint),
+                        eq("/customer"),
+                        eq(Duration.ofHours(24)),
+                        eq(Duration.ofSeconds(30))))
                 .thenReturn(1);
+        when(store.complete(any(), any(), any(), anyInt(), any(), any())).thenReturn(1);
         ResponseEntity<CustomerDTO> created = created();
         when(action.get()).thenReturn(created);
 
         ResponseEntity<CustomerDTO> response = requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action);
 
         assertThat(response).isSameAs(created);
+        UUID token = claimToken();
         InOrder inOrder = inOrder(store, transactionManager, action);
-        inOrder.verify(store).claim(any(), any(), any(), any(), any(), any());
+        inOrder.verify(store).claim(any(), any(), any(), any(), any(), any(), any());
         inOrder.verify(transactionManager).commit(any());
         inOrder.verify(action).get();
-        inOrder.verify(store).complete("anonymous", "customer-7f3c", 201, "/customer/101", CREATED_JSON);
+        inOrder.verify(store).complete("anonymous", "customer-7f3c", token, 201, "/customer/101", CREATED_JSON);
         inOrder.verify(transactionManager).commit(any());
         verify(transactionManager, never()).rollback(any());
-        verify(store, never()).release(any(), any());
+        verify(store, never()).release(any(), any(), any());
         ArgumentCaptor<TransactionDefinition> definitions = ArgumentCaptor.forClass(TransactionDefinition.class);
         verify(transactionManager, times(2)).getTransaction(definitions.capture());
         assertThat(definitions.getAllValues())
@@ -143,18 +148,51 @@ class IdempotentRequestsTest {
     }
 
     @Test
+    void claimsEveryRequestWithATokenOfItsOwn() {
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.complete(any(), any(), any(), anyInt(), any(), any())).thenReturn(1);
+        when(action.get()).thenReturn(created());
+
+        requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action);
+        requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action);
+
+        ArgumentCaptor<UUID> tokens = ArgumentCaptor.forClass(UUID.class);
+        verify(store, times(2)).claim(any(), any(), tokens.capture(), any(), any(), any(), any());
+        assertThat(tokens.getAllValues()).doesNotHaveDuplicates().doesNotContainNull();
+    }
+
+    @Test
     void recordsNoLocationWhenTheResponseCarriesNone() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.complete(any(), any(), any(), anyInt(), any(), any())).thenReturn(1);
         when(action.get()).thenReturn(ResponseEntity.status(HttpStatus.CREATED).body(CREATED));
 
         requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action);
 
-        verify(store).complete("anonymous", "customer-7f3c", 201, null, CREATED_JSON);
+        UUID token = claimToken();
+        verify(store).complete("anonymous", "customer-7f3c", token, 201, null, CREATED_JSON);
+    }
+
+    @Test
+    void rollsTheCreateBackAndAnswersInProgressWhenTheKeyWasTakenOverMeanwhile() {
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.complete(any(), any(), any(), anyInt(), any(), any())).thenReturn(0);
+        when(action.get()).thenReturn(created());
+
+        assertThatThrownBy(() -> requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action))
+                .isInstanceOf(IdempotencyRequestInProgressException.class);
+
+        verify(transactionManager).rollback(any());
+        UUID token = claimToken();
+        verify(store).release("anonymous", "customer-7f3c", token);
+        assertThat(event(Level.WARN).getFormattedMessage())
+                .isEqualTo("Idempotency key for /customer taken over while its request was still running;"
+                        + " the create is rolled back");
     }
 
     @Test
     void replaysACompletedKeyWithoutRunningTheAction() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find("anonymous", "customer-7f3c"))
                 .thenReturn(Optional.of(new StoredKey(fingerprint, "COMPLETED", 201, "/customer/101", CREATED_JSON)));
 
@@ -165,13 +203,13 @@ class IdempotentRequestsTest {
         assertThat(response.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
         assertThat(response.getBody()).isEqualTo(CREATED);
         verifyNoInteractions(action);
-        verify(store, never()).complete(any(), any(), anyInt(), any(), any());
+        verify(store, never()).complete(any(), any(), any(), anyInt(), any(), any());
         verify(transactionManager, times(1)).commit(any());
     }
 
     @Test
     void replaysWithoutALocationWhenNoneWasStored() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find(any(), any()))
                 .thenReturn(Optional.of(new StoredKey(fingerprint, "COMPLETED", 201, null, CREATED_JSON)));
 
@@ -184,7 +222,7 @@ class IdempotentRequestsTest {
 
     @Test
     void rejectsAKeyReusedWithAnotherRequestWhateverItsState() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find(any(), any()))
                 .thenReturn(Optional.of(new StoredKey("0".repeat(64), "IN_PROGRESS", null, null, null)));
 
@@ -195,7 +233,7 @@ class IdempotentRequestsTest {
 
     @Test
     void answersInProgressWhileTheFirstRequestStillRuns() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find(any(), any()))
                 .thenReturn(Optional.of(new StoredKey(fingerprint, "IN_PROGRESS", null, null, null)));
 
@@ -206,7 +244,7 @@ class IdempotentRequestsTest {
 
     @Test
     void answersInProgressWhenTheRowVanishesBetweenTheClaimAndTheRead() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find(any(), any())).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action))
@@ -217,15 +255,16 @@ class IdempotentRequestsTest {
 
     @Test
     void releasesTheKeyInItsOwnTransactionAndRethrowsWhenTheActionFails() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         ResourceNotFoundException failure = new ResourceNotFoundException("Customer", 99L);
         when(action.get()).thenThrow(failure);
 
         assertThatThrownBy(() -> requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action))
                 .isSameAs(failure);
 
-        verify(store).release("anonymous", "customer-7f3c");
-        verify(store, never()).complete(any(), any(), anyInt(), any(), any());
+        UUID token = claimToken();
+        verify(store).release("anonymous", "customer-7f3c", token);
+        verify(store, never()).complete(any(), any(), any(), anyInt(), any(), any());
         verify(transactionManager, times(1)).rollback(any());
         ArgumentCaptor<TransactionDefinition> definitions = ArgumentCaptor.forClass(TransactionDefinition.class);
         verify(transactionManager, times(3)).getTransaction(definitions.capture());
@@ -240,21 +279,22 @@ class IdempotentRequestsTest {
 
     @Test
     void releasesTheKeyWhenTheResponseCannotBeRecorded() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         when(action.get()).thenReturn(created());
         DataAccessResourceFailureException failure = new DataAccessResourceFailureException("connection lost");
-        when(store.complete(any(), any(), anyInt(), any(), any())).thenThrow(failure);
+        when(store.complete(any(), any(), any(), anyInt(), any(), any())).thenThrow(failure);
 
         assertThatThrownBy(() -> requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action))
                 .isSameAs(failure);
 
-        verify(store).release("anonymous", "customer-7f3c");
+        UUID token = claimToken();
+        verify(store).release("anonymous", "customer-7f3c", token);
         verify(transactionManager).rollback(any());
     }
 
     @Test
     void releasesTheKeyWhenTheResponseCannotBeWrittenAsJson() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         Supplier<ResponseEntity<Object>> unwritable =
                 () -> ResponseEntity.created(URI.create("/customer/101")).body(new Object());
 
@@ -262,16 +302,17 @@ class IdempotentRequestsTest {
                 .isInstanceOf(UncheckedIOException.class)
                 .hasCauseInstanceOf(JsonProcessingException.class);
 
-        verify(store).release("anonymous", "customer-7f3c");
-        verify(store, never()).complete(any(), any(), anyInt(), any(), any());
+        UUID token = claimToken();
+        verify(store).release("anonymous", "customer-7f3c", token);
+        verify(store, never()).complete(any(), any(), any(), anyInt(), any(), any());
     }
 
     @Test
     void logsAReleaseThatFailsAtWarnAndStillRethrowsTheOriginalFailure() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(1);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(1);
         ResourceNotFoundException failure = new ResourceNotFoundException("Customer", 99L);
         when(action.get()).thenThrow(failure);
-        when(store.release(anyString(), anyString()))
+        when(store.release(anyString(), anyString(), any()))
                 .thenThrow(new DataAccessResourceFailureException("Connection reset by peer"));
 
         assertThatThrownBy(() -> requests.execute(KEY, "/customer", REQUEST, CustomerDTO.class, action))
@@ -285,7 +326,7 @@ class IdempotentRequestsTest {
 
     @Test
     void failsWhenAStoredResponseCannotBeReadBack() {
-        when(store.claim(any(), any(), any(), any(), any(), any())).thenReturn(0);
+        when(store.claim(any(), any(), any(), any(), any(), any(), any())).thenReturn(0);
         when(store.find(any(), any()))
                 .thenReturn(Optional.of(new StoredKey(fingerprint, "COMPLETED", 201, "/customer/101", "not json")));
 
@@ -296,6 +337,12 @@ class IdempotentRequestsTest {
 
     private static ResponseEntity<CustomerDTO> created() {
         return ResponseEntity.created(URI.create("/customer/101")).body(CREATED);
+    }
+
+    private UUID claimToken() {
+        ArgumentCaptor<UUID> token = ArgumentCaptor.forClass(UUID.class);
+        verify(store).claim(any(), any(), token.capture(), any(), any(), any(), any());
+        return token.getValue();
     }
 
     private ILoggingEvent event(Level level) {

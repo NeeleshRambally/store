@@ -2,7 +2,7 @@ databaseChangeLog:
   - changeSet:
       id: 9-idempotency-key
       author: developer@securitease.com
-      comment: One row per Idempotency-Key and client, holding the fingerprint of the request and the response to replay; the expiry index serves the purge
+      comment: One row per Idempotency-Key and client, holding the token of the claim that owns it, the fingerprint of the request and the response to replay; the expiry index serves the purge
       changes:
         - sql:
             dbms: postgresql
@@ -10,6 +10,7 @@ databaseChangeLog:
               CREATE TABLE idempotency_key (
                   client_id VARCHAR(255) NOT NULL,
                   idempotency_key VARCHAR(255) NOT NULL,
+                  claim_token UUID NOT NULL,
                   request_fingerprint CHAR(64) NOT NULL,
                   request_path VARCHAR(255) NOT NULL,
                   status VARCHAR(16) NOT NULL,

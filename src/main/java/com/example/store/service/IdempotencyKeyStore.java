@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
 import java.util.Optional;
+import java.util.UUID;
 
 // Native SQL on idempotency_key through the JPA session, so each statement joins the caller's transaction and counts
 // in Hibernate's statistics like the statements of the create it accompanies.
@@ -20,10 +21,11 @@ public class IdempotencyKeyStore {
     static final String IN_PROGRESS = "IN_PROGRESS";
     static final String COMPLETED = "COMPLETED";
 
-    private static final String CLAIM = "insert into idempotency_key (client_id, idempotency_key, request_fingerprint,"
-            + " request_path, status, created_at, expires_at)"
-            + " values (:client, :key, :fingerprint, :path, 'IN_PROGRESS', now(), now() + :ttl * interval '1 second')"
-            + " on conflict (client_id, idempotency_key) do update set"
+    private static final String CLAIM = "insert into idempotency_key (client_id, idempotency_key, claim_token,"
+            + " request_fingerprint, request_path, status, created_at, expires_at)"
+            + " values (:client, :key, :token, :fingerprint, :path, 'IN_PROGRESS', now(),"
+            + " now() + :ttl * interval '1 second')"
+            + " on conflict (client_id, idempotency_key) do update set claim_token = excluded.claim_token,"
             + " request_fingerprint = excluded.request_fingerprint, request_path = excluded.request_path,"
             + " status = excluded.status, response_status = null, response_location = null, response_body = null,"
             + " created_at = excluded.created_at, expires_at = excluded.expires_at"
@@ -35,18 +37,28 @@ public class IdempotencyKeyStore {
             + " where client_id = :client and idempotency_key = :key";
     private static final String COMPLETE = "update idempotency_key set status = 'COMPLETED',"
             + " response_status = :status, response_location = :location, response_body = :body"
-            + " where client_id = :client and idempotency_key = :key";
+            + " where client_id = :client and idempotency_key = :key and claim_token = :token"
+            + " and status = 'IN_PROGRESS'";
     private static final String RELEASE = "delete from idempotency_key"
-            + " where client_id = :client and idempotency_key = :key and status = 'IN_PROGRESS'";
+            + " where client_id = :client and idempotency_key = :key and claim_token = :token"
+            + " and status = 'IN_PROGRESS'";
     private static final String PURGE = "delete from idempotency_key where expires_at <= now()";
 
     private final EntityManager entityManager;
 
-    public int claim(String clientId, String key, String fingerprint, String path, Duration ttl, Duration staleAfter) {
+    public int claim(
+            String clientId,
+            String key,
+            UUID token,
+            String fingerprint,
+            String path,
+            Duration ttl,
+            Duration staleAfter) {
         return session()
                 .createNativeMutationQuery(CLAIM)
                 .setParameter("client", clientId)
                 .setParameter("key", key)
+                .setParameter("token", token)
                 .setParameter("fingerprint", fingerprint)
                 .setParameter("path", path)
                 .setParameter("ttl", ttl.toSeconds())
@@ -65,7 +77,8 @@ public class IdempotencyKeyStore {
                 .map(StoredKey::of);
     }
 
-    public int complete(String clientId, String key, int responseStatus, String responseLocation, String responseBody) {
+    public int complete(
+            String clientId, String key, UUID token, int responseStatus, String responseLocation, String responseBody) {
         return session()
                 .createNativeMutationQuery(COMPLETE)
                 .setParameter("status", responseStatus)
@@ -73,14 +86,16 @@ public class IdempotencyKeyStore {
                 .setParameter("body", responseBody, String.class)
                 .setParameter("client", clientId)
                 .setParameter("key", key)
+                .setParameter("token", token)
                 .executeUpdate();
     }
 
-    public int release(String clientId, String key) {
+    public int release(String clientId, String key, UUID token) {
         return session()
                 .createNativeMutationQuery(RELEASE)
                 .setParameter("client", clientId)
                 .setParameter("key", key)
+                .setParameter("token", token)
                 .executeUpdate();
     }
 
