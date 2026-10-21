@@ -8,7 +8,7 @@ COPY src ./src
 RUN ./gradlew --no-daemon bootJar -x test \
     && java -Djarmode=tools -jar build/libs/store-*[!plain].jar extract --layers --launcher --destination extracted
 
-FROM gcr.io/distroless/java17-debian13:nonroot@sha256:9bd5eb41f0a77adcbc10ff1c7ddcfddeada1796ca0dc827fe289269bd1339284
+FROM gcr.io/distroless/java17-debian13:nonroot@sha256:3b74f9967f1674f49c3b7bd0fc3355e4d8591f8f98b9eed020ff9ca8f5bdb38d
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
 COPY --from=build /workspace/extracted/spring-boot-loader/ ./
