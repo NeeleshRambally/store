@@ -47,6 +47,8 @@ public class StoreApiSteps {
 
     private ResponseEntity<String> response;
     private JsonNode body;
+    private ResponseEntity<String> previousResponse;
+    private JsonNode previousBody;
     private long createdProductId;
     private long createdOrderId;
     private List<Long> matchingCustomerIds;
@@ -55,6 +57,11 @@ public class StoreApiSteps {
     @When("I create a customer named {string}")
     public void createCustomerNamed(String name) throws Exception {
         post("/customer", objectMapper.writeValueAsString(Map.of("name", name)));
+    }
+
+    @When("I create a customer named {string} with the Idempotency-Key {string}")
+    public void createCustomerNamedWithKey(String name, String key) throws Exception {
+        post("/customer", objectMapper.writeValueAsString(Map.of("name", name)), idempotencyKey(key));
     }
 
     @When("I create a customer with payload:")
@@ -74,6 +81,22 @@ public class StoreApiSteps {
                         customerId,
                         "productIds",
                         List.of(firstProduct, secondProduct))));
+    }
+
+    @When("I create an order {string} for customer {int} with products {int} and {int} with the Idempotency-Key"
+            + " {string}")
+    public void createOrderWithKey(String description, int customerId, int firstProduct, int secondProduct, String key)
+            throws Exception {
+        post(
+                "/order",
+                objectMapper.writeValueAsString(Map.of(
+                        "description",
+                        description,
+                        "customerId",
+                        customerId,
+                        "productIds",
+                        List.of(firstProduct, secondProduct))),
+                idempotencyKey(key));
     }
 
     @When("I create an order {string} for customer {int} with products {int} and {int} accepting {string}")
@@ -150,6 +173,11 @@ public class StoreApiSteps {
     public void createProduct(String description) throws Exception {
         post("/products", objectMapper.writeValueAsString(Map.of("description", description)));
         createdProductId = body.path("id").asLong();
+    }
+
+    @When("I create a product described as {string} with the Idempotency-Key {string}")
+    public void createProductWithKey(String description, String key) throws Exception {
+        post("/products", objectMapper.writeValueAsString(Map.of("description", description)), idempotencyKey(key));
     }
 
     @When("I create a product with payload:")
@@ -531,6 +559,20 @@ public class StoreApiSteps {
         assertThat(response.getHeaders().getAccept()).containsExactly(MediaType.parseMediaType(mediaType));
     }
 
+    @Then("the response is not a replay")
+    public void responseIsNotAReplay() {
+        assertThat(response.getHeaders().getFirst("Idempotent-Replayed")).isNull();
+    }
+
+    @Then("the response replays the previous response")
+    public void responseReplaysThePreviousResponse() {
+        assertThat(response.getStatusCode()).isEqualTo(previousResponse.getStatusCode());
+        assertThat(response.getHeaders().getLocation())
+                .isEqualTo(previousResponse.getHeaders().getLocation());
+        assertThat(response.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(body).isEqualTo(previousBody);
+    }
+
     @Then("the response asks to retry after {int} seconds")
     public void responseAsksToRetryAfter(int seconds) {
         assertThat(response.getHeaders().getFirst(HttpHeaders.RETRY_AFTER)).isEqualTo(String.valueOf(seconds));
@@ -659,7 +701,15 @@ public class StoreApiSteps {
         capture(restTemplate.getForEntity(path, String.class));
     }
 
+    private static HttpHeaders idempotencyKey(String key) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Idempotency-Key", key);
+        return headers;
+    }
+
     private void capture(ResponseEntity<String> entity) throws Exception {
+        previousResponse = response;
+        previousBody = body;
         response = entity;
         body = entity.getBody() == null ? objectMapper.nullNode() : objectMapper.readTree(entity.getBody());
     }

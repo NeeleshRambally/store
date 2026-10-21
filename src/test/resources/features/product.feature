@@ -8,6 +8,21 @@ Feature: Product catalogue
     Then the response status is 201
     And the response product is described as "Brass Astrolabe" with a generated id and no orders
 
+  Scenario: A product creation repeated with its Idempotency-Key replays the first response
+    When I create a product described as "Replayed Astrolabe" with the Idempotency-Key "cucumber-product-replay"
+    Then the response status is 201
+    And the response is not a replay
+    When I create a product described as "Replayed Astrolabe" with the Idempotency-Key "cucumber-product-replay"
+    Then the response status is 201
+    And the response replays the previous response
+
+  Scenario: A product Idempotency-Key reused with another description is rejected
+    When I create a product described as "First Astrolabe" with the Idempotency-Key "cucumber-product-reuse"
+    Then the response status is 201
+    When I create a product described as "Second Astrolabe" with the Idempotency-Key "cucumber-product-reuse"
+    Then the response status is 422
+    And the response problem code is "idempotency_key_reused"
+
   Scenario: A blank product description is rejected
     When I create a product described as "  "
     Then the response status is 400

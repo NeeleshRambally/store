@@ -4,11 +4,14 @@ import com.example.store.config.JacksonConfig;
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
+import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.ProductDTO;
 import com.example.store.exception.ResourceNotFoundException;
+import com.example.store.service.IdempotentRequests;
 import com.example.store.service.ProductService;
 
 import org.apache.catalina.Globals;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -19,12 +22,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +53,61 @@ class ProductControllerTests {
 
     @MockitoBean
     private ProductService productService;
+
+    @MockitoBean
+    private IdempotentRequests idempotentRequests;
+
+    @BeforeEach
+    void runEachCreateThroughTheIdempotentRequests() {
+        when(idempotentRequests.execute(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation ->
+                        invocation.<Supplier<ResponseEntity<?>>>getArgument(4).get());
+    }
+
+    @Test
+    void createWithAnIdempotencyKeyPassesTheKeyThePathAndTheBoundRequest() throws Exception {
+        when(productService.create(new CreateProductRequest("Rustic Chair")))
+                .thenReturn(new ProductDTO(101L, "Rustic Chair", List.of(), 0));
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "product-7f3c")
+                        .content("{\"description\":\"Rustic Chair\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/products/101"));
+
+        verify(idempotentRequests)
+                .execute(
+                        eq(new IdempotencyKey("product-7f3c")),
+                        eq("/products"),
+                        eq(new CreateProductRequest("Rustic Chair")),
+                        eq(ProductDTO.class),
+                        any());
+    }
+
+    @Test
+    void createWithoutAnIdempotencyKeyPassesNoKey() throws Exception {
+        when(productService.create(any())).thenReturn(PRODUCT);
+
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Rustic Chair\"}"))
+                .andExpect(status().isCreated());
+
+        verify(idempotentRequests).execute(isNull(), eq("/products"), any(), eq(ProductDTO.class), any());
+    }
+
+    @Test
+    void createRejectsAnIdempotencyKeyWithAControlCharacter() throws Exception {
+        mockMvc.perform(post("/products")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "tab\there")
+                        .content("{\"description\":\"Rustic Chair\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"));
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+        verify(productService, never()).create(any());
+    }
 
     @Test
     void createReturnsCreatedProduct() throws Exception {

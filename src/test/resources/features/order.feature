@@ -9,6 +9,22 @@ Feature: Order management
     And the response order is "Analytical Engine" for customer "Muriel Donnelly" with a generated id
     And the response order contains products 2 and 8
 
+  Scenario: An order creation repeated with its Idempotency-Key replays the first response
+    When I create an order "Replayed Engine" for customer 1 with products 8 and 2 with the Idempotency-Key "cucumber-order-replay"
+    Then the response status is 201
+    And the response is not a replay
+    When I create an order "Replayed Engine" for customer 1 with products 8 and 2 with the Idempotency-Key "cucumber-order-replay"
+    Then the response status is 201
+    And the response replays the previous response
+    And the response order contains products 2 and 8
+
+  Scenario: An order for an unknown customer releases its Idempotency-Key for the corrected request
+    When I create an order "Corrected Engine" for customer 999999 with products 8 and 2 with the Idempotency-Key "cucumber-order-release"
+    Then the response status is 404
+    When I create an order "Corrected Engine" for customer 1 with products 8 and 2 with the Idempotency-Key "cucumber-order-release"
+    Then the response status is 201
+    And the response is not a replay
+
   Scenario: An order must contain at least one product
     When I create an order with payload:
       """
