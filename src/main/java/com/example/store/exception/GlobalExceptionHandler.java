@@ -86,6 +86,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 "must not be repeated");
     }
 
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    ProblemDetail handleInvalidIdempotencyKey(InvalidIdempotencyKeyException ex) {
+        return problem(HttpStatus.BAD_REQUEST, "invalid_idempotency_key", ex.getMessage());
+    }
+
+    @ExceptionHandler(IdempotencyKeyReusedException.class)
+    ProblemDetail handleIdempotencyKeyReused(IdempotencyKeyReusedException ex) {
+        return problem(HttpStatus.UNPROCESSABLE_ENTITY, "idempotency_key_reused", ex.getMessage());
+    }
+
+    @ExceptionHandler(IdempotencyRequestInProgressException.class)
+    ResponseEntity<ProblemDetail> handleIdempotencyRequestInProgress(IdempotencyRequestInProgressException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .header(HttpHeaders.RETRY_AFTER, "1")
+                .body(problem(HttpStatus.CONFLICT, "idempotency_request_in_progress", ex.getMessage()));
+    }
+
     @ExceptionHandler(DataIntegrityViolationException.class)
     ProblemDetail handleDataIntegrity(DataIntegrityViolationException ex) {
         Throwable cause = ex.getMostSpecificCause();

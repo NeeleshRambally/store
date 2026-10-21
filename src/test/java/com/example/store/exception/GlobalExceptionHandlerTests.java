@@ -173,6 +173,38 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void anInvalidIdempotencyKeyIsABadRequestProblemDetail() throws Exception {
+        mockMvc.perform(get("/invalid-idempotency-key"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Idempotency-Key must be 1 to 255 visible ASCII characters"))
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+    }
+
+    @Test
+    void aReusedIdempotencyKeyIsAnUnprocessableEntityProblemDetail() throws Exception {
+        mockMvc.perform(get("/idempotency-key-reused"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().doesNotExist("Retry-After"))
+                .andExpect(jsonPath("$.status").value(422))
+                .andExpect(jsonPath("$.detail").value("Idempotency-Key was already used with a different request"))
+                .andExpect(jsonPath("$.code").value("idempotency_key_reused"));
+    }
+
+    @Test
+    void aRequestStillInProgressIsAConflictToRetryAfterASecond() throws Exception {
+        mockMvc.perform(get("/idempotency-request-in-progress"))
+                .andExpect(status().isConflict())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(header().string("Retry-After", "1"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.detail").value("A request with this Idempotency-Key is still in progress"))
+                .andExpect(jsonPath("$.code").value("idempotency_request_in_progress"));
+    }
+
+    @Test
     void anotherJpaSystemFailureIsStillAnInternalError() throws Exception {
         mockMvc.perform(get("/jpa-failure"))
                 .andExpect(status().isInternalServerError())
@@ -255,6 +287,14 @@ class GlobalExceptionHandlerTests {
                 arguments("a cancelled statement", get("/statement-timeout"), 503, "database_timeout"),
                 arguments("an expired transaction", get("/transaction-timeout"), 503, "database_timeout"),
                 arguments("another JPA system failure", get("/jpa-failure"), 500, "internal_error"),
+                arguments(
+                        "an invalid idempotency key", get("/invalid-idempotency-key"), 400, "invalid_idempotency_key"),
+                arguments("a reused idempotency key", get("/idempotency-key-reused"), 422, "idempotency_key_reused"),
+                arguments(
+                        "a request still in progress",
+                        get("/idempotency-request-in-progress"),
+                        409,
+                        "idempotency_request_in_progress"),
                 arguments("an expired async request", get("/timeout"), 503, "service_unavailable"));
     }
 
@@ -303,6 +343,21 @@ class GlobalExceptionHandlerTests {
         @GetMapping("/missing")
         String missing() {
             throw new ResourceNotFoundException("Order", 9L);
+        }
+
+        @GetMapping("/invalid-idempotency-key")
+        String invalidIdempotencyKey() {
+            throw new InvalidIdempotencyKeyException();
+        }
+
+        @GetMapping("/idempotency-key-reused")
+        String idempotencyKeyReused() {
+            throw new IdempotencyKeyReusedException();
+        }
+
+        @GetMapping("/idempotency-request-in-progress")
+        String idempotencyRequestInProgress() {
+            throw new IdempotencyRequestInProgressException();
         }
 
         @GetMapping("/sorted")
