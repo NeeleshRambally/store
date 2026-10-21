@@ -1,11 +1,13 @@
 package com.example.store.integration;
 
+import com.example.store.config.IdempotencyProperties;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.ProductDTO;
 import com.example.store.exception.IdempotencyRequestInProgressException;
 import com.example.store.service.CustomerService;
+import com.example.store.service.IdempotencyKeyPurge;
 import com.example.store.service.IdempotentRequests;
 import com.example.store.service.RequestFingerprint;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,6 +30,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.config.FixedDelayTask;
+import org.springframework.scheduling.config.ScheduledTask;
+import org.springframework.scheduling.config.ScheduledTaskHolder;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import ch.qos.logback.classic.Level;
@@ -70,6 +75,15 @@ class IdempotencyIT extends AbstractIntegrationTest {
 
     @Autowired
     private PostgreSQLContainer<?> container;
+
+    @Autowired
+    private IdempotencyKeyPurge purge;
+
+    @Autowired
+    private IdempotencyProperties properties;
+
+    @Autowired
+    private ScheduledTaskHolder scheduledTasks;
 
     @ParameterizedTest(name = "POST {0}")
     @MethodSource("keyedCreations")
@@ -355,6 +369,48 @@ class IdempotencyIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void thePurgeDeletesExpiredKeysAndKeepsLiveOnesInItsOwnTransaction() {
+        String expired = "purge-expired-" + UUID.randomUUID();
+        String live = "purge-live-" + UUID.randomUUID();
+        insertCompletedKey(expired, "now() - interval '1 second'");
+        insertCompletedKey(live, "now() + interval '1 day'");
+        Logger logger = (Logger) LoggerFactory.getLogger(IdempotencyKeyPurge.class);
+        Level level = logger.getLevel();
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            purge.purgeExpiredKeys();
+        } finally {
+            logger.setLevel(level);
+            logger.detachAppender(appender);
+        }
+
+        assertThat(keyRows(expired)).isZero();
+        assertThat(keyRows(live)).isEqualTo(1L);
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.DEBUG);
+            assertThat(event.getFormattedMessage()).matches("Purged [1-9][0-9]* expired idempotency keys");
+        });
+    }
+
+    @Test
+    void thePurgeIsScheduledAtTheConfiguredIntervalAfterTheSameInitialDelay() {
+        List<FixedDelayTask> sweeps = scheduledTasks.getScheduledTasks().stream()
+                .filter(task -> task.toString().equals(IdempotencyKeyPurge.class.getName() + ".purgeExpiredKeys"))
+                .map(ScheduledTask::getTask)
+                .map(FixedDelayTask.class::cast)
+                .toList();
+
+        assertThat(properties.purgeInterval()).isEqualTo(Duration.ofHours(1));
+        assertThat(sweeps).singleElement().satisfies(sweep -> {
+            assertThat(sweep.getIntervalDuration()).isEqualTo(properties.purgeInterval());
+            assertThat(sweep.getInitialDelayDuration()).isEqualTo(properties.purgeInterval());
+        });
+    }
+
+    @Test
     void anUnkeyedPostStoresNoKey() {
         long before = jdbcTemplate.queryForObject("select count(*) from idempotency_key", Long.class);
 
@@ -377,6 +433,16 @@ class IdempotencyIT extends AbstractIntegrationTest {
         assertThat(otherCase.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(otherCase.getHeaders().getFirst("Idempotent-Replayed")).isNull();
         assertThat(rows("customer", "name", name)).isEqualTo(2L);
+    }
+
+    private void insertCompletedKey(String key, String expiresAt) {
+        jdbcTemplate.update(
+                "insert into idempotency_key (client_id, idempotency_key, request_fingerprint, request_path, status,"
+                        + " response_status, response_location, response_body, created_at, expires_at)"
+                        + " values ('anonymous', ?, ?, '/customer', 'COMPLETED', 201, '/customer/1', '{}', now(), "
+                        + expiresAt + ")",
+                key,
+                "0".repeat(64));
     }
 
     private List<String> statementsSentFor(Runnable request) {
