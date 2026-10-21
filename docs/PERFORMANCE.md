@@ -5,7 +5,7 @@ Users reported that `GET /customer` and `GET /order` are very slow in production
 database is not co-located with the service and every round trip pays a high network latency.
 
 ## Measurements on the original code
-Taken on the import commit (`57a5fa1`; `git show 57a5fa1:<path>` reproduces any file) against
+Taken on the import commit (`d0532d8`; `git show d0532d8:<path>` reproduces any file) against
 PostgreSQL 16.2 with the seeded data set (100 customers, 10,000 orders), re-measured on
 2026-10-19: the commit's own jar against a throwaway database that its own changesets migrated
 and seeded, with Hibernate statistics switched on
@@ -59,9 +59,9 @@ advanced past the seeded ids, so the first insert failed outright.
 | B-tree indexes on the whitelisted sort columns with `id` as the trailing column: `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` (changeset 7) | A shallow sorted offset page is a backward index scan over the entries it returns instead of a top-N sort of the whole table; a deep sorted offset page still pays the offset (see "Sorted pages" below); `MigrationIT` pins the three plans |
 | `spring.jpa.open-in-view: false`; services are `@Transactional(readOnly = true)` and return DTOs | No query can run outside a service transaction; the connection is returned before serialisation starts |
 | `default_batch_fetch_size: 100` | Safety net only; no endpoint relies on it |
-| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the seeded by-id bodies of `/order/1` (178 B) and `/products/2` (165 B) stay below the threshold and are sent as is, while `/customer/1`, with 20 nested orders, is just above it and is compressed (1,049 B / 424 B); the threshold applies per response, so an order is compressed once it carries enough products (with 25 of the seeded products `GET /order/{id}` is 1,098 B and is sent as 290 B, measured on 2026-10-19 with the jar of `f0b1595` on the seed) |
+| HTTP response compression (gzip for JSON above 1 KB) | A 100-order page shrinks from 18,747 B to 3,060 B on the wire and the 100-customer page from 106,253 B to 17,145 B (measured below); the seeded by-id bodies of `/order/1` (178 B) and `/products/2` (165 B) stay below the threshold and are sent as is, while `/customer/1`, with 20 nested orders, is just above it and is compressed (1,049 B / 424 B); the threshold applies per response, so an order is compressed once it carries enough products (with 25 of the seeded products `GET /order/{id}` is 1,098 B and is sent as 290 B, measured on 2026-10-19 with the jar of `173f958` on the seed) |
 | HikariCP pool size configurable (`DB_POOL_SIZE`), connection and validation timeouts explicit (5 s, 2 s) | Predictable behaviour under load; fail fast when the database is unreachable |
-| Statement, socket and transaction timeouts on every connection (`DB_STATEMENT_TIMEOUT` 10 s on the server, `DB_SOCKET_TIMEOUT` 15 s, `TX_TIMEOUT` 15 s, `cancelSignalTimeout` 3 s) | A slow statement or a stalled remote database holds its connection and its request thread for a bounded time and then answers a retryable 503: after 10.0 s for a statement still waiting at the limit and after 15.0 to 18.1 s for a paused database, measured by hand on 2026-10-19 on the Compose stack built from the branch of #80, whose timeout settings and exception handler are those of `60529f6` (`docs/DESIGN.md`, Configuration, gives the method); no statement is added, so `QueryCountIT` is unchanged |
+| Statement, socket and transaction timeouts on every connection (`DB_STATEMENT_TIMEOUT` 10 s on the server, `DB_SOCKET_TIMEOUT` 15 s, `TX_TIMEOUT` 15 s, `cancelSignalTimeout` 3 s) | A slow statement or a stalled remote database holds its connection and its request thread for a bounded time and then answers a retryable 503: after 10.0 s for a statement still waiting at the limit and after 15.0 to 18.1 s for a paused database, measured by hand on 2026-10-19 on the Compose stack built from the branch of #80, whose timeout settings and exception handler are those of `82f6119` (`docs/DESIGN.md`, Configuration, gives the method); no statement is added, so `QueryCountIT` is unchanged |
 | Sequence-based ids (`allocationSize = 50`, `pooled-lo`) instead of `GenerationType.IDENTITY`, with `jdbc.batch_size: 50`, `order_inserts`, `order_updates` and PgJDBC `reWriteBatchedInserts=true` | Inserts are deferred to flush and batched: the join-table rows of `POST /order` go from one prepared statement per row to one batched statement, and several entities of one type flushed together become one batched insert per table; `nextval` runs once per 50 ids (see the write path below and ADR 0005) |
 | `GET /order?customerId=` and `GET /order?productId=`: the page, count and products queries restricted to one customer or one product, each served by an index that leads with the filtered id and ends with the order id (changeset 8): the customer's count reads `idx_order_customer_id_id` on `"order" (customer_id, id)`, as do, in id order, the first page and cursor of a customer with many orders, while the planner reads all the orders of a customer with only a few, and of a large one for a deeper offset page, through one of the two `customer_id` indexes and sorts them; a product's page in `id` order and its cursor take the page's order ids from `idx_order_product_product_id_order_id` on `order_product (product_id, order_id)` in a limited subquery before reading those orders, and its count reads that index alone | 3 statements per filtered page and 2 per filtered cursor page, pinned by `QueryCountIT`; on 1,000,000 orders every filtered first page and cursor page in `id` order that was measured reads at most 172 buffers (an offset page still reads at least its offset), where the earlier plans walked up to 999,501 entries of `order_pkey` for a product (up to 163 ms) or read all 1,000 orders of a large account on every page (see "Filtered pages" below); `MigrationIT` pins the plans of the statements the application sends |
 | Keyset (cursor) pagination: `after=<id>` on every list endpoint runs `where id > :after order by id` with a limit of `size + 1` and skips the count query | 2 statements per cursor page at any depth, and the page query seeks into the primary key index instead of reading and discarding `OFFSET` rows, a filtered cursor into the index of its filter (see "Deep pages" and "Filtered pages" below and ADR 0003) |
@@ -94,7 +94,7 @@ and an empty page beyond the end 2, the page and the count
 page is 2, or 1 when empty (`emptyOrderKeysetPageFilteredByCustomerUsesOneStatement`,
 `customerId=999999&after=0`). The statement counts of the "after" column are pinned by
 `QueryCountIT`. Every figure in the "after" payload column was measured by hand on 2026-10-19
-against the Compose stack built from `main` at `5215fba` (`docker compose up -d --build`, the
+against the Compose stack built from `main` at `c4bfe77` (`docker compose up -d --build`, the
 seeded database), with `curl -s -o /dev/null -w '%{size_download}'` on the exact path of each
 row, once as is and once with `Accept-Encoding: gzip`, and the stack was removed with
 `docker compose down -v` afterwards. The "before" columns repeat the measurement on the
@@ -122,9 +122,9 @@ entry, a collection wrapper per association and the hydration of columns the res
 use. The list endpoints now select exactly the columns the DTOs need with JPQL constructor
 expressions (`select new ...Row(...)`) and build the DTOs from those rows, so nothing is tracked
 by the session. The "after" column is pinned by `QueryCountIT` (`getEntityLoadCount()`). The
-"before" column was measured on 2026-10-19 on the parent of each change: `a8499f4`, the parent
-of `965ce93` (#34) that introduced the projections, for the four list requests, and `1da6fa0`,
-the parent of `ca861cb` (#43) that moved `GET /products/{id}` to the product row and the bounded
+"before" column was measured on 2026-10-19 on the parent of each change: `8bc8bfc`, the parent
+of `f2cd542` (#34) that introduced the projections, for the four list requests, and `2364f09`,
+the parent of `ed01d7f` (#43) that moved `GET /products/{id}` to the product row and the bounded
 order ids. Each commit was checked out with `git archive` and the requests were counted alone,
 with Hibernate statistics, in a fresh Testcontainers database on the seed. The projections left
 the statement counts of the list requests unchanged.
@@ -156,8 +156,8 @@ id desc)` keeps the newest `NESTED_ORDERS_LIMIT` orders of each customer on the 
 shape over `order_product` serves the products and reads `idx_order_product_product_id_order_id`
 (`MigrationIT.productOrderWindowIsServedByTheProductIdOrderIdIndex`). A `size=100` page on the
 100-customer seed legitimately scans the whole table, because those customers own all of it
-(measured on 2026-10-19 on the seed with the jar of `f0b1595`, and the same on 2026-10-20 with
-the jar of `062b418`, which has changeset 8: unaided, the statement for all 100 customers is a
+(measured on 2026-10-19 on the seed with the jar of `173f958`, and the same on 2026-10-20 with
+the jar of `1bd1c00`, which has changeset 8: unaided, the statement for all 100 customers is a
 `Seq Scan on "order"`, and for the 20 customers of the default page a
 `Bitmap Index Scan on idx_order_customer_id` returning their 1,941 orders).
 `MigrationIT.customerOrderWindowForTheDefaultPageIsServedByTheCustomerIdIndex` pins that bitmap
@@ -165,14 +165,14 @@ scan of `idx_order_customer_id` for the default page with sequential scans disab
 Changeset 8's `idx_order_customer_id_id` also leads with `customer_id`: for one to five customers
 the planner costs the two indexes the same and reads `idx_order_customer_id_id`, and from six to
 the 100 of a full page it rates `idx_order_customer_id`, 11 pages against 41, as cheaper (on the
-seed on 2026-10-20 with the jar of `062b418`, with sequential scans disabled and each index
+seed on 2026-10-20 with the jar of `1bd1c00`, with sequential scans disabled and each index
 dropped in turn in a rolled-back transaction; the same before any `ANALYZE` or `VACUUM` and after
 either or both).
 The statement's work is proportional to the orders of the parents on the page, bounded in count by
 `size` and unbounded per parent: `count(*) over (partition by customer_id)` reads every order of
 each parent to produce `orderCount`, so a customer with a million orders costs a million index
 entries on every page it appears on even though the response carries twenty of them (on the
-production-sized table of "Filtered pages", measured as described there with the jar of `062b418` on
+production-sized table of "Filtered pages", measured as described there with the jar of `1bd1c00` on
 2026-10-20, the window for the first page of products, which holds the ten best-sellers, reads their
 1,010,000 order lines from 3,930 buffers of `idx_order_product_product_id_order_id` and sorts them,
 spilling to temporary files under the default 4 MB `work_mem`, in 457 to 483 ms; the buffers are the
@@ -181,7 +181,7 @@ grow without bound, the remedy is a cached or approximate `orderCount`, not a di
 is bounded now: rows per page (`size`, at most 100), orders per customer and order ids per product
 (`NESTED_ORDERS_LIMIT`, 1 to 100, default 20) and products per order (at most 100 at creation).
 The full lists are `GET /order?customerId=` and `GET /order?productId=`, at the usual 3 or 2
-statements per page. The bound's effect on the body, "before" measured on `1da6fa0` the same way
+statements per page. The bound's effect on the body, "before" measured on `2364f09` the same way
 as the entities above (the uncompressed response body) and "after" under "Results": the default
 customer page went from 97,740 B with 1,941 nested orders to 21,343 B with 400 (20 per customer,
 `orderCount` still totalling 1,941), and `GET /products/2` from 1,025 B with 200 order ids to
@@ -191,7 +191,7 @@ customer page went from 97,740 B with 1,941 nested orders to 21,343 B with 400 (
 `LIMIT/OFFSET` makes the database read and discard every row before the requested page, so the
 cost of an offset page grows with its depth, and each page also pays the count query. With
 `after=<id>` the page query seeks into the primary key index and the count is skipped. Plans
-measured by hand on 2026-10-19 with the jar of `f0b1595` (`main` at the time): a throwaway
+measured by hand on 2026-10-19 with the jar of `173f958` (`main` at the time): a throwaway
 PostgreSQL 16.2 migrated with the seed, the statements as the application sends them (read
 from the server's `auto_explain` log), and `EXPLAIN (ANALYZE, BUFFERS)` of prepared copies,
 warm, as the range over 15 runs in two sessions (a local database: the absolute times only show
@@ -225,9 +225,9 @@ split or repeat a tie. Two changes:
   `idx_product_description_id` on `product (description, id)` and `idx_customer_name_id` on
   `customer (name, id)`: 512 kB, 16 kB and 16 kB on the seed (`pg_relation_size`, 2026-10-19).
 
-Plans measured by hand the same way as under "Deep pages" (2026-10-19, the jar of `f0b1595`, the
+Plans measured by hand the same way as under "Deep pages" (2026-10-19, the jar of `173f958`, the
 seed). The "before" row is the same database with changeset 7's three indexes dropped inside a
-rolled-back transaction, which is the schema of `7054a3b`, the parent of `d83c84c` (#53) that
+rolled-back transaction, which is the schema of `56d87c7`, the parent of `33314f3` (#53) that
 added them (the changelogs of the two commits differ by changeset 7 alone), running the
 statement of that commit, which had no `id` tie-break:
 
@@ -279,7 +279,7 @@ not captured; the tie-break direction that keeps the rendered shape index-servab
 Whether the planner uses it depends on the table and the statement: on the 100-row seed a
 sequential scan of one page is cheaper than a GIN lookup, so the seed never shows the index.
 Every plan below was measured by hand on 2026-10-19 (the words `zq`, `xw`, `7`, `a`, `q` and `z`
-on 2026-10-20, on the 200,000-row table rebuilt the same way) with the jar of `f0b1595` on a
+on 2026-10-20, on the 200,000-row table rebuilt the same way) with the jar of `173f958` on a
 throwaway PostgreSQL 16.2, with `EXPLAIN (ANALYZE, BUFFERS)`, warm, the times as the range over
 five runs.
 
@@ -413,9 +413,9 @@ remedy is a minimum word length in the API, not another index.
 ## Filtered pages
 `GET /order?customerId=` and `GET /order?productId=` page the orders of one customer or of one
 product, at 3 statements for a full page and 2 for a cursor page (`QueryCountIT`). Their plans
-were measured by hand on 2026-10-20 with the jar of `992cd7e` ("before", whose filtered
-statements are the ones the code had until changeset 8) and with the jar of `062b418` ("after",
-whose changeset 8 and filtered statements, below, are unchanged since `2d8b68e` completed the
+were measured by hand on 2026-10-20 with the jar of `1b05e6b` ("before", whose filtered
+statements are the ones the code had until changeset 8) and with the jar of `1bd1c00` ("after",
+whose changeset 8 and filtered statements, below, are unchanged since `c9d56d7` completed the
 changeset), on throwaway PostgreSQL 16.2 containers (Docker Desktop on arm64, default settings,
 with autovacuum off for the "after" runs, which followed an explicit `VACUUM ANALYZE`): the
 statements captured from each jar's `org.hibernate.SQL` log, run as
@@ -521,7 +521,7 @@ concurrent form of ADR 0009. The customer statements are unchanged: the count is
 scan of the new index, and a large account's first page and cursor read its entries in id order
 and stop after the page, while a customer with only a few orders has them read through
 `idx_order_customer_id` and sorted (deeper offset pages are covered below). For products the
-index was not enough by itself. With it, the statements of `992cd7e` still merge-joined
+index was not enough by itself. With it, the statements of `1b05e6b` still merge-joined
 `order_pkey` from the first id for product 10 (900,199 entries, 10,263 buffers, 83 to 91 ms),
 because nothing tells the planner that a frequent product's orders are recent, and the cursor's
 `o1_0.id>?` stays on `"order"`, because PostgreSQL carries an equality across the join but not a
@@ -573,7 +573,7 @@ ordered than that of a single-column index. `idx_order_product_product_id` is dr
 changeset 8: the new index serves every statement that used it, and the window query behind the
 products' nested order ids reads it index-only (3,930 buffers for the twenty products of the
 first page, which include the ten best-sellers, instead of 30,702). Through the service's
-Liquibase, run as the `migrate` job runs it with the jar of `062b418` on 2026-10-20 after the
+Liquibase, run as the `migrate` job runs it with the jar of `1bd1c00` on 2026-10-20 after the
 three changesets had been reverted by hand, the two builds took 307 to 447 ms and 584 to 736 ms
 on this table and the drop 4 to 5 ms in five runs, times that vary with the host and its load
 (ADR 0009).
@@ -603,7 +603,7 @@ Two layers, both measured in the integration tests (`HttpCacheIT`, `CompressionI
 | `GET /products/{id}` after `POST /order` containing that product | n/a | the next read lists the new order (2 statements, then cached again) | `OrderCreatedEvent` → `ProductCacheEvictor`, `AFTER_COMMIT` |
 
 The "Before" column is the same request without the layer in question, at today's sizes and
-cold-read costs: rows 1 and 2 are what every call returned before `b0495cf` (#36) added the
+cold-read costs: rows 1 and 2 are what every call returned before `1a835f9` (#36) added the
 ETag filter (row 2's bound is the one `CompressionIT` asserts), and row 3 is the cold read that
 `QueryCountIT` pins (`orderByIdUsesOneStatement`,
 `productByIdUsesTwoStatementsAndLoadsNoEntities`), which every call costs with
@@ -628,7 +628,7 @@ that missed the cache before an order's commit stores the old value after the ev
 `getPrepareStatementCount()` counts prepared statements; PgJDBC pipelines a JDBC batch, and
 with `reWriteBatchedInserts=true` it sends a batch as one multi-row `INSERT`. The "after" column
 is pinned by `QueryCountIT` and `InsertBatchingIT`. The "before" column was measured on
-2026-10-19 on `d3c298b`, the parent of `a8499f4` (#33) that introduced the sequences and the
+2026-10-19 on `6163c42`, the parent of `8bc8bfc` (#33) that introduced the sequences and the
 batching, with the same two scenarios counted alone, with Hibernate statistics, in a fresh
 Testcontainers database:
 
@@ -650,7 +650,7 @@ An order with the maximum of 100 products costs the same as one with three. Its 
 exceed `jdbc.batch_size: 50`, so Hibernate executes the one prepared join-row insert as two
 JDBC batches of 50 (its batch log, `org.hibernate.orm.jdbc.batch` at `TRACE`, shows
 `Executing JDBC batch (50 / 50)` twice for `Order.products`, observed on 2026-10-19 with the jar
-of `f0b1595` on the seed), and the request stays at 4
+of `173f958` on the seed), and the request stays at 4
 prepared statements, 5 when it allocates the block
 (`QueryCountIT.createOrderWithOneHundredProductsUsesFourStatementsPlusTheBlockAllocation`). The
 pin does not see how many batches there are: it still passes with `jdbc.batch_size: 100`, one

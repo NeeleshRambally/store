@@ -103,7 +103,7 @@ Liquibase also runs outside a transaction, removed the index.
   `8-drop-index-order-product-product-id` drops the index the second replaces with
   `DROP INDEX CONCURRENTLY IF EXISTS`, which does not lock out reads or writes either, with a
   rollback that builds it again in the same concurrent form. Through the service's Liquibase,
-  run as the `migrate` job runs it with the jar of `062b418` on 2026-10-20 against the 1,000,000
+  run as the `migrate` job runs it with the jar of `1bd1c00` on 2026-10-20 against the 1,000,000
   orders and 2,001,000 order lines of `docs/PERFORMANCE.md` ("Filtered pages"), the two builds
   took 307 to 447 ms and 584 to 736 ms and the drop 4 to 5 ms in five runs, and five concurrent
   builds of each in psql took 277 to 323 ms and 550 to 636 ms; such times vary with the host and
