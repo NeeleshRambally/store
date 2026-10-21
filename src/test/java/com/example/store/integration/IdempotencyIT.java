@@ -1,5 +1,6 @@
 package com.example.store.integration;
 
+import com.example.store.StoreApplication;
 import com.example.store.config.IdempotencyProperties;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CustomerDTO;
@@ -21,7 +22,10 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.WebApplicationType;
+import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -30,6 +34,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.config.FixedDelayTask;
 import org.springframework.scheduling.config.ScheduledTask;
 import org.springframework.scheduling.config.ScheduledTaskHolder;
@@ -408,6 +413,22 @@ class IdempotencyIT extends AbstractIntegrationTest {
             assertThat(sweep.getIntervalDuration()).isEqualTo(properties.purgeInterval());
             assertThat(sweep.getInitialDelayDuration()).isEqualTo(properties.purgeInterval());
         });
+    }
+
+    @Test
+    void theSweepIsNotScheduledInAProcessWithoutAWebServer() {
+        SpringApplicationBuilder job =
+                new SpringApplicationBuilder(StoreApplication.class).web(WebApplicationType.NONE);
+
+        try (ConfigurableApplicationContext context = job.run(
+                "--spring.datasource.url=" + container.getJdbcUrl(),
+                "--spring.datasource.username=" + container.getUsername(),
+                "--spring.datasource.password=" + container.getPassword(),
+                "--spring.liquibase.enabled=false")) {
+            assertThat(context.getBeansOfType(ScheduledTaskHolder.class)).isEmpty();
+            assertThat(context.getBeansOfType(TaskScheduler.class)).isEmpty();
+            assertThat(context.getBeansOfType(IdempotencyKeyPurge.class)).isEmpty();
+        }
     }
 
     @Test
