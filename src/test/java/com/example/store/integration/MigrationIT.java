@@ -273,6 +273,52 @@ class MigrationIT extends AbstractIntegrationTest {
     }
 
     @Test
+    void idempotencyKeyTableIsKeyedByClientAndKeyAndIndexedOnExpiry() {
+        List<String> indexes = jdbcTemplate.queryForList(
+                "SELECT indexdef FROM pg_indexes WHERE tablename = 'idempotency_key'", String.class);
+
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition)
+                .contains("UNIQUE INDEX pk_idempotency_key")
+                .contains("(client_id, idempotency_key)"));
+        assertThat(indexes).anySatisfy(definition -> assertThat(definition)
+                .contains("idx_idempotency_key_expires_at")
+                .contains("(expires_at)"));
+    }
+
+    @Test
+    void idempotencyKeyColumnsHaveTheDeclaredTypes() {
+        List<String> columns = jdbcTemplate.queryForList(
+                "SELECT column_name || ' ' || data_type || coalesce('(' || character_maximum_length || ')', '')"
+                        + " || CASE WHEN is_nullable = 'NO' THEN ' not null' ELSE '' END"
+                        + " FROM information_schema.columns WHERE table_name = 'idempotency_key' ORDER BY ordinal_position",
+                String.class);
+
+        assertThat(columns)
+                .containsExactly(
+                        "client_id character varying(255) not null",
+                        "idempotency_key character varying(255) not null",
+                        "request_fingerprint character(64) not null",
+                        "request_path character varying(255) not null",
+                        "status character varying(16) not null",
+                        "response_status smallint",
+                        "response_location character varying(512)",
+                        "response_body text",
+                        "created_at timestamp with time zone not null",
+                        "expires_at timestamp with time zone not null");
+    }
+
+    @Test
+    void runtimeRoleGrantsAreMarkedRanWhereTheRoleDoesNotExist() {
+        assertThat(jdbcTemplate.queryForList("SELECT 1 FROM pg_roles WHERE rolname = 'store_app'"))
+                .isEmpty();
+
+        String executed = jdbcTemplate.queryForObject(
+                "SELECT exectype FROM databasechangelog WHERE id = '9-idempotency-key-runtime-grants'", String.class);
+
+        assertThat(executed).isEqualTo("MARK_RAN");
+    }
+
+    @Test
     void seedDataChangeSetIsTaggedWithSeedContext() {
         String contexts =
                 jdbcTemplate.queryForObject("SELECT contexts FROM databasechangelog WHERE id = '2-data'", String.class);

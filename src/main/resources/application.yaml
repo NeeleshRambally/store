@@ -59,6 +59,8 @@ spring:
   liquibase:
     change-log: classpath:db/changelog/db.changelog-master.yaml
     contexts: ${LIQUIBASE_CONTEXTS:prod}
+    parameters:
+      runtimeRole: store_app
   lifecycle:
     timeout-per-shutdown-phase: 20s
 
