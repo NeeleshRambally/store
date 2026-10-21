@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.core.env.StandardEnvironment;
 
 import java.time.Duration;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -76,6 +77,19 @@ class IdempotencyPropertiesTest {
                         .hasFailed()
                         .getFailure()
                         .hasRootCauseInstanceOf(BindValidationException.class));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ttl", "stale-after", "purge-interval"})
+    void rejectsAnAbsentDuration(String absent) {
+        String[] values = Stream.of("ttl=PT24H", "stale-after=PT30S", "purge-interval=PT10M")
+                .filter(value -> !value.startsWith(absent + "="))
+                .map(value -> "store.idempotency." + value)
+                .toArray(String[]::new);
+        runner.withPropertyValues(values).run(context -> assertThat(context)
+                .hasFailed()
+                .getFailure()
+                .hasRootCauseInstanceOf(BindValidationException.class));
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.example.store.config;
 
+import jakarta.validation.constraints.NotNull;
+
 import org.hibernate.validator.constraints.time.DurationMin;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
@@ -11,6 +13,6 @@ import java.time.Duration;
 @Validated
 @ConfigurationProperties("store.idempotency")
 public record IdempotencyProperties(
-        @DurationMin(nanos = 1) Duration ttl,
-        @DurationMin(nanos = 1) Duration staleAfter,
-        @DurationMin(nanos = 1) Duration purgeInterval) {}
+        @NotNull @DurationMin(nanos = 1) Duration ttl,
+        @NotNull @DurationMin(nanos = 1) Duration staleAfter,
+        @NotNull @DurationMin(nanos = 1) Duration purgeInterval) {}
