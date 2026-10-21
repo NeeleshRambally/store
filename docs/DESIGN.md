@@ -1,167 +1,161 @@
 # Store service: design and operations guide
 
-The assessment README at the repository root is kept as delivered. This document describes how
-the service is built, run, tested and delivered, and points to the reasoning behind each
-decision.
+This guide is for engineers who run, change or operate the store service. It covers, in this
+order, what to install, how to run the service, every setting, how changes are made and tested,
+the delivery pipeline, the data model, the API and its error contract, and how the service
+behaves in production. The README at the repository root is kept as delivered; the reasoning
+behind the larger decisions is in the architecture decision records under `docs/adr/`.
 
 ## Prerequisites
-* A JDK 17 to 24 to run Gradle (the Spring Boot and toolchain plugins need 17; Gradle 8.14
-  supports running on Java 24 at most, and on Java 25 it starts but `spotlessCheck` fails). The
-  build compiles and runs on a Java 17 toolchain: Gradle uses an installed JDK 17 when it finds
-  one and otherwise downloads Eclipse Temurin 17 (about 190 MB) into `~/.gradle/jdks` on the
-  first build; offline, point `org.gradle.java.installations.paths` in
-  `~/.gradle/gradle.properties` at an installed JDK 17
-* Docker (used by Docker Compose for local runs and by Testcontainers for the tests)
-* A PostgreSQL installed on bare metal (the README's alternative) needs the `pg_trgm` contrib
-  module, which changeset 4 creates as an extension; the official image and most
-  distributions bundle it
-* Node.js 22 and npm, only to run or test the data generator in `utils`
+* A JDK 17 to 24 to run Gradle (the Spring Boot and toolchain plugins need 17; Gradle 8.14 runs
+  on Java 24 at most, and on Java 25 it starts but `spotlessCheck` fails). The code compiles
+  and runs on a Java 17 toolchain: Gradle uses an installed JDK 17 or downloads Eclipse Temurin
+  17 (about 190 MB) into `~/.gradle/jdks` on the first build; offline, point
+  `org.gradle.java.installations.paths` in `~/.gradle/gradle.properties` at an installed JDK 17.
+* Docker, for Docker Compose and for Testcontainers, which starts PostgreSQL for the
+  integration tests.
+* For a PostgreSQL installed on bare metal (the README's alternative), the `pg_trgm` contrib
+  module, which changeset 4 creates as an extension; the official image and most distributions
+  bundle it.
+* Node.js 22 and npm, only for the data generator in `utils`.
 
 ## Running locally
-The README's instructions still work: start PostgreSQL 16.2 on port 5433 with `admin:admin` and
-a `store` database, then `./gradlew bootRun`. `bootRun` sets `spring.profiles.default=local`, and
-the `local` profile (`application-local.yaml`) is the README path: the 5433 URL, `admin:admin`
-and the `seed` Liquibase context as defaults, plus `org.hibernate.SQL` at DEBUG, so the console
-shows every statement Hibernate sends, formatted, with the JPQL as a comment for queries and
-bind values as `?`. An explicit `SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces
-the default profile. The file stays in `src/main/resources`, so `bootRun`,
-`FailClosedConfigurationTest` and an IDE run that activates `local` find it, but the bootJar,
-and with it the container image, leaves it out: `SPRING_PROFILES_ACTIVE=local` on the jar or
-the image adds no defaults, and the process fails closed at its first connection like any
-environment without credentials (see Configuration). `verifyBootJarContents`, part of `check`,
-fails the build if the bootJar ever contains the file. CI sets every variable explicitly.
+| Way | Database | Command |
+|---|---|---|
+| The README path | PostgreSQL 16.2 on port 5433, `admin:admin`, database `store` | `./gradlew bootRun` |
+| Docker Compose, the production-shaped layout | PostgreSQL 16.2 on port 5434, started by the stack | `docker compose up --build` |
+| Gradle against the Compose database | The stack's PostgreSQL on 5434 | `docker compose up -d postgres`, then `DB_URL=jdbc:postgresql://localhost:5434/store ./gradlew bootRun` |
 
-The alternative is Docker Compose, the production-shaped layout: it starts PostgreSQL 16.2 on
-port 5434 (so that the README's own 5433 instance can stay up alongside the stack), runs the
-migrations as a one-shot `migrate` job (the same image with
-`SPRING_MAIN_WEB_APPLICATION_TYPE=none`, the schema owner `admin` and the `seed` context),
-and then starts the service image as the runtime role `store_app`, which can only connect,
-read and insert (`scripts/postgres-init/01-roles.sql` creates it when the volume is first
-initialised) and runs no Liquibase (`SPRING_LIQUIBASE_ENABLED=false`):
-```shell
-docker compose up --build
-```
-The API is then available on http://localhost:8080, the actuator on http://localhost:8081 and
-the database on localhost:5434, all three published on 127.0.0.1 only: the API has no
-authentication (ADR 0002) and the database role is the `admin:admin` superuser, so none of
-them is published on the machine's network interfaces. `STORE_BIND_ADDRESS` publishes them on
-another address instead, for example `STORE_BIND_ADDRESS=0.0.0.0 docker compose up` on every
-interface, which exposes all three to every network the machine is on. The service starts only
-once `migrate` has exited 0, so a failed migration stops the stack before the API comes up.
-After upgrading from a stack started before the migration job existed, run
-`docker compose down -v` once: the role and its default privileges are created only when the
-data directory is empty, and without them `store` fails closed at its first connection.
+`bootRun` sets `spring.profiles.default=local`. The `local` profile (`application-local.yaml`) holds
+the README defaults (the 5433 URL, `admin:admin`, the `seed` Liquibase context) and logs every SQL
+statement (`org.hibernate.SQL` at DEBUG, formatted, with the JPQL as a comment and bind values as
+`?`). An explicit `SPRING_PROFILES_ACTIVE` or `--spring.profiles.active` replaces the default
+profile. The file stays in `src/main/resources`, so `bootRun`, `FailClosedConfigurationTest` and an
+IDE run find it. The bootJar, and so the image, leave it out; `verifyBootJarContents` (part of
+`check`) fails the build if it is ever packaged. So `SPRING_PROFILES_ACTIVE=local` on the jar or the
+image adds no defaults, and the process fails closed at its first connection (see Configuration). CI
+sets every variable explicitly.
 
-To run the service from Gradle against that database instead:
-```shell
-docker compose up -d postgres
-DB_URL=jdbc:postgresql://localhost:5434/store ./gradlew bootRun
-```
+The Compose stack has three services:
+* `postgres`, on 5434 so that the README's 5433 instance can stay up alongside. When its volume is
+  first initialised, `scripts/postgres-init/01-roles.sql` creates the runtime role `store_app`,
+  which can only connect, read and insert.
+* `migrate`, which runs the migrations once with the same image
+  (`SPRING_MAIN_WEB_APPLICATION_TYPE=none`), as the schema owner `admin` and with the `seed`
+  context.
+* `store`, which starts only once `migrate` has exited 0, so a failed migration stops the stack
+  before the API comes up. It connects as `store_app` with `SPRING_LIQUIBASE_ENABLED=false`.
 
-Under `bootRun` and in the tests Liquibase migrates the schema in-process at start-up (the
-development path); in Compose the `migrate` job does it ahead of the service. Sample data (100
-customers, 10,000 orders, 100 products) is loaded when the `seed` Liquibase context is active,
-which it is under the `local` profile, in the tests and in the `migrate` job of `compose.yaml`;
-the base configuration applies the context-free changesets only (`LIQUIBASE_CONTEXTS` defaults
-to `prod`), so an environment that sets nothing gets the schema and no sample rows. A blank
-value is rejected at start-up, because an empty context set would apply every changeset, seed
-included (see Configuration). More data can be generated with the script described in
-`utils/README.md`.
+The API is then on http://localhost:8080, the actuator on http://localhost:8081 and the database on
+localhost:5434. All three bind to 127.0.0.1 only, because the API has no authentication (ADR 0002)
+and the database role is the `admin:admin` superuser. `STORE_BIND_ADDRESS` publishes them on another
+address instead; `STORE_BIND_ADDRESS=0.0.0.0 docker compose up` publishes all three on every
+interface, so to every network the machine is on. A stack first started before the `migrate` job
+existed needs `docker compose down -v` once: the role and its default privileges are created only on
+an empty data directory, and without them `store` fails closed.
+
+Under `bootRun` and in the tests Liquibase migrates in-process at start-up; in Compose the
+`migrate` job does it ahead of the service. The sample data (100 customers, 10,000 orders, 100
+products) loads when the `seed` Liquibase context is active: under the `local` profile, in the
+tests and in `migrate`. The base configuration applies only the context-free changesets
+(`LIQUIBASE_CONTEXTS` defaults to `prod`), so an environment that sets nothing gets the schema
+and no sample rows; a blank value is rejected at start-up, because an empty context set would
+apply every changeset, seed included. `utils/README.md` describes the script that generates
+more data.
 
 ## Configuration
+Every setting is an environment variable with a default, except the two credentials, without
+which the process fails closed (below).
+
 | Variable | Default | Purpose |
-|----------|---------|---------|
-| `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL, including the driver's TLS settings; a database across a network needs `sslmode=verify-full` (see below) |
-| `DB_USERNAME` | none (`admin` under the `local` profile) | Database user, from the variable or the file `/run/secrets/DB_USERNAME` (see below); without either the first connection fails and the process exits |
-| `DB_PASSWORD` | none (`admin` under the `local` profile) | Database password, from the variable or the file `/run/secrets/DB_PASSWORD`; without either the first connection fails and the process exits |
-| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under the `local` profile) | Liquibase contexts to apply; only `seed` loads the sample data; must be non-blank: a blank value stops start-up |
+|---|---|---|
+| `DB_URL` | `jdbc:postgresql://localhost:5433/store` | JDBC URL, TLS settings included; a database across a network needs `sslmode=verify-full` (see TLS) |
+| `DB_USERNAME` | none (`admin` under `local`) | From the variable or the file `/run/secrets/DB_USERNAME`; without either the first connection fails and the process exits |
+| `DB_PASSWORD` | none (`admin` under `local`) | From the variable or the file `/run/secrets/DB_PASSWORD`; the same failure without either |
+| `LIQUIBASE_CONTEXTS` | `prod` (`seed` under `local`) | Liquibase contexts to apply; only `seed` loads the sample data; blank stops start-up |
 | `SPRING_LIQUIBASE_ENABLED` | `true` | Boot's own `spring.liquibase.enabled`; `false` creates no Liquibase bean, which is how the Compose `store` service runs under a role that cannot alter the schema |
-| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a connection is waited for at most 5 s (`spring.datasource.hikari.connection-timeout`), then the request is a 503 |
-| `DB_STATEMENT_TIMEOUT` | `10s` | Server-side `statement_timeout` of every connection, sent in the PgJDBC startup `options`; a PostgreSQL time (`10s`, `500ms`, or a plain number of milliseconds), `0` disables it. A statement still running at the limit is cancelled by the server and the request is a 503 `database_timeout` |
-| `DB_SOCKET_TIMEOUT` | `15` | PgJDBC `socketTimeout` in whole seconds: how long the driver waits for the database to send anything before it drops the connection, and the request is a 503 `service_unavailable`; `0` disables it. Keep it above `DB_STATEMENT_TIMEOUT` (see below) |
-| `TX_TIMEOUT` | `15s` | Default timeout of every transaction (`spring.transaction.default-timeout`), a duration (`15s`, or `15` for seconds); `-1` disables it, but `0` does not (see below) |
-| `TOMCAT_THREADS_MAX` | `200` | Tomcat request threads (`server.tomcat.threads.max`); see the sizing note below |
-| `SERVER_TOMCAT_CONNECTIONTIMEOUT` | `10s` | Boot's own `server.tomcat.connection-timeout`, a duration (`10s`; a bare number is milliseconds, where `TX_TIMEOUT` reads one as seconds): how long Tomcat waits for the next bytes of a request it has begun to read, its body included, before it drops the connection, and so how long a client that goes silent holds a request thread (see API). Tomcat applies the same bound to a response write that makes no progress, so a client that stops reading its response is dropped after it too; idle keep-alive connections are kept 60 s (`server.tomcat.keep-alive-timeout`) whatever this is set to |
+| `DB_POOL_SIZE` | `10` | HikariCP maximum pool size; a request waits at most 5 s for a connection (`spring.datasource.hikari.connection-timeout`), then gets a 503 |
+| `DB_STATEMENT_TIMEOUT` | `10s` | Server-side `statement_timeout` of every connection, sent in the PgJDBC startup `options`; a PostgreSQL time (`10s`, `500ms`, or plain milliseconds), `0` disables it. A statement still running at the limit is cancelled by the server: 503 `database_timeout` |
+| `DB_SOCKET_TIMEOUT` | `15` | PgJDBC `socketTimeout` in whole seconds: how long the driver waits for the database to send anything before it drops the connection (503 `service_unavailable`); `0` disables it. Keep it above `DB_STATEMENT_TIMEOUT` (see Timeouts) |
+| `TX_TIMEOUT` | `15s` | Default timeout of every transaction (`spring.transaction.default-timeout`), a duration (`15s`, or `15` for seconds); `-1` disables it, `0` does not (see Timeouts) |
+| `TOMCAT_THREADS_MAX` | `200` | Tomcat request threads (`server.tomcat.threads.max`); see Pool and threads |
+| `SERVER_TOMCAT_CONNECTIONTIMEOUT` | `10s` | Boot's own `server.tomcat.connection-timeout`, a duration (a bare number is milliseconds here, where `TX_TIMEOUT` reads one as seconds): how long Tomcat waits for the next bytes of a request it has begun to read, body included, or for a response write to make progress, before it drops the connection; so how long a silent client holds a request thread (see API). Idle keep-alive connections are kept 60 s (`server.tomcat.keep-alive-timeout`) regardless |
 | `MANAGEMENT_PORT` | `8081` | Port of the management connector that serves the actuator |
 | `CACHE_TYPE` | `caffeine` | Spring cache provider for the by-id reads; `none` disables caching |
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
-| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON body a `POST` accepts (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413 problem detail. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors, so no such body over it is parsed; a multipart body, and the body of a `PUT`, `PATCH` or `DELETE`, are not read at all (see API) |
-| `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (the logger inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
+| `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON body a `POST` accepts (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors; a multipart body and the body of a `PUT`, `PATCH` or `DELETE` are never read (see API) |
+| `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
-The pool and the request threads are sized together. With `DB_POOL_SIZE` 10 and 200 request
-threads at most 10 requests touch the database concurrently; the rest wait up to 5 s for a
-connection and then get a 503 problem detail with `Retry-After: 5` (see Operations), so a
-remote database that slows down degrades into retryable 503s rather than into 200 threads
-blocked on one pool. The timeouts below bound how long a request can hold one of those
-connections, so a database that stalls degrades the same way instead of keeping all ten
-connections, and with them every other request, waiting with no limit. Size the pool to the
-database's connection budget per replica, and the threads to roughly the pool times the share
-of request time spent outside the database (serialisation, compression, the ETag hash); every
-endpoint spends most of its time in the database, so the defaults leave the threads well above
-the pool and the 5 s wait is the real bound. `FailClosedConfigurationTest` pins the resolved
-default and the variable.
+### Pool and threads
+With `DB_POOL_SIZE` 10 and 200 request threads, at most 10 requests touch the database at once; the
+rest wait up to 5 s for a connection and then get a 503 with `Retry-After: 5`. A slow or stalled
+database therefore degrades into retryable 503s instead of 200 blocked threads, and the timeouts
+below bound how long a request holds a connection. Size the pool to the database's connection budget
+per replica. Size the threads to roughly the pool times the share of request time spent outside the
+database (serialisation, compression, the ETag hash). Every endpoint spends most of its time in the
+database, so the defaults leave the threads well above the pool, and the 5 s wait is the real bound
+(`FailClosedConfigurationTest` pins the default).
 
-The three timeouts bound every database call. They were measured on the Compose stack (Docker
-Desktop on arm64, PostgreSQL 16.2) with `GET /order?size=5` held on a lock that a second session
-took on the `order` table. A statement still running at `DB_STATEMENT_TIMEOUT` is cancelled by
-the server: the request answered a 503 `database_timeout` after 10.0 s. `TX_TIMEOUT` bounds the
-statements of one transaction together: each statement gets the time that remains as its JDBC
-timeout and the driver cancels it when that runs out (with the statement and socket timeouts
-raised, the same request was cancelled after 15.05 s), and a deadline that has already passed
-fails the next statement at once. It is not a hard bound: a statement started with less than
-half a second left runs without a JDBC timeout, because the remaining time is rounded to whole
-seconds, and is bounded by `DB_STATEMENT_TIMEOUT` alone, and Hibernate floors the remaining time
-of its own statements to whole seconds (at least 1), so a transaction can approach `TX_TIMEOUT`
-plus `DB_STATEMENT_TIMEOUT`. Unlike the other two, `TX_TIMEOUT=0` is not "off": it gives every
-transaction a deadline that has already passed, and with it `GET /order` answered a 503
-`database_timeout` at once, while `GET /order/{id}`, an entity load rather than a query, and
-`POST /customer` still succeeded; `-1` turns it off (the request held on the lock then waited
-19.16 s for it and answered 200).
+### Timeouts
+Three timeouts bound every database call. They were measured on the Compose stack (Docker
+Desktop on arm64, PostgreSQL 16.2) with a `GET /order?size=5` held on a lock that a second
+session took on the `order` table:
 
-A database that stops answering altogether, which no server-side timeout can cancel, is cut by
-`DB_SOCKET_TIMEOUT`: with the `postgres` container paused the request answered a 503
-`service_unavailable` after 18.03 to 18.06 s in five of six runs and after 15.02 s in the sixth,
-that is the socket timeout's 15 s plus, when the cancel that the transaction timeout sends to the
-stalled server at about the same moment is still in flight, that cancel's 3 s
-`cancelSignalTimeout`; with the driver's default of 10 s for that signal the stall took 25.06 s,
-which is why it is set to 3. Keep `DB_SOCKET_TIMEOUT` above `DB_STATEMENT_TIMEOUT` and above the
-slowest legitimate statement, because a backend that waits or computes sends nothing: with
-`DB_STATEMENT_TIMEOUT` raised to 30 s the request lost its connection after 15.04 s (a 503
-`service_unavailable`) instead of being cancelled. `tcpKeepAlive` turns on TCP keepalive for the
-pool's sockets; with the Linux default of two hours of silence before the first probe it adds
-little, since HikariCP already checks a connection idle in the pool every 2 minutes
-(`keepaliveTime`) and replaces every connection after 30 minutes (`maxLifetime`), so the socket
-timeout, not keepalive, is the bound on a stall.
+| Timeout | Bounds | Measured |
+|---|---|---|
+| `DB_STATEMENT_TIMEOUT`, 10 s | One statement; the server cancels it | 503 `database_timeout` after 10.0 s |
+| `TX_TIMEOUT`, 15 s | The statements of one transaction together: each gets the remaining time as its JDBC timeout, and a deadline already passed fails the next statement at once | With the other two raised, cancelled after 15.05 s; with `-1` the request waited 19.16 s for the lock and answered 200 |
+| `DB_SOCKET_TIMEOUT`, 15 s | A database that sends nothing at all, which no server-side timeout can cancel | With the `postgres` container paused, 503 `service_unavailable` after 18.03 to 18.06 s in five of six runs and 15.02 s in the sixth |
 
-A `POST /order` whose insert waited for the same lock at its commit was bounded the same way: it
-answered a 503 `database_timeout` after 10.03 to 10.19 s, and with `postgres` paused a 503
-`service_unavailable` after 17.03 to 17.07 s, in three runs each. The stall ended a second
-sooner than the `GET`'s because Hibernate floors the time left that it gives its own statements
-to whole seconds: with the statement and socket timeouts raised, the transaction timeout
-cancelled the insert after 14.03 and 14.16 s, a second before the `GET`'s 15.05 s, so the cancel
-still in flight when the socket timeout fired had started that much earlier. Restarting
-`postgres` while the insert waited ended the request after 0.42 to 0.49 s with a 500 instead,
-the loss at commit that Operations describes.
+`TX_TIMEOUT` is not a hard bound, for two reasons. A statement started with less than half a second
+left runs without a JDBC timeout, because the remaining time is rounded to whole seconds, and is
+then bounded by `DB_STATEMENT_TIMEOUT` alone. And Hibernate floors the remaining time of its own
+statements to whole seconds (at least 1). So a transaction can approach `TX_TIMEOUT` plus
+`DB_STATEMENT_TIMEOUT`. `TX_TIMEOUT=0` is a deadline that has already passed, not "off": `GET
+/order` then answered a 503 `database_timeout` at once, while `GET /order/{id}` (an entity load, not
+a query) and `POST /customer` still succeeded.
 
-The statement timeout travels in the connection's startup `options` rather than in
-`connection-init-sql` or an `ALTER ROLE ... SET`: it is then the session's reset value rather
-than a `SET` that `RESET ALL` undoes, it applies to whichever role the service connects as, and
-it survives the tests' `@ServiceConnection`, which replaces only the URL and the credentials (an
-`options` parameter written into the URL would not). `DatabaseTimeoutsIT` reads the values back
-through the application's pool, a pooled connection and the transaction manager, and
-`FailClosedConfigurationTest` pins the three variables. Liquibase runs on the same pool and
-inherits both driver timeouts (with `DB_STATEMENT_TIMEOUT=50ms` the `migrate` job fails at
-changeset `5-products-seed`), so `migrate` sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT`
-to `0`: an index build or a data migration on a large table may run longer than any request
+The socket stall takes 18 s rather than 15 because of the transaction timeout's cancel: it is sent
+to the stalled server at about the same moment and adds its 3 s `cancelSignalTimeout` while in
+flight. With the driver's default of 10 s for that signal the stall took 25.06 s, which is why it is
+3.
+
+Keep `DB_SOCKET_TIMEOUT` above `DB_STATEMENT_TIMEOUT` and above the slowest legitimate statement,
+because a backend that waits or computes sends nothing: with `DB_STATEMENT_TIMEOUT` raised to 30 s
+the request lost its connection after 15.04 s (503 `service_unavailable`) instead of being
+cancelled. `tcpKeepAlive` is on but adds little (the Linux default is two hours before the first
+probe); HikariCP checks an idle pooled connection every 2 minutes (`keepaliveTime`) and replaces
+every connection after 30 minutes (`maxLifetime`), so the socket timeout, not keepalive, bounds a
+stall.
+
+A `POST /order` whose insert waited for the same lock at commit behaved the same, in three runs
+each: 503 `database_timeout` after 10.03 to 10.19 s, and with `postgres` paused 503
+`service_unavailable` after 17.03 to 17.07 s. The stall ends a second sooner than the `GET`'s
+because of Hibernate's flooring: with the statement and socket timeouts raised, the transaction
+timeout cancelled the insert after 14.03 and 14.16 s, against the `GET`'s 15.05 s. Restarting
+`postgres` while the insert waited ended the request after 0.42 to 0.49 s with a 500, the loss at
+commit described under Operations.
+
+The statement timeout travels in the connection's startup `options`, not in `connection-init-sql` or
+an `ALTER ROLE ... SET`. That has three effects: it is the session's reset value rather than a `SET`
+that `RESET ALL` undoes; it applies to whichever role connects; and it survives the tests'
+`@ServiceConnection`, which replaces only the URL and the credentials (an `options` parameter in the
+URL would not). `DatabaseTimeoutsIT` reads the three values back through the pool, a pooled
+connection and the transaction manager.
+
+Liquibase runs on the same pool and inherits both driver timeouts (with `DB_STATEMENT_TIMEOUT=50ms`
+the `migrate` job fails at changeset `5-products-seed`), so `migrate` sets `DB_STATEMENT_TIMEOUT`
+and `DB_SOCKET_TIMEOUT` to `0`: an index build or a data migration may run longer than any request
 should.
 
-The two credentials can also be files. `application.yaml` imports
-`optional:configtree:/run/secrets/`, which turns each file in that directory into a property
-named after the file, with its trailing newline trimmed, so `/run/secrets/DB_USERNAME` and
-`/run/secrets/DB_PASSWORD` resolve the two placeholders. A variable of the same name still wins
-over its file, and where the directory does not exist (the tests, `bootRun`, the Compose stack
-as shipped) the import adds nothing. Compose mounts a secret under the variable's name:
+### Credentials as files
+`application.yaml` imports `optional:configtree:/run/secrets/`, which turns each file in that
+directory into a property named after the file (trailing newline trimmed), so
+`/run/secrets/DB_USERNAME` and `/run/secrets/DB_PASSWORD` resolve the placeholders. A variable
+of the same name wins over its file; where the directory does not exist (the tests, `bootRun`,
+the Compose stack as shipped) the import adds nothing. Compose mounts a secret under the
+variable's name:
 ```yaml
 services:
   store:
@@ -173,18 +167,18 @@ secrets:
     file: ./db_password.txt
 ```
 Name the files after the variables, never after the properties: a file named
-`spring.datasource.password` replaces the property itself, so it silently overrides
-`DB_PASSWORD`. The import sits just above the packaged `application.yaml`, so a profile-specific
-or external configuration file still beats it, as do `SPRING_DATASOURCE_PASSWORD`, a system
-property and a command-line argument. Both `.gitignore` and `.dockerignore` list `db_password.txt`
-and `.env`, so a local secret file stays out of Git and out of the image's build context.
+`spring.datasource.password` replaces the property itself and silently overrides
+`DB_PASSWORD`. The import sits just above the packaged `application.yaml`, so a
+profile-specific or external configuration file, `SPRING_DATASOURCE_PASSWORD`, a system
+property and a command-line argument all beat it. `.gitignore` and `.dockerignore` list
+`db_password.txt` and `.env`, so a local secret file stays out of Git and of the image's build
+context.
 
-`DB_URL` also carries the driver's TLS settings. The default URL names a local database and sets
-none, so PgJDBC uses `sslmode=prefer`: TLS when the server offers it, without checking the
-certificate, and plain text when it does not (against a server without TLS the connection
-succeeds unencrypted), which neither prevents a downgrade nor detects an impostor. A database
-reached across a network, as the README's is, takes `sslmode=verify-full` and the CA that signed
-the server's certificate:
+### TLS to the database
+The default URL sets no TLS options, so PgJDBC uses `sslmode=prefer`: TLS when the server
+offers it, without checking the certificate, and plain text otherwise, which neither prevents
+a downgrade nor detects an impostor. A database across a network, as the README's is, takes
+`sslmode=verify-full` and the CA that signed the server's certificate:
 ```shell
 DB_URL='jdbc:postgresql://db.example.internal:5432/store?sslmode=verify-full&sslrootcert=/etc/store/db-ca.crt'
 ```
@@ -192,190 +186,176 @@ The connection is then encrypted, the certificate must chain to that CA and name
 a server without TLS is refused (`The server does not support SSL.`). Mount the CA file
 read-only outside `/run/secrets/`, where the configtree import would turn it into a property.
 
-A missing `DB_USERNAME` or `DB_PASSWORD` is not a configuration error at start-up: Spring Boot
-binds the unresolved placeholder as a literal, so the process fails at Liquibase's first
-connection (`password authentication failed for user "${DB_USERNAME}"` when a server answers,
-`Connection refused` otherwise; HikariCP makes one attempt) and exits. That is the fail-closed
-behaviour: no environment can start on the sample credentials by omission.
-`FailClosedStartupIT` observes it against a real database: a second, non-web application
-started without the two variables fails with `password authentication failed for user
-"${DB_USERNAME}"` as the root cause. A blank `LIQUIBASE_CONTEXTS` (or
-`SPRING_LIQUIBASE_CONTEXTS`) is caught earlier, before any connection, by
-`LiquibaseContextsGuard`, an `EnvironmentPostProcessor` registered in
-`META-INF/spring.factories`: an empty context list makes Liquibase run every changeset, seed
-included, so the guard stops start-up with `spring.liquibase.contexts is blank` unless
-`spring.liquibase.enabled` is `false` (the Compose `store` service); the failure block is
-printed as plain text rather than JSON because logging is not yet initialised at that point
-(the same `FailClosedStartupIT` and `FailClosedConfigurationTest` pin it). The graceful drain (see
-Operations) is observed the same way: `GracefulShutdownIT` starts a second application on the
-shared database and closes it while one of its requests waits for a table lock.
+### Fail closed
+A missing `DB_USERNAME` or `DB_PASSWORD` is not a start-up configuration error. Spring Boot binds
+the unresolved placeholder as a literal, so the process fails at Liquibase's first connection and
+exits: `password authentication failed for user "${DB_USERNAME}"` when a server answers, `Connection
+refused` otherwise (HikariCP makes one attempt). No environment can start on the sample credentials
+by omission. `FailClosedStartupIT` observes it with a second, non-web application started without
+the two variables.
+
+A blank `LIQUIBASE_CONTEXTS` (or `SPRING_LIQUIBASE_CONTEXTS`) is caught before any connection by
+`LiquibaseContextsGuard`, an `EnvironmentPostProcessor` registered in `META-INF/spring.factories`.
+It stops start-up with `spring.liquibase.contexts is blank` unless `spring.liquibase.enabled` is
+`false` (the Compose `store` service). The failure block is plain text rather than JSON because
+logging is not yet initialised. `FailClosedConfigurationTest` pins both.
+
+`GracefulShutdownIT` observes the graceful drain (see Operations) the same way, with a second
+application closed while one of its requests waits for a table lock.
 
 ## Development workflow
-Every change goes through a pull request and is merged into `main` once both CI jobs are green
-and the pull request is approved. New behaviour starts with a failing test (unit, slice or
-integration) and, for API behaviour, a Cucumber scenario. This is a single-author project: the
-approval comes from a second account and is posted by the same procedure that then merges, so
-it is a procedural step, not an independent gate, and GitHub enforces neither the approval nor
-the checks on a private free-plan repository (see Continuous integration).
-
-The history shows how the procedure reached that form; `main`'s history is kept as it is:
-* Before #27 a merge waited for `build` only. #7 to #10 were merged while their `docker` job was
-  still running (each passed within three minutes), and #11 after its `docker` job had failed at
-  set-up, because the pinned `aquasecurity/trivy-action@0.28.0` tag did not resolve, so neither
-  the image build nor the scan ran. After #5 no push run on `main` finished green until #30: the
-  runs of #6 to #10, #27, #17 and #28 were cancelled by the next merge, and the run of #11
-  failed. From #27 on both jobs were green before every merge.
-* The squash subjects are imperative from #27 on and the bodies wrapped at 72 columns from #51
-  on (one line of #60 has 73); the earlier squash commits carry their pull-request text as it
-  was written.
-* Pull requests up to #64 were squash-merged into one commit each, committed by GitHub and
-  authored by the account that opened the pull request: the repository owner's account, or
-  `dependabot[bot]` for #17, #28, #30 and #46. From #65 on they are rebase-merged: each commit
-  lands on `main` as written and keeps its author, the repository's commit identity, while
-  GitHub records the merging account as the committer.
+Every change goes through a pull request, merged into `main` once both CI jobs are green and the
+pull request is approved. New behaviour starts with a failing test (unit, slice or integration) and,
+for API behaviour, a Cucumber scenario. Pull requests are rebase-merged, so each commit lands on
+`main` as written.
 
 ## Testing
-```shell
-./gradlew build
-```
-runs, in one task and in one JVM:
-* unit tests (JUnit 5, Mockito),
-* controller slice tests (`@WebMvcTest`),
-* integration tests against a real PostgreSQL started by Testcontainers,
-* Cucumber acceptance scenarios in `src/test/resources/features`,
-* an OpenAPI contract check (`OpenApiContractIT`): captured request/response pairs are validated
-  against the checked-in `OpenAPI.yaml` with `swagger-request-validator`. Real requests cover
-  the 200 offset and cursor pages of the three list endpoints and the three by-id reads, and the
-  customer-filtered page and the product-filtered cursor page of `/order`; the 201 and the
-  rejected-body 400 of each `POST` (including a whitespace-only `name`, a repeated product id, a
-  fractional `customerId`, a numeric product `description`, a NUL in each request string, a
-  client-supplied `id`, and an order body that repeats a property or has content after it);
-  the 400 of a non-numeric id on the three by-id paths and of a hexadecimal or zero-padded one
-  on `/order/{id}`, of an unknown sort property on `/order` and `/products`, of a cursor combined
-  with a page, of a negative `after` and of one whose digits a space splits, of a negative or
-  hexadecimal `page`, of a `size` beyond the 32-bit range, of a `customerId` of 0 or in fullwidth
-  digits and of `customerId` combined with `productId` on `/order`, and of a multi-word `name` and
-  of a `name` containing a NUL on `/customer` (while a no-break space, and a word containing U+0085
-  and U+2028, are accepted by both); the 404 of an unknown order, product and customer and of
-  an order for an unknown customer; the 406 of each of the nine operations for
-  `Accept: application/xml`; the 413 of an oversized body and the 415 of a `POST /order` sent as
-  `text/plain`; the 304 of a conditional `GET /order/{id}`, `GET /products/{id}`,
-  `GET /customer/{id}` and `GET /customer` page; and the 503 of a `GET /order?size=5` whose
-  statement is cancelled, or whose database session is terminated, while it waits for a lock
-  that a second connection holds on the `order` table (`TableLock`). A 405 for a method a path
-  does not list cannot be declared per operation, because the method is absent from the
-  contract; `info.description` states it and the smoke test sends `DELETE /order/1` to check it.
-  The 409, 500 and 503 bodies are also validated synthetically against `POST /order` and
-  `GET /order`, because no request the contract check sends reaches the 409 or the 500 (there
-  are no unique constraints, and `DatabaseFailureIT` produces the one real 500, a `POST` whose
-  session is terminated at its commit) and the real 503s are captured on a `GET` only. The
-  specification declares `X-Request-Id` as a required header on every response, `Location` on
-  every 201, `Retry-After` on every 503 and `ETag` and `Cache-Control` on every 200 and 304 of a
-  `GET`, and the validator enforces declared headers, so a response that drops one fails the
-  check (the synthetic 409 and 500 cases had to carry the id before they passed again, and a
-  synthetic 503 without `Retry-After` and a synthetic 200 and 304 without `ETag` and
-  `Cache-Control` are rejected, which cases pin). The three request schemas declare
-  `additionalProperties: false` themselves: the validator injects that rule into every schema
-  that does not declare it, so it would reject a body carrying an `id` either way, while a
-  client built from the specification would not; a second validator that injects nothing checks
-  that each `POST` schema rejects such a body on its own. The bodies of the named examples
-  (`unknownSortProperty`, `cursorWithPage` and `combinedFilters` of the 400, `unknownOrder`,
-  `unknownProduct` and `unknownCustomer` of the 404, `orderAsXml` of the 406, and
-  `serviceUnavailable` and `databaseTimeout` of the 503) are compared with the responses to the
-  requests their summaries name. In each interaction a case validates, an undocumented response
-  field, a missing required field at any depth, a problem detail without a `code` or with one
-  the specification does not list (two synthetic cases pin both), a missing declared header, an
-  undeclared status, or a request that the server serves and the specification would reject
-  fails the build. What the check proves is bounded by those interactions: a status, a header or
-  a field that only another request would produce can still differ from the specification, which
-  is why each new response arrives with a contract case of its own. The `test` task declares
-  `OpenAPI.yaml` as an input, so an edit to the specification alone reruns the check instead of
-  reusing a cached result.
+`./gradlew build` runs every tier in one task and one JVM: unit tests (JUnit 5, Mockito),
+controller slices (`@WebMvcTest`), integration tests against a real PostgreSQL started by
+Testcontainers, Cucumber scenarios in `src/test/resources/features`, and the OpenAPI contract
+check. It also runs `spotlessCheck` (formatting), `verifyBootJarContents` (see Running
+locally) and `spotbugsMain` (any finding fails the build; `docs/ASSUMPTIONS.md`, "Delivery",
+gives the settings), and fails below 80% line coverage. The coverage report and gate both
+exclude `**/mapper/**` (the MapStruct-generated implementations and the hand-written
+`ProductMapper.orderIds`, which `ProductMapperTest` covers but the gate does not count) and
+`StoreApplication`; the 100% line figure quoted in the history is measured under them. Reports
+land in `build/reports`.
 
-The test classes follow one naming convention per tier: `*Test` runs without a Spring test
-context (JUnit 5, Mockito, `ApplicationContextRunner`: `NestedOrdersPropertiesTest`,
-`RequestBodyLimitPropertiesTest`), `*Tests` is a `@WebMvcTest` slice (all six), and `*IT` runs
-on the shared Testcontainers context, which their abstract base class `AbstractIntegrationTest`
-declares (`CucumberIT` is the acceptance suite on the same context, through
-`CucumberSpringConfiguration`). Where a unit test and a slice cover the same class the slice
-carries `Slice` in its name (`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`),
-so the tier is never a single letter apart.
+Naming is one convention per tier, so the tier is never a single letter apart:
+* `*Test` runs without a Spring context (JUnit 5, Mockito, `ApplicationContextRunner`:
+  `NestedOrdersPropertiesTest`, `RequestBodyLimitPropertiesTest`).
+* `*Tests` is a `@WebMvcTest` slice (all six).
+* `*IT` runs on the shared Testcontainers context that `AbstractIntegrationTest` declares;
+  `CucumberIT`, through `CucumberSpringConfiguration`, is the acceptance suite on it.
 
-`build` also checks formatting (`spotlessCheck`), checks that the bootJar does not contain the
-local profile (`verifyBootJarContents`, see Running locally), runs SpotBugs over the main
-classes (`spotbugsMain`: any finding fails the build; ASSUMPTIONS "Delivery" gives the
-settings) and fails below 80% line coverage. Two exclusions apply to the coverage report and
-its gate alike: `**/mapper/**` (the whole `mapper` package: the MapStruct-generated
-implementations and the hand-written default method `ProductMapper.orderIds`, which
-`ProductMapperTest` covers but the gate does not count) and `StoreApplication` (the launcher);
-the 100% line figure quoted in the history is measured under them. Reports land in
-`build/reports`.
+Where a unit test and a slice cover the same class the slice carries `Slice`
+(`RequestBodyLimitFilterTest`, `RequestBodyLimitFilterSliceTests`).
+
+### The contract check
+`OpenApiContractIT` validates captured request/response pairs against the checked-in `OpenAPI.yaml`
+with `swagger-request-validator`. Any of these fails the build: an undocumented response field; a
+missing required field at any depth; a problem detail without a `code`, or with one the
+specification does not list; a missing declared header; an undeclared status; a request the server
+serves and the specification would reject. The check proves only what its interactions exercise, so
+each new response arrives with a contract case of its own; the `test` task declares `OpenAPI.yaml`
+as an input, so an edit to the specification alone reruns it.
+
+Real requests cover these statuses:
+
+| Status | Reached by |
+|---|---|
+| 200 | Every list page (offset, cursor and the two `/order` filters) and every by-id read |
+| 201 | Each `POST` |
+| 400 (body) | Each `POST` with a rejected body: a whitespace-only `name`, a repeated product id, a fractional `customerId`, a numeric `description`, a NUL in a string, a client-supplied `id`, a repeated property, content after the object |
+| 400 (input rules) | The input rules the API section gives for ids, sort properties, cursors, pages, sizes, filters and search words, including a `size` beyond the 32-bit range, a `customerId` of 0 or in fullwidth digits and a `name` containing a NUL. A no-break space and a word containing U+0085 and U+2028 are accepted by server and specification alike |
+| 404 | An unknown order, product and customer, and an order for an unknown customer |
+| 406 | Each of the nine operations with `Accept: application/xml` |
+| 413 | An oversized body |
+| 415 | A `POST /order` sent as `text/plain` |
+| 304 | A conditional `GET /order/{id}`, `GET /products/{id}`, `GET /customer/{id}` and `GET /customer` page |
+| 503 | A `GET /order?size=5` whose statement is cancelled, or whose session is terminated, while it waits for a lock a second connection holds on `order` (`TableLock`) |
+
+What real requests cannot reach is covered another way:
+* 405: it cannot be declared per operation, because the method is absent from the contract, so
+  `info.description` states it and the smoke test sends `DELETE /order/1`.
+* 409, 500 and 503 bodies: validated synthetically against `POST /order` and `GET /order`. Nothing
+  the check sends reaches a 409 or a 500 (there are no unique constraints; `DatabaseFailureIT`
+  produces the one real 500, a `POST` whose session is terminated at commit), and the real 503s are
+  captured on a `GET` only.
+* Required headers (`X-Request-Id` on every response, `Location` on every 201, `Retry-After` on
+  every 503, `ETag` and `Cache-Control` on every 200 and 304 of a `GET`): enforced by the validator;
+  synthetic responses without them pin that.
+* `additionalProperties: false`: the three request schemas declare it themselves, because the
+  validator injects it into every schema that lacks it while a client built from the specification
+  would not. A second validator that injects nothing checks that each `POST` schema rejects an `id`
+  on its own.
+* Named examples (`unknownSortProperty`, `cursorWithPage`, `combinedFilters`, `unknownOrder`,
+  `unknownProduct`, `unknownCustomer`, `orderAsXml`, `serviceUnavailable`, `databaseTimeout`):
+  compared with the responses to the requests their summaries name.
 
 ## Continuous integration
-`.github/workflows/ci.yml` runs on every push to `main` and on every pull request:
-1. `build`: `npm ci && npm test` in `utils` (the data generator's own check, on Node 22 with
-   the npm cache keyed on `utils/package-lock.json`), then
-   `./gradlew spotlessCheck build test --rerun --no-daemon`; a failing test fails the pipeline.
-   `--rerun` makes the test suite execute on every run instead of being replayed from Gradle's
-   cache when only documentation changed. Test results and the coverage and SpotBugs reports are
-   uploaded as the `reports` artifact.
-2. `docker`: builds the image once as `store:ci` (loaded into the runner's daemon, labelled with
-   the metadata of the commit), scans it with Trivy (a critical or high fixable vulnerability
-   fails the pipeline; the findings table is printed in the job log, because code scanning and
-   the Security tab are not available on a private free-plan repository), attaches an SPDX SBOM
-   generated by Syft as the single `sbom` artifact, kept for 90 days (`retention-days: 90`; the
-   action's own upload is switched off, and ASSUMPTIONS "Delivery" says how to describe an
-   image after that), starts the built image with Compose
-   (`STORE_IMAGE=store:ci docker compose up -d --no-build`, which runs the `migrate` job and
-   returns only once it has exited 0) and runs `scripts/smoke-test.sh ... compose` against it:
-   the container must report readiness `UP` on 8081 within 120 seconds with the `db`
-   component in the body, serve `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor
-   page on 8080 and reject a 70,000 byte body with a 413, answer 404 for `/actuator/health` on
-   8080 and 200 for the liveness probe on 8081; then, in `compose` mode, the `migrate`
-   container's exit code must be 0, `docker inspect` must show the `migrate` and `store`
-   containers with a read-only root filesystem, a tmpfs on `/tmp`, `CapDrop` `ALL`,
-   `no-new-privileges:true`, `Memory` and `MemorySwap` both 536870912 (512 MiB without swap)
-   and a `json-file` log rotated at 3 files of 10 MB, and every port `postgres` and `store`
-   publish bound to `STORE_BIND_ADDRESS`
-   (127.0.0.1 when unset), `store_app` must be able to `select count(*) from customer`
-   through `psql` in the database container, and `create table` and `update customer` as
-   `store_app` must fail with `permission denied for schema public` and `permission denied for
-   table customer`, `DELETE /order/1` must be a 405 problem detail, `GET /order/1` sent with
-   `X-Request-Id: smoke-<pid>` must leave its access line in the `store` container's output as
-   ECS JSON with the `com.example.store.access` logger, `"requestId":"smoke-<pid>"`, the route
-   `/order/{id}` and the `service` name and version (see Operations), and that output must not
-   contain a `Picked up JAVA_TOOL_OPTIONS` line. A failing
-   step prints the `migrate` and `store` logs and fails the job; the
-   stack is always torn down. On `main` the job then tags that same `store:ci` image and pushes
-   it to GitHub Container Registry as `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`,
-   so the digest delivered is
-   the digest that was scanned and smoke-tested, not a rebuild. The jar inside the image is
-   compiled from the same commit by the image build (wrapper-pinned Gradle, BOM-managed
-   versions) and the tested jar is the `build` job's, so the artifact identity is the commit,
-   not the jar bytes.
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request. `build`
+tests the code; `docker` builds, scans and smoke-tests the image and, on `main`, pushes the
+image that was tested, not a rebuild. Permissions are per job: `build` has `contents: read`;
+`docker` has `contents: read` and `packages: write`.
 
+**`build`**: `npm ci && npm test` in `utils` (the data generator's own check, on Node 22, npm
+cache keyed on `utils/package-lock.json`), then
+`./gradlew spotlessCheck build test --rerun --no-daemon`. `--rerun` executes the suite on
+every run instead of replaying Gradle's cache when only documentation changed. Test results
+and the coverage and SpotBugs reports are uploaded as the `reports` artifact.
+
+**`docker`** runs these steps:
+1. Builds the image once as `store:ci`, loaded into the runner's daemon and labelled with the
+   commit's metadata.
+2. Scans it with Trivy, failing on a fixable `CRITICAL` or `HIGH` vulnerability. The findings table
+   goes to the job log, because code scanning and the Security tab are not available on a private
+   free-plan repository.
+3. Attaches an SPDX SBOM (software bill of materials) from Syft as the `sbom` artifact for 90 days
+   (`retention-days: 90`; the action's own upload is off). `docs/ASSUMPTIONS.md`, "Delivery", says
+   how to describe an image after that.
+4. Starts the image with `STORE_IMAGE=store:ci docker compose up -d --no-build`, which runs
+   `migrate` and returns once it has exited 0, then runs `scripts/smoke-test.sh ... compose`. A
+   failing step prints the `migrate` and `store` logs; the stack is always torn down.
+5. On `main`, tags the same `store:ci` image and pushes it to GitHub Container Registry as
+   `ghcr.io/<owner>/store:sha-<short sha>` and `:latest`, so the digest delivered is the digest
+   scanned and smoke-tested.
+
+The jar inside is compiled from the same commit by the image build (wrapper-pinned Gradle,
+BOM-managed versions) and the tested jar is the `build` job's, so the artifact identity is the
+commit, not the jar bytes.
+
+### The smoke test
+`scripts/smoke-test.sh` (POSIX `sh`, needs only `curl`) checks that:
+* readiness reports `UP` on 8081 within 120 seconds, with the `db` component;
+* 8080 serves `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page, answers 413 to
+  a 70,000 byte body and 404 to `/actuator/health`;
+* liveness on 8081 answers 200.
+
+The optional third argument `compose` adds checks that use `docker compose` and `docker inspect` and
+must run from the repository root:
+* the `migrate` container exited 0;
+* `migrate` and `store` have a read-only root filesystem, a tmpfs on `/tmp`, `CapDrop` `ALL`,
+  `no-new-privileges:true`, `Memory` and `MemorySwap` both 536870912 (512 MiB without swap) and a
+  `json-file` log rotated at 3 files of 10 MB;
+* every port `postgres` and `store` publish is bound to `STORE_BIND_ADDRESS` (127.0.0.1 when unset,
+  so run the script with the value the stack was started with);
+* `store_app` can `select count(*) from customer` through `psql`, while `create table` and `update
+  customer` as `store_app` fail with `permission denied for schema public` and `permission denied
+  for table customer`;
+* `DELETE /order/1` is a 405 problem detail;
+* `GET /order/1` with `X-Request-Id: smoke-<pid>` leaves an ECS JSON access line in the `store`
+  output with the `com.example.store.access` logger, `"requestId":"smoke-<pid>"`, the route
+  `/order/{id}` and the `service` name and version, and no `Picked up JAVA_TOOL_OPTIONS` line
+  appears anywhere in that output.
+
+Run it locally with:
+```shell
+docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
+```
+A local run leaves the `Smoke Test` customer in the Compose volume; `docker compose down -v`
+clears it.
+
+### Build cache and time limits
 The image build warms its Gradle cache with `./gradlew resolveDependencies`, a task in
-`build.gradle` that downloads every jar of the compile, annotation-processor and runtime
-classpaths (96 jars, about 71 MB) in a layer keyed on the build files alone. A change under
-`src` reuses that layer, and the bootJar step then compiles without a download (it succeeds
-with `--offline`). A library that cannot be resolved, because it does not exist or its
-repository cannot be reached, fails the warm-up with `Could not resolve all files for
-configuration ...`; Gradle's `dependencies` report would not serve here, because it resolves
-metadata only and exits 0 when a library is missing, printing `FAILED` in the report.
+`build.gradle` that downloads every jar of the compile, annotation-processor and runtime classpaths
+(96 jars, about 71 MB). The layer is keyed on the build files alone, so a change under `src` reuses
+it and the bootJar step compiles without a download (it succeeds with `--offline`). A library that
+cannot be resolved fails the warm-up with `Could not resolve all files for configuration ...`, where
+Gradle's `dependencies` report would exit 0 and print `FAILED`.
 
-Both jobs carry a `timeout-minutes`: 20 for `build` and 30 for `docker`. The last 15 green
-push runs on `main`, from run 39172594999 (2026-10-18) to run 39289734712 (2026-10-19), took
-2.0 to 3.0 minutes for `build` and 2.4 to 5.7 minutes for `docker` from job start to job
-completion (read from the jobs API on 2026-10-19), and a `docker` run with a cold build cache
-can reach about 10 minutes, so the limits leave a wide margin over a normal run while a hung
-Testcontainers pull, Gradle daemon or image pull releases the runner within half an hour
-instead of GitHub's six-hour default.
+Both jobs carry a `timeout-minutes`: 20 for `build`, 30 for `docker`. The last 15 green push runs on
+`main` (run 39172594999 on 2026-10-18 to run 39289734712 on 2026-10-19) took 2.0 to 3.0 minutes for
+`build` and 2.4 to 5.7 for `docker`, measured from job start to completion through the jobs API on
+2026-10-19. A cold build cache can take `docker` to about 10 minutes. A hung Testcontainers pull,
+Gradle daemon or image pull therefore releases the runner within half an hour instead of GitHub's
+six-hour default.
 
-Pulling the delivered image: the package is private because the repository is, so log in with
-a token that carries `read:packages`, then pull it and run it on the network of the Compose
-stack's database, where PostgreSQL answers as `postgres`. The network is `<project>_default`,
-and the project name is the checkout's directory name unless `COMPOSE_PROJECT_NAME` sets
-another, so a clone named `store` gives `store_default`:
+### Pulling the delivered image
+The package is private, so log in with a token that carries `read:packages`, then run the
+image on the Compose network, where PostgreSQL answers as `postgres`. The network is
+`<project>_default`; the project name is the checkout directory unless `COMPOSE_PROJECT_NAME`
+sets another, so a clone named `store` gives `store_default`:
 ```shell
 docker login ghcr.io
 docker pull ghcr.io/neeleshrambally/store:latest
@@ -385,136 +365,118 @@ docker run --rm --network store_default -p 127.0.0.1:8080:8080 -p 127.0.0.1:8081
   -e DB_USERNAME=admin -e DB_PASSWORD=admin -e LIQUIBASE_CONTEXTS=seed \
   ghcr.io/neeleshrambally/store:latest
 ```
-The Compose network works on every engine; `host.docker.internal` is Docker Desktop's name for
-the host, and a Linux engine has it only through `--add-host host.docker.internal:host-gateway`,
-which resolves to the bridge gateway, where the database port, published on 127.0.0.1, does not
-listen. Run alone like this, the image migrates in-process as the user it is given; the Compose
-stack splits that into the `migrate` job and the `store_app` runtime (see Running locally), and
-`STORE_IMAGE=ghcr.io/neeleshrambally/store:latest docker compose up -d --no-build` runs the
-pulled image that way.
+The Compose network works on every engine; `host.docker.internal` is Docker Desktop's, and on
+Linux `--add-host host.docker.internal:host-gateway` resolves to the bridge gateway, where a
+port published on 127.0.0.1 does not listen. Run alone like this the image migrates
+in-process as the user it is given;
+`STORE_IMAGE=ghcr.io/neeleshrambally/store:latest docker compose up -d --no-build` runs it
+with the stack's `migrate` and `store_app` split instead.
 
-Both jobs must be green and the pull request approved before a merge, as they have been for
-every merge from #27 on (see Development workflow); GitHub cannot enforce required checks on a
-private free-plan repository, so that is a procedural gate. Permissions are scoped
-per job: `build` has `contents: read`, `docker` has `contents: read` and `packages: write` for
-the push.
+### Dependency updates
+Dependabot opens weekly pull requests, validated by the same pipeline: Gradle (Spring
+artifacts grouped, majors excluded), GitHub Actions (one grouped pull request including
+majors, except `gradle/actions`), the `Dockerfile` base images (one grouped pull request,
+`eclipse-temurin` majors excluded) and the `compose.yaml` images (the `compose-images` group).
+* The `eclipse-temurin` exclusion governs only the build stage: the runtime
+  `gcr.io/distroless/java17-debian13:nonroot` has no version in its tag, so it gets digest
+  refreshes only, and a move to another Java line is a change of image name, which Dependabot
+  does not propose.
+* Both `FROM` lines and `postgres:16.2` are pinned by the multi-arch index digest with the tag
+  kept for readability, so a rebuild or `compose up` resolves the same image until Dependabot
+  refreshes the digest (a refresh carries no major, so the exclusions do not suppress it). The
+  Compose entry ignores every version update of `postgres`, keeping the README's 16.2, and
+  ignores `store` entirely, because Dependabot reads `${STORE_IMAGE:-store:local}` as a Docker
+  Hub image.
+* Every action is pinned to the commit SHA of its release, with the version in a trailing comment.
+  Dependabot moves both weekly, so a pin never freezes the pipeline. The cost is that Dependabot
+  security alerts cover only semver-referenced actions, so the weekly update and the comment are the
+  review path. `gradle/actions/setup-gradle` stays on v5 because v6 moved the build cache into a
+  closed-source component with separate terms of use.
+* The Gradle wrapper carries `distributionSha256Sum`, so every distribution is verified before
+  it is unpacked, independently of `validateDistributionUrl`; the image build stage downloads
+  on every build, runners and developers verify once and reuse the cache, and adding the key
+  invalidated no cache.
 
-The same smoke test runs locally against the Compose stack:
-```shell
-docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
-```
-The script is POSIX `sh` and needs only `curl`; the optional third argument `compose` adds the
-migration-job, hardening, port-binding and role checks, which use `docker compose` and
-`docker inspect` and must run from the repository root. The port-binding check expects every
-published port on `STORE_BIND_ADDRESS` (127.0.0.1 when unset), so the script must run with the
-value the stack was started with. A local run leaves the `Smoke Test` customer it creates in
-the Compose volume; `docker compose down -v` clears it.
+### The GitLab pipeline
+`.gitlab-ci.yml` is provided for portability: there is no GitLab project and the file has
+never run, but it passes GitLab's CI JSON schema (`app/assets/javascripts/editor/schema/ci.json`
+in `gitlab-org/gitlab`), which checks keyword names and value types, not what jobs do. Each
+job carries the time limit of the GitHub job it stands for:
 
-Dependabot opens weekly pull requests, validated by the same pipeline: Gradle dependencies with
-Spring artifacts grouped and majors excluded, GitHub Actions as one grouped pull request including
-majors except for `gradle/actions`, the `Dockerfile` base images as one grouped pull request, and
-the `compose.yaml` images as the `compose-images` group. The Java major-version exclusion of the
-`docker` entry names `eclipse-temurin`, so it governs only the build stage; the runtime stage's
-`gcr.io/distroless/java17-debian13:nonroot` has no version in its tag, so its updates are digest
-refreshes only, and a move to another Java line is a change of image name, which Dependabot does
-not propose. Both `FROM` lines of the `Dockerfile` and the `postgres:16.2` image of `compose.yaml`
-are pinned by the multi-arch index digest with the tag kept for readability, so a rebuild or a
-`compose up` resolves the same image until Dependabot refreshes the digest (a digest refresh
-carries no major, so the exclusions do not suppress it). The Compose entry ignores every version
-update of `postgres`, so the tag stays at the README's 16.2 while digest refreshes still arrive,
-and ignores `store` entirely, because Dependabot reads `${STORE_IMAGE:-store:local}` as a Docker
-Hub image to look up. Every action is pinned to the commit SHA of its release with the version in
-a trailing comment; Dependabot's github-actions ecosystem moves the SHA and rewrites the comment
-in the grouped weekly pull request, so a pin never freezes the pipeline. The cost is that
-Dependabot security alerts cover only semver-referenced actions, not SHA pins; the weekly update
-and the pinned version comment are the review path instead. `gradle/actions/setup-gradle` stays on
-the v5 line (major updates ignored) because v6 moved the build cache into a closed-source
-component that requires separate terms of use. The Gradle wrapper carries `distributionSha256Sum`,
-so every distribution it downloads is verified against the checksum before it is unpacked,
-independently of `validateDistributionUrl`: the image build stage downloads on every build,
-runners and developers verify on their first download and reuse the cache afterwards, and adding
-the key invalidated no existing cache.
+| Job (stage) | What it does | Timeout |
+|---|---|---|
+| `build` (build) | `./gradlew spotlessCheck build test --rerun` | 20 min |
+| `generator-test` (build) | `npm ci && npm test` in `utils` on `node:22-alpine` (the `build` image has no Node) | 20 min |
+| `package` (package) | Builds `store:ci` once, saves it as the `image.tar` artifact, labels it with `org.opencontainers.image.revision` (`$CI_COMMIT_SHA`), `org.opencontainers.image.source` (`$CI_PROJECT_URL`) and `org.opencontainers.image.created` (`$CI_PIPELINE_CREATED_AT`) | 30 min |
+| `smoke` (smoke) | Loads the tarball, starts the stack inside `docker:27-dind` with `STORE_BIND_ADDRESS: "0.0.0.0"`, runs the same script against `http://docker:8080` and `http://docker:8081` | 30 min |
+| `scan` (scan) | Trivy 0.70.0 (what `aquasecurity/trivy-action@v0.36.0` installs by default) on the tarball with the same severity, `--ignore-unfixed` and `.trivyignore` settings | 30 min |
+| `publish` (publish) | Default branch only: retags the tarball's image as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both after `package`, `smoke` and `scan` | 30 min |
 
-`.gitlab-ci.yml` is provided for portability; there is no GitLab project for this repository.
-It follows the same stages: `build` runs
-`./gradlew spotlessCheck build test --rerun` under the same `--rerun` rule while
-`generator-test`, in the same stage on `node:22-alpine`, runs `npm ci && npm test` in `utils`
-(the GitLab `build` image has no Node), `package` builds the
-image once as the local tag `store:ci` and saves it as the `image.tar` artifact, `smoke`
-loads that tarball, starts the stack with Compose inside `docker:27-dind` with
-`STORE_BIND_ADDRESS: "0.0.0.0"` and runs the same script against `http://docker:8080` and
-`http://docker:8081`, `scan` runs Trivy 0.70.0 (the version `aquasecurity/trivy-action@v0.36.0`
-installs by default on GitHub) on the tarball with the same severity, `--ignore-unfixed` and
-`.trivyignore` settings, and `publish`, on the default branch only, loads the same tarball,
-retags it as `$CI_REGISTRY_IMAGE:<short sha>` and `:latest` and pushes both after `package`,
-`smoke` and `scan` have passed; as on GitHub, the registry name is touched only by the publish
-step, so a merge-request pipeline of a project without a container registry still builds, smokes
-and scans. Each job carries the limit of the GitHub job it stands for as a `timeout`: 20 minutes
-for `build` and `generator-test`, 30 for `package`, `smoke`, `scan` and `publish`. Every job is
-`interruptible` (set under `default:`) except `publish`, and the default-branch entry of
-`workflow: rules` sets `auto_cancel: on_new_commit: none`, so a new commit cancels a running
-merge-request pipeline and never a default-branch one, as GitHub's `cancel-in-progress` does for
-pull requests only. `publish` holds the `registry-publish` resource group, so two pipelines never
-push at the same time, and `package` labels the image with `org.opencontainers.image.revision`
-(`$CI_COMMIT_SHA`), `org.opencontainers.image.source` (`$CI_PROJECT_URL`) and
-`org.opencontainers.image.created` (`$CI_PIPELINE_CREATED_AT`).
-Thirteen details differ from GitHub. The trigger scope is expressed as `workflow: rules`: a
-pipeline runs for merge requests and for the default branch, so a push to a feature branch
-without a merge request runs no pipeline on either platform. The published tag is
-`<short sha>` where GitHub's `docker/metadata-action` writes `sha-<short sha>`. The SBOM is
-CycloneDX produced by Trivy rather than SPDX produced by Syft; both platforms keep it for 90 days
-(`expire_in: 90 days`, `retention-days: 90`), except that GitLab keeps the artifacts of the newest
-successful pipeline of each ref past that unless the project or the instance turns that off; both
-scans print the findings table to the job log and neither stores a report. The order of the
-checks: GitHub runs the scan, the SBOM and the smoke test one after the other in the single
-`docker` job, while on GitLab `smoke` and `scan` both `needs: [package]` and run in parallel
-after it; `publish` needs all three, so the gate before a push is the same. The GitLab `build`
-job keeps only `build/reports/` as a path artifact (the JUnit XML reaches GitLab through
-`reports: junit`) where GitHub also uploads `build/test-results/`. The GitLab job images
-(`eclipse-temurin:17-jdk-jammy`, `node:22-alpine`, `docker:27`, `aquasec/trivy:0.70.0`) are
-tag-pinned with no Dependabot path, where every GitHub action is SHA-pinned and moved weekly.
-GitLab tears the smoke stack down with `docker compose down -v` without `--remove-orphans`.
-The `smoke` job sets `STORE_BIND_ADDRESS: "0.0.0.0"`, where GitHub keeps the loopback default:
-on the Docker executor `docker:27-dind` is a separate container that the job reaches as
-`docker`, and a port that daemon publishes on its own 127.0.0.1 refuses the job container's
-connections, so the variable is required there; the script reads the same variable and expects
-`0.0.0.0`. The binding opens the ports on the dind container's interfaces, not on the runner
-host's. On a Kubernetes executor the job and its services share the pod's network namespace,
-so loopback would work and the variable is optional; `0.0.0.0` there also opens the ports on
-the pod IP for the length of the job, which is acceptable for an ephemeral job. `package` has no
-layer cache: each job starts an empty `docker:27-dind` daemon, so every image build pulls the
-base images and runs the Gradle warm-up again, where GitHub's build restores its layers from the
-`gha` cache (`cache-from` and `cache-to`). The file has never run: it passes GitLab's CI JSON
-schema (`app/assets/javascripts/editor/schema/ci.json` in `gitlab-org/gitlab`), which checks
-keyword names and value types but not what the jobs do, while the GitHub workflow runs on every
-pull request and every push to `main`. The resource group's default `unordered` process mode
-only keeps two publishes apart, so an older pipeline can still push `:latest` after a newer one;
-publishing in pipeline order needs the group's `process_mode` set to `oldest_first` once through
-the API (`PUT /projects/:id/resource_groups/registry-publish`), which the file cannot express,
-while GitHub runs the `main` runs of its concurrency group one at a time and replaces a waiting
-run with a newer one, so the newest merge pushes last. `package` sets three OCI labels where
-`docker/metadata-action` sets eight (`title`, `description`, `url`, `source`, `version`,
-`created`, `revision` and `licenses`), so a GitLab image has no title, description, url, version
-or licenses label, and its `created` is the pipeline's creation time where GitHub's is the time
-of the metadata step. Cancelling a superseded merge-request pipeline also depends on the
-project's "Auto-cancel redundant pipelines" setting, which the file cannot set (with it off,
-`interruptible` has no effect), where GitHub's `concurrency` block decides it in the workflow
-alone.
+Only `publish` touches the registry name, so a merge-request pipeline without a container registry
+still builds, smokes and scans. Every job is `interruptible` (under `default:`) except `publish`.
+The default-branch entry of `workflow: rules` sets `auto_cancel: on_new_commit: none`, so a new
+commit cancels a running merge-request pipeline and never a default-branch one, as GitHub's
+`cancel-in-progress` does for pull requests only. `publish` holds the `registry-publish` resource
+group, so two pipelines never push at once. Thirteen details differ from GitHub:
+1. The trigger scope is `workflow: rules`: merge requests and the default branch. A push to a
+   feature branch without a merge request runs no pipeline on either platform.
+2. The published tag is `<short sha>`, where `docker/metadata-action` writes `sha-<short sha>`.
+3. The SBOM is CycloneDX from Trivy, not SPDX from Syft. Both platforms keep it 90 days
+   (`expire_in: 90 days`, `retention-days: 90`), except that GitLab keeps the artifacts of the
+   newest successful pipeline of each ref past that unless the project or instance turns it
+   off; both scans print the findings table and neither stores a report.
+4. GitHub runs scan, SBOM and smoke test in sequence in one `docker` job; on GitLab `smoke` and
+   `scan` both `needs: [package]` and run in parallel, and `publish` needs all three, so the
+   gate is the same.
+5. The GitLab `build` job keeps only `build/reports/` as a path artifact (JUnit XML goes
+   through `reports: junit`); GitHub also uploads `build/test-results/`.
+6. The GitLab job images (`eclipse-temurin:17-jdk-jammy`, `node:22-alpine`, `docker:27`,
+   `aquasec/trivy:0.70.0`) are tag-pinned with no Dependabot path; every GitHub action is
+   SHA-pinned and moved weekly.
+7. GitLab tears the stack down with `docker compose down -v`, without `--remove-orphans`.
+8. `smoke` sets `STORE_BIND_ADDRESS: "0.0.0.0"` where GitHub keeps loopback: on the Docker
+   executor `docker:27-dind` is a separate container reached as `docker`, and a port it
+   publishes on its own 127.0.0.1 refuses the job container; the script expects the same
+   value. The ports open on the dind container's interfaces, not the runner host's. On a
+   Kubernetes executor the job and services share the pod's network namespace, so loopback
+   would work; `0.0.0.0` also opens the ports on the pod IP for the length of the job,
+   acceptable for an ephemeral job.
+9. `package` has no layer cache: each job starts an empty `docker:27-dind`, so every build
+   pulls the base images and reruns the Gradle warm-up, where GitHub restores layers from the
+   `gha` cache (`cache-from`, `cache-to`).
+10. The file has never run; the GitHub workflow runs on every pull request and push to `main`.
+11. The resource group's default `unordered` mode only keeps two publishes apart, so an older
+    pipeline can still push `:latest` after a newer one; pipeline order needs `process_mode`
+    set to `oldest_first` once through the API
+    (`PUT /projects/:id/resource_groups/registry-publish`), which the file cannot express.
+    GitHub runs `main` runs one at a time and replaces a waiting run with a newer one, so the
+    newest merge pushes last.
+12. `package` sets three OCI labels where `docker/metadata-action` sets eight (`title`,
+    `description`, `url`, `source`, `version`, `created`, `revision`, `licenses`), so a GitLab
+    image lacks title, description, url, version and licenses, and its `created` is the
+    pipeline's creation time rather than the metadata step's.
+13. Cancelling a superseded merge-request pipeline also depends on the project's "Auto-cancel
+    redundant pipelines" setting, which the file cannot set (off, `interruptible` has no
+    effect); GitHub's `concurrency` block decides it in the workflow alone.
 
 ## Data model
-An order has an id, a description, belongs to the customer that placed it, and contains one or
-more products. A customer has an id, a name, and zero or more orders. A product has an id and a
-description and can appear in any number of orders. Beyond the primary keys, the schema indexes
-`order.customer_id` alone and together with `id` (`idx_order_customer_id_id`), `order_product` in
-its other column order (`idx_order_product_product_id_order_id`, beside the primary key on
-`(order_id, product_id)`), `lower(customer.name)` with trigrams for the substring search, and
-each whitelisted sort column together with `id` (`idx_order_description_id`,
-`idx_product_description_id`, `idx_customer_name_id`).
+An order has an id and a description, belongs to the customer that placed it, and contains one
+or more products. A customer has an id, a name, and zero or more orders. A product has an id
+and a description and can appear in any number of orders. Beyond the primary keys, the schema
+has these indexes:
+
+| Index | On | Serves |
+|---|---|---|
+| `idx_order_customer_id` | `order (customer_id)` | Lookups of orders by customer |
+| `idx_order_customer_id_id` | `order (customer_id, id)` | The `customerId` filter of `GET /order`, as one index range in id order |
+| `idx_order_product_product_id_order_id` | `order_product (product_id, order_id)`, beside the primary key on `(order_id, product_id)` | The `productId` filter, and a product's order ids in id order |
+| `idx_customer_name_trgm` | `lower(customer.name)` with trigrams (a GIN index from `pg_trgm`) | The case-insensitive substring search on `name` |
+| `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` | Each whitelisted sort column together with `id` | A sorted page as an index scan instead of a sort of the whole table |
 
 ## API
-The contract is documented in `OpenAPI.yaml`, version 3.0.0; the version is the contract's own,
-not the build's, and `docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what
-a client written against the delivered 1.0, or against 2.1.0, has to change.
+The contract is `OpenAPI.yaml`, version 3.0.0, the contract's own version, not the build's;
+`docs/ASSUMPTIONS.md` ("Contract version and client migration") lists what a client written
+against the delivered 1.0, or against 2.1.0, has to change.
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -534,132 +496,103 @@ a client written against the delivered 1.0, or against 2.1.0, has to change.
 | `GET` | `/products/{id}` | A single product with the ids of the newest orders containing it and `orderCount` |
 | `POST` | `/products` | Create a product: `{"description": "..."}` |
 
-List responses are a page envelope: `content`, `page`, `size`, `totalElements`, `totalPages`.
-The default page size is 20, the maximum 100, and the default sort is by `id`. `sort` takes
-`property,(asc|desc)` and accepts only `id` and `description` on `/order` and `/products` and
-`id` and `name` on `/customer`; any other property is a 400 problem detail, and ties are broken
-by `id` in the same direction as the last property so page boundaries are deterministic (ADR 0006).
-With `after` the same endpoints switch to keyset (cursor) pagination: the response is a cursor
-envelope (`content`, `size`, `nextCursor`) holding the elements whose id is greater than `after`
-in ascending id order; `nextCursor` is the id of the last element while more exist and `null`
-when the walk is complete. `after=0` starts a walk, `size` keeps its default and cap, and `name`
-still filters customers. `after` cannot be combined with `page` (other than 0) or with a `sort`
-whose first property is not `id` ascending; that is a 400 problem detail with the detail
-`after cannot be combined with page or sort` (ADR 0003, "Keyset pagination").
-`GET /order` also accepts `customerId` or `productId` (each at least 1) to list the orders of
-one customer or the orders containing one product; the filter applies in both paging modes
-with the same `sort` whitelist, an id that matches nothing yields an empty page rather than a
-404, and the two filters together are a 400 problem detail with the detail
-`customerId and productId cannot be combined`. These are the uncapped lists behind the nested
-`orders` of a customer or a product: a customer on a list response carries its newest
-`NESTED_ORDERS_LIMIT` orders (20 by default; the highest ids, returned in ascending id order) and
-`orderCount`, the total; a product on the list and by-id responses carries the ids of the newest
-orders containing it the same way, plus `orderCount` (ADR 0003, "Nested collections").
-Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail, and so is
-one on the management connector, whose child context shares the advice: a 404 or 405 there
-carries `code` but no `X-Request-Id`, since the filters run on the API connector only. A request
-that Tomcat rejects before the servlet filters never gets one: a request line and headers over
-the 8 KB default of `server.max-http-request-header-size`, a request line that does not parse (a
-request target with a character that is not allowed in it, such as an unencoded `|`, or an
-unencoded space), a header holding a control character, a path that cannot be percent-decoded
-(a `%` not followed by two hexadecimal digits, as in `/order/%ZZ` or `/order/1%`), and a path
-whose percent-decoded form holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or
-bytes that are not UTF-8 (`%FF`) are answered with a 400 and Tomcat's minimal HTML page
-(`text/html;charset=utf-8`, `HTTP Status 400 – Bad Request`, without the server version), with
-no `X-Request-Id` and no access-log line. Tomcat logs a failure to parse the request line or a
-header at INFO on `org.apache.coyote.http11.Http11Processor`, with its stack trace, and the
-exception it logs
-quotes what it rejected: the whole request target, query string included, for a character that
-is not allowed in it (`Invalid character found in the request target [/customer?name=...|x ]`,
-with a byte outside ASCII printed in hex, `0xc3`), the word after an unencoded space, which
-Tomcat reads as the protocol, or the offending header line with its value. So a search word sent
-with an unencoded `|` or space does reach the log, while an oversized request line or header is
-logged only as `Request header is too large`. Each of Tomcat's connection processors logs its
-first such failure at INFO and its later ones in the next 24 hours at DEBUG, and the connector
-adds a processor whenever all of them are busy, so a busy server writes several INFO lines. A
-path that cannot be percent-decoded, or is rejected after percent-decoding (`%00`, `%2F`, `%5C`,
-bytes that are not UTF-8), is not logged at the shipped levels. Tomcat parses a query string
-only when the service asks for its parameters, after the servlet filters, so a failure there is
-not one of these 400s: the list endpoints answer it with a problem detail (see the input rules
-below), and Tomcat logs it at INFO on `org.apache.tomcat.util.http.Parameters` from the
-request's thread, so that line carries the request's `requestId`. For an escape it cannot decode
-the line quotes the parameter's name and value as Tomcat read them, so a search word reaches the
-log (`Character decoding failed. Parameter [name] with value [Secret%ZZWord] has been ignored.
-Note that the name and value quoted here may be corrupted due to the failed decoding. ...`),
-and for a value without a name it quotes the chunk (`Invalid chunk starting at byte [0] and
-ending at byte [7] with a value of [=Secret] ignored`). One throttle serves the whole JVM and
-both kinds: the first such line after start-up is written at INFO with a note that further ones
-go to DEBUG, and the others in the next 24 hours are written at DEBUG only. A direct
-`GET /error` gets a 500 from Boot's error controller,
-`{"timestamp":"...","status":999,"error":"None"}`. Validation failures, whether of a request
-body or of a query parameter such as `name`, `after`, `customerId`, `productId`, `page` or
-`size`, include an `errors` array with the offending field names and the constraint messages. A
-path id that is not in canonical decimal form is a 400 problem detail. Requests never carry
-an id; an unknown property is a 400 that names it (see the input rules below). Each `POST`
-reads only `application/json` (`consumes`; a `charset` parameter is accepted): a body with
-another `Content-Type`, such as a URL-encoded or multipart form, text or a JSON-based type
-like `application/vnd.api+json`, or with none, is a 415 problem detail decided when the request
-is mapped, before the body is read. The 415 carries `Accept: application/json`, and its detail
-names the type that was sent (`Content-Type 'text/plain;charset=UTF-8' is not supported.`),
-says `Content-Type is missing.` or, for a value that is not a media type, says `Could not parse
-Content-Type.` A JSON body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is
-a 413 problem detail (`Request body exceeds 65536 bytes`), judged by the declared
-`Content-Length` before any byte is read or by the bytes counted while a chunked body is read;
-Tomcat appends `Connection: close` to the 413. The API has no `PUT`, `PATCH` or `DELETE`
-endpoint, so such a request is the 405 problem detail decided when it is mapped (the 404 of an
-unknown path), whatever body it carries, and the body is not read. After the 413, the 415 or
-such a 405 or 404 Tomcat reads and discards the unread remainder on the request's thread, up to
-its 2 MB swallow limit, and keeps none of it; past 2 MB it closes the connection, as the
-answer's `Connection: close` announced. So the thread stays busy until the rest has arrived or
-the client has sent nothing for `server.tomcat.connection-timeout`, 10 s. With Tomcat's default
-of 60 s, 200 clients that sent nothing after their answer held all 200 request threads for a
-minute: on the jar of 5996b3c, 200 form `POST`s each declaring 1,900,000 bytes and sending 8 KiB
-were all answered 415 within 0.03 s, readiness on the management port still answered 200, and a
-`GET /order/1` sent next was answered after 60.05 s; with the 10 s timeout it was answered after
-9.89 s, and a client that sent nothing after its answer was disconnected after 10.0 s instead of
-60.0 s. The timeout bounds a client that goes silent, not one that trickles bytes (one byte
-every 8 s kept its connection and thread for the 40 s it went on), nor one that keeps opening
-connections: request buffering or a rate limit at the ingress bounds those. Idle keep-alive
-connections are still closed after 60 s (`server.tomcat.keep-alive-timeout`); Tomcat would
-otherwise apply the connection timeout to them too (with it alone, an idle connection was closed
-after 11.0 s), and an ingress that reuses idle connections for longer than the service keeps
-them would then find them closed under it. Two kinds of body used to escape the bound, because
-they were parsed past `RequestBodyLimitFilter`'s bounded stream. Spring builds a URL-encoded
-form `POST`'s body from the request parameters, so Tomcat parsed the body itself, up to its 2 MB
-form limit, and a `POST` declaring 1,900,000 form bytes was answered only once all of them had
-arrived. Spring's `DispatcherServlet` parsed any `multipart/*` request, whatever its method,
-before it mapped it, up to Spring Boot's multipart limits (1 MB a part, 10 MB a request) and
-spooling the parts to files under `java.io.tmpdir` (the Compose stack's memory-backed `/tmp`),
-so a `POST` declaring 9,000,000 multipart bytes and sending 8 KiB had no answer within 5 s
-(`docs/ASSUMPTIONS.md`, "Products", gives both measurements). Multipart support is switched
-off (`spring.servlet.multipart.enabled: false`), as the API takes no multipart body: no
-multipart resolver is registered and no servlet has a multipart configuration, so neither
-Spring nor Tomcat parses a multipart body, and it is a 415 like any other type. A third reader
-ran before the request was mapped: Spring's `FormContentFilter`, which Spring Boot registers by
-default, read the URL-encoded body of every `PUT`, `PATCH` and `DELETE` to turn it into request
-parameters. It read through the bounded stream, so within the bound the whole body was read
-before the 405 or 404, and over it the filter's exception escaped the servlet: a `PUT /customer`
-declaring 1,900,000 form bytes was a 500 with Spring Boot's default error body
-(`{"timestamp":"...","status":500,"error":"Internal Server Error","path":"/customer"}`, no
-problem detail, no `code`) and an ERROR line with the exception's stack trace. No endpoint takes
-such a body, so the filter is switched off (`spring.mvc.formcontent.filter.enabled: false`).
-Tomcat's limit for a URL-encoded form (`server.tomcat.max-http-form-post-size`) follows
-`REQUEST_MAX_BODY_BYTES` on both connectors, because whatever asks for a `POST`'s parameters
-still has Tomcat parse such a body, `consumes` or not: Spring's hidden-method filter
-(`spring.mvc.hiddenmethod.filter.enabled`) and request-detail logging
-(`spring.mvc.log-request-details` with the `DispatcherServlet` at DEBUG) both made Tomcat read a
-1,900,000-byte form body again. Over the limit Tomcat does not read the body at all. The
-property cannot switch form parsing off with 0: Spring Boot skips a zero and Tomcat keeps its
-2 MB default. An order carries between 1 and 100
-products, each id at most once: a repeated id is a 400 naming `productIds`, not a silent
-de-duplication. Every `POST` answers 201 with a `Location` header holding the relative path of
-the created resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); the path is relative
-so that a gateway rewriting the host stays correct, which RFC 9110 permits.
+### Paging, sorting and filters
+**Page envelope.** List responses carry `content`, `page`, `size`, `totalElements` and `totalPages`;
+default size 20, maximum 100, default sort `id`.
 
-Every problem detail carries `code`, the stable identity of the problem, next to the status
-phrase in `title` and the human-readable `detail`; `type` stays `about:blank`
-(`docs/ASSUMPTIONS.md`, "API contract", gives the reason). A client branches on `code`, never on
-the wording of `detail`:
+**Sorting.** `sort` takes `property,(asc|desc)` and accepts only `id` and `description` on `/order`
+and `/products`, and `id` and `name` on `/customer`. Ties are broken by `id` in the same direction
+as the last sort property, so page boundaries are deterministic (ADR 0006).
+
+**Cursor paging.** `after` switches to keyset (cursor) pagination: paging by the last id seen
+instead of by page number. The response is a cursor envelope (`content`, `size`, `nextCursor`)
+holding the elements with an id greater than `after`, in ascending id order. `nextCursor` is the
+last element's id while more exist and `null` when the walk is complete. `after=0` starts a walk,
+`size` keeps its default and cap, and `name` still filters customers. `after` combined with `page`
+(other than 0), or with a `sort` whose first property is not `id` ascending, is a 400 (`after cannot
+be combined with page or sort`; ADR 0003, "Keyset pagination").
+
+**Filters.** `GET /order` also takes `customerId` or `productId` (each at least 1), in both paging
+modes and with the same `sort` whitelist. An unknown id yields an empty page, not a 404; both
+together are a 400 (`customerId and productId cannot be combined`).
+
+**Nested orders.** These filters are the uncapped lists behind the nested `orders`. A customer on a
+list response carries its newest `NESTED_ORDERS_LIMIT` orders (20 by default; the highest ids, in
+ascending order) and `orderCount`, the total. A product on the list and by-id responses carries the
+ids of the newest orders containing it the same way, plus `orderCount` (ADR 0003, "Nested
+collections").
+
+### Creating resources
+Each `POST` follows five rules:
+* Content type: it reads only `application/json` (`consumes`; a `charset` parameter is accepted).
+  Any other `Content-Type` (a URL-encoded or multipart form, text, or a JSON-based type like
+  `application/vnd.api+json`), or none, is a 415 decided at mapping, before the body is read. The
+  415 carries `Accept: application/json` and a detail that names the type sent (`Content-Type
+  'text/plain;charset=UTF-8' is not supported.`), `Content-Type is missing.` or `Could not parse
+  Content-Type.`
+* Body size: a JSON body over `REQUEST_MAX_BODY_BYTES` (64 KiB by default) is a 413 (`Request body
+  exceeds 65536 bytes`), judged by the declared `Content-Length` before any byte is read, or by the
+  bytes counted while a chunked body is read. Tomcat appends `Connection: close`.
+* Products: an order carries 1 to 100 products, each id at most once; a repeated id is a 400 naming
+  `productIds`, not a silent de-duplication.
+* Response: every `POST` answers 201 with a `Location` holding the relative path of the created
+  resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); relative so that a gateway rewriting
+  the host stays correct (RFC 9110 permits it).
+* No `PUT`, `PATCH` or `DELETE`: such a request is the 405 decided at mapping (a 404 for an unknown
+  path), whatever body it carries, and the body is not read.
+
+### Unread bodies and silent clients
+After a 413, 415, 405 or 404, Tomcat reads and discards the unread remainder on the request's
+thread, up to its 2 MB swallow limit, and keeps none of it; past 2 MB it closes the connection
+instead, as the answer's `Connection: close` announced. The thread stays busy until the rest arrives
+or the client has sent nothing for `server.tomcat.connection-timeout`, 10 s.
+
+The 10 s matters. With Tomcat's default of 60 s, 200 silent clients held all 200 request threads for
+a minute. On the jar of 5996b3c, 200 form `POST`s declaring 1,900,000 bytes and sending 8 KiB were
+all answered 415 within 0.03 s, readiness still answered 200, and a `GET /order/1` sent next was
+answered after 60.05 s. With 10 s it was answered after 9.89 s, and a silent client was disconnected
+after 10.0 s instead of 60.0 s.
+
+The timeout bounds a silent client only. It does not bound one that trickles bytes (one byte every 8
+s kept its thread for the 40 s it went on) or one that keeps opening connections; request buffering
+or a rate limit at the ingress bounds those. Idle keep-alive connections are still closed after 60 s
+(`server.tomcat.keep-alive-timeout`). Otherwise the connection timeout would apply to them too (with
+it alone, an idle connection closed after 11.0 s), and an ingress that reuses idle connections
+longer would find them closed under it.
+
+Three readers used to get at a body before the request was mapped, two of them past
+`RequestBodyLimitFilter`'s bounded stream:
+* Tomcat itself parsed a URL-encoded form `POST` (Spring builds such a body from the request
+  parameters), up to its 2 MB form limit: a `POST` declaring 1,900,000 form bytes was answered only
+  once all of it had arrived. `server.tomcat.max-http-form-post-size` now follows
+  `REQUEST_MAX_BODY_BYTES` on both connectors, and over it Tomcat does not read the body at all. The
+  limit is needed because anything that asks for a `POST`'s parameters has Tomcat parse such a body,
+  `consumes` or not: the hidden-method filter (`spring.mvc.hiddenmethod.filter.enabled`) and
+  `spring.mvc.log-request-details` with the `DispatcherServlet` at DEBUG both made Tomcat read a
+  1,900,000-byte body again. The property cannot switch parsing off with 0: Spring Boot skips a zero
+  and Tomcat keeps 2 MB.
+* The `DispatcherServlet` parsed any `multipart/*` request, whatever its method, before mapping it,
+  up to Spring Boot's limits (1 MB a part, 10 MB a request). It spooled parts under `java.io.tmpdir`
+  (the Compose stack's memory-backed `/tmp`): a `POST` declaring 9,000,000 multipart bytes and
+  sending 8 KiB had no answer within 5 s (`docs/ASSUMPTIONS.md`, "Products", has both measurements).
+  Multipart is now off (`spring.servlet.multipart.enabled: false`). With no resolver and no servlet
+  multipart configuration, neither Spring nor Tomcat parses it, and it is a 415 like any other type.
+* Spring's `FormContentFilter`, on by default, read the URL-encoded body of every `PUT`, `PATCH`
+  and `DELETE` through the bounded stream. Within the bound the whole body was read before the 405
+  or 404. Over it the exception escaped the servlet: a `PUT /customer` declaring 1,900,000 form
+  bytes was a 500 with Spring Boot's default error body
+  (`{"timestamp":"...","status":500,"error":"Internal Server Error","path":"/customer"}`, no
+  problem detail, no `code`) and an ERROR stack trace. No endpoint takes such a body, so the filter
+  is off (`spring.mvc.formcontent.filter.enabled: false`).
+
+### Errors
+Every error handled by Spring MVC on the API connector is an RFC 7807 problem detail: `title`
+holds the status phrase, `detail` a human-readable message and `code` the stable identity of
+the problem; `type` stays `about:blank` (`docs/ASSUMPTIONS.md`, "API contract", gives the
+reason). Clients branch on `code`, never on `detail`, and must accept a code they do not know
+and handle it by status: adding a code is a minor version of the contract, removing or
+renaming one a major version. Validation failures (of a body or a query parameter) add an
+`errors` array naming each offending field with its constraint message.
 
 | `code` | Status | Raised for |
 |---|---|---|
@@ -680,487 +613,477 @@ the wording of `detail`:
 | `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT`, except a session that the database terminates while a `POST`'s insert is flushed at commit, which is `internal_error`; also a by-id read or a `POST`'s insert attempted after the `TX_TIMEOUT` deadline (with `Retry-After`; see Operations) |
 | `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a query issued after that deadline (with `Retry-After`) |
 
-`GlobalExceptionHandler` sets the code in each of its own handlers. The problem details that
-Spring MVC's `ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler,
-405, 406 and 415) all return through `handleExceptionInternal`, whose override takes the code
-from the status: 400 `invalid_parameter`, 404 `not_found`, 405, 406, 413, 415 and 503 by the
-names above, and `internal_error` for any other status. `OpenAPI.yaml` declares `code` as a
-required enum, so the contract check fails on a problem detail without a code or with one the
-specification does not list. Clients must accept a code they do not know and handle it by its
-status: adding a code is a minor version of the contract, while removing or renaming one is a
-major version.
+`GlobalExceptionHandler` sets the code in its own handlers. The problem details that Spring MVC's
+`ResponseEntityExceptionHandler` builds (a type mismatch, a path without a handler, 405, 406, 415)
+return through `handleExceptionInternal`, whose override takes the code from the status: 400
+`invalid_parameter`, 404 `not_found`, the names above for 405, 406, 413, 415 and 503, and
+`internal_error` otherwise. `OpenAPI.yaml` declares `code` as a required enum, so the contract check
+fails on a missing or unlisted code.
 
-Request input is strict rather than coerced (ADR 0002):
-- A body that does not bind names the field. An unknown property is a 400 with the detail
-  `Unknown property 'id'` and an `errors` entry `is not a known property`; a value of the wrong
-  JSON type is a 400 with the detail `Invalid request content.` and an `errors` entry that names
-  the field by its path (`productIds[0]`) with `must be an integer`, `must be a string` or
-  `must be an array`; an integer outside the 64-bit range (`9223372036854775808`) is named the
-  same way, with `must be a 64-bit integer`. Malformed JSON, a body that is not a JSON object,
-  an object that repeats a property, anything but whitespace after the object and a number of
-  more than 1,000 digits (Jackson's parser refuses it before it reaches a field) are a 400 with
-  the detail `Failed to read request` and no `errors`.
-  `spring.jackson.deserialization.fail-on-trailing-tokens` is on because Jackson otherwise stops
-  reading after the first JSON value: an order body followed by a stray `x` used to create the
-  order. `spring.jackson.parser.strict-duplicate-detection` is on because Jackson otherwise keeps
-  the last occurrence of a repeated property: `{"customerId":5,"customerId":6}` used to create
-  an order for customer 6. A repetition that came after every field had appeared once was a 500
-  instead, logged as an unhandled exception: Jackson had already built the record and failed
-  with a type-definition error, which Spring does not report as an unreadable body.
-- JSON types are bound exactly. A JSON string, a fraction or an exponent where an integer is
-  expected (`"5"`, `""`, `5.7`, `5.0`, `5e0`) and a number or a boolean where a string is
-  expected are such type failures, where Jackson's defaults would coerce them
-  (`"customerId": 5.7` used to create an order for customer 5).
+The management connector shares the advice, so a 404 or 405 there carries `code` but no
+`X-Request-Id` (the filters run on the API connector only). A direct `GET /error` gets Boot's error
+controller's 500, `{"timestamp":"...","status":999,"error":"None"}`.
+
+Every operation answers in `application/json`, and a problem detail in `application/problem+json`;
+the controllers declare both as `produces`. An `Accept` that admits neither is a 406
+(`not_acceptable`, `Acceptable representations: [application/json, application/problem+json].`),
+decided at mapping, before validation or the body. Spring used to run the handler first: a `POST
+/order` with `Accept: application/xml` created the order and then answered 406, and a `GET` of an
+unknown id or with an invalid parameter answered 404 or 400. `*/*`, as browsers and curl send, is
+served JSON.
+
+### Requests Tomcat rejects itself
+Before the servlet filters, Tomcat answers a 400 with its minimal HTML page
+(`text/html;charset=utf-8`, `HTTP Status 400 – Bad Request`, no server version), no `X-Request-Id`
+and no access line, to:
+* a request line and headers over the 8 KB default of `server.max-http-request-header-size`;
+* a request line that does not parse (a target with a character not allowed in it, such as an
+  unencoded `|` or space);
+* a header holding a control character;
+* a path that cannot be percent-decoded (`/order/%ZZ`, `/order/1%`);
+* a path whose decoded form holds a NUL (`%00`), an encoded slash or backslash (`%2F`, `%5C`) or
+  bytes that are not UTF-8 (`%FF`).
+
+**What Tomcat logs.** Parse failures of the request line or a header are logged at INFO on
+`org.apache.coyote.http11.Http11Processor`, with a stack trace that quotes what was rejected: the
+whole target, query string included (`Invalid character found in the request target
+[/customer?name=...|x ]`, non-ASCII bytes in hex such as `0xc3`), the word after an unencoded space,
+or the header line. So a search word sent with an unencoded `|` or space reaches the log, while an
+oversized line or header is logged only as `Request header is too large`. Each connection processor
+logs its first such failure at INFO and later ones in the next 24 hours at DEBUG; the connector adds
+processors when all are busy, so a busy server writes several INFO lines. Undecodable or rejected
+paths are not logged at the shipped levels.
+
+**Query strings are different.** A query string is parsed only when the service asks for its
+parameters, after the filters, so a failure there is a problem detail on the list endpoints (see
+Strict input). Tomcat logs it at INFO on `org.apache.tomcat.util.http.Parameters` on the request's
+thread (so with `requestId`). The line quotes the parameter's name and value for an escape it cannot
+decode (`Character decoding failed. Parameter [name] with value [Secret%ZZWord] has been ignored.
+...`), or the chunk for a value without a name (`Invalid chunk starting at byte [0] and ending at
+byte [7] with a value of [=Secret] ignored`). One JVM-wide throttle writes the first such line after
+start-up at INFO and the rest for 24 hours at DEBUG.
+
+### Strict input
+Request input is strict rather than coerced (ADR 0002), and requests never carry an id:
+* Body binding. An unknown property is a 400 (`Unknown property 'id'`, `errors` entry `is not a
+  known property`). A value of the wrong JSON type is a 400 (`Invalid request content.`) whose
+  `errors` entry names the field by path (`productIds[0]`) with `must be an integer`, `must be a
+  string` or `must be an array`, or `must be a 64-bit integer` for an integer outside that range
+  (`9223372036854775808`). Malformed JSON, a body that is not an object, a repeated property,
+  content after the object, or a number of more than 1,000 digits is a 400 (`Failed to read
+  request`, no `errors`). Two Jackson settings are on for a reason:
+  `spring.jackson.deserialization.fail-on-trailing-tokens`, because an order body followed by a
+  stray `x` used to create the order; and `spring.jackson.parser.strict-duplicate-detection`,
+  because `{"customerId":5,"customerId":6}` used to create an order for customer 6 (a repetition
+  after every field had appeared once was a 500, since Jackson had already built the record).
+* Exact JSON types. A string, fraction or exponent where an integer is expected (`"5"`, `""`, `5.7`,
+  `5.0`, `5e0`), or a number or boolean where a string is expected, is a type failure. Jackson's
+  defaults would coerce these (`"customerId": 5.7` used to create an order for customer 5).
   `spring.jackson.deserialization.accept-float-as-int` and
   `spring.jackson.mapper.allow-coercion-of-scalars` are off, and `JacksonConfig` fails the
-  number-to-text and boolean-to-text coercions those two leave on. Jackson stops at the first
-  field it cannot bind, so `errors` lists one type failure even when several fields are wrong.
-- The strings of a request body (`description`, `name`) are single-line text: a control
-  character (U+0000 to U+001F or U+007F, so also a tab or a line break) is a 400 naming the
-  field (`must not contain control characters`). A NUL used to reach the insert, which
-  PostgreSQL rejects in text, and came back as a 409; a tab or a line break was stored.
-- `name` on `GET /customer` is a single word: ASCII whitespace, a C0 control character or DEL
-  (U+0000 to U+001F, U+007F) is a 400 naming `name`
-  (`must be a single word without whitespace or control characters`); a NUL used to reach
-  PostgreSQL, which rejects it in text, and came back as a 409. A no-break space, a C1 control
-  such as U+0085 and U+2028 are part of the word, in the server and the specification alike.
-- `page` below 0 and `size` below 1 are 400s naming the parameter
-  (`must be greater than or equal to 0` or `1`), in both paging modes, where Spring Data's
-  resolver used to normalise them silently (`page=-1` became page 0 and `size=0` the default
-  20). A `size` above 100 is still capped at 100. `page` above 21474836 is a 400 naming `page`
-  (`must be less than or equal to 21474836`): the offset of a page, `page` times `size`, reaches
-  the query as a 32-bit `int` (JPA's `setFirstResult`, and the `int` offset of the product
-  filter's native query), and 21474836 is the largest page whose offset fits at the largest
-  size, 100. A page whose offset passed 2,147,483,647 used to be a 500:
-  `/order?page=107374183` at the default size failed with Spring Data's
-  `Page offset exceeds Integer.MAX_VALUE`, and the same page of the product filter with an
-  integer overflow. Positions further on are reached with `after`.
-- Every numeric parameter is an integer in canonical decimal form: the path `id` of the three
-  by-id reads and the query parameters `after`, `customerId`, `productId`, `page` and `size` are
-  written in ASCII digits with no plus sign and no leading zeros, and a minus sign only before a
-  non-zero digit, so each number has one spelling, the one `Long.toString` writes. Any other
-  value (`abc`, `0x1`, `#1`, `1 0`, `+1`, `01`, `-0`, a digit outside ASCII such as U+0661 or
-  U+FF11, or digits with a leading or trailing space or tab; a leading space is also what the
-  unencoded plus of `page=+2` decodes to) and a value outside the 64-bit range (32-bit for
-  `page` and `size`) are the type-mismatch 400 (`invalid_parameter`, with the detail
-  `Failed to convert 'id' with value: '0x1'`) without `errors`, while a negative value reaches
-  the range check of its parameter (`page=-1` is a 400 naming `page`). An empty or blank query
-  value counts as absent, and a blank path id is a 400 as well
-  (`Required path variable 'id' is not present.`). `DecimalParameterBinding` checks the
-  untrimmed text against `0|-?[1-9][0-9]*` and only then parses it with `Long.valueOf` or
-  `Integer.valueOf`, so a value outside the range is still rejected by the parse. The editor
-  sees the text after the path and the query string have been percent-decoded and the `;`
-  parameters of each path segment removed, so `/order/%31` and `/order/1;x=1` are order 1
-  (ADR 0002 says what that means for a gateway). The parse alone reads a leading `+`
-  or zero and a decimal digit outside ASCII as the number written (`/order/%2B1`, `/order/01`,
-  `/order/%D9%A1` and `/order/%EF%BC%91` used to return order 1), and Spring's own number
-  conversion strips every whitespace character and reads `0x` and `#` as hexadecimal:
-  `/order/0x1` and `/order/%231` used to return order 1 and `/order/1%200` order 10, an id the
-  client never sent, and `page=0x2` passed validation as 2 while the resolver, which falls back
-  to page 0 or size 20 when it cannot parse the raw text, served page 0. The resolver reads
-  every value the binding accepts as the same number. The binding registers an editor on the
-  binder, not a converter, because the binder retries a failed conversion with its default
-  number editor, which parses the same lenient way.
-- An empty numeric query value, or one made only of whitespace as `Character.isWhitespace`
-  defines it (space, tab, line feed, vertical tab, form feed, carriage return, U+001C to
-  U+001F, and the Unicode space, line and paragraph separators other than the three no-break
-  spaces, such as U+2003), counts as absent, as it does for Spring Data's pageable resolver:
-  `customerId=` does not filter, `after=%20` asks for an offset page, and `page=` and
-  `size=%09` take the defaults. `OpenAPI.yaml` states the rule in the descriptions of the five
-  parameters, because an integer schema cannot express it: the validator of the contract check
-  (`OpenApiContractIT`) reports such a value as a missing parameter even with
-  `allowEmptyValue`, which it honours only for string and array parameters, so the flag is not
-  declared.
-- Every query parameter an endpoint binds as a single value (`name`, `customerId`,
-  `productId`, `after`, `page`, `size`) is a 400 when repeated, with the detail
-  `'name' must not be repeated` and an `errors` entry for it, where Spring used to keep the first
-  value of a repeated number and join a repeated string with commas. The check runs after
-  handler mapping and before the arguments are bound, so a repetition is reported even when a
-  value is also invalid. `sort` may be repeated to sort by several properties, and a comma
-  inside a single `name` stays part of the word.
-- A query string that Tomcat cannot parse in full is a 400 on the three list endpoints
-  (`invalid_parameter`, with the detail `The query string could not be parsed` and no `errors`):
-  a `%` that is not followed by two hexadecimal digits, in a value or a name (`customerId=1%`,
-  `customerId=%ZZ1`, `name=50%`, `%ZZ=1`), or a value without a name (`=1`). Tomcat drops such a
-  parameter and sets the request attribute `org.apache.catalina.parameter_parse_failed`, and the
-  list endpoints used to run without it: on the seed, `/order?customerId=1%` listed all 10,000
-  orders where customer 1 has 96, `/order?productId=%ZZ2` all 10,000 where product 2 has 200,
-  `/customer?name=50%` and `/customer?name=Secret%ZZWord` all 100 customers, an undecodable
-  `after`, `page`, `size` or `sort` counted as absent (an offset page, page 0, size 20, id
-  order), and `customerId=1&customerId=%ZZ` passed the repetition check with its one decoded
-  value. `MalformedQueryInterceptor` runs before that check on every handler that binds a query
-  parameter, asks Tomcat for the parameters and rejects the request when the attribute is set,
-  whichever parameter failed, even one the endpoint does not read: Tomcat does not say which
-  parameter it dropped, the undecodable part can be the name, and Tomcat records only the first
-  failure's reason (for `=1&customerId=1%` the reason is the value without a name, while
-  `customerId` was dropped as well). The by-id reads and the `POST`s bind no query parameter, so
-  a dropped one cannot change what they do: the service never has Tomcat parse their query
-  string, and `/order/1?customerId=1%` is order 1, just as an unknown parameter is ignored.
-  Parsing a `POST`'s parameters would also have Tomcat read a form-encoded body itself, which
-  is why a form `POST` is rejected before anything asks for them (see the body bound above).
-  A `%` in a search word is sent as `%25`. Bytes that are not UTF-8 are not a parse failure:
-  Tomcat decodes `%FF` to U+FFFD, which `customerId` rejects as not decimal
-  (`invalid_parameter`) and `name` searches for. The same malformed escapes in the path are
-  Tomcat's HTML 400 (above).
+  number-to-text and boolean-to-text coercions those leave on. Jackson stops at the first field it
+  cannot bind, so `errors` lists one type failure at a time.
+* Body strings (`description`, `name`) are single-line. A control character (U+0000 to U+001F or
+  U+007F, so also a tab or line break) is a 400 naming the field (`must not contain control
+  characters`). Before this rule, a NUL reached the insert and came back as a 409, and a tab or line
+  break was stored.
+* `name` on `GET /customer` is one word: ASCII whitespace, a C0 control or DEL is a 400 naming
+  `name` (`must be a single word without whitespace or control characters`); a NUL used to
+  come back as a 409. A no-break space and C1 controls such as U+0085 and U+2028 are part of
+  the word, in server and specification alike.
+* `page` below 0 and `size` below 1 are 400s naming the parameter (`must be greater than or
+  equal to 0` or `1`) in both paging modes, where Spring Data used to normalise them silently
+  (`page=-1` became 0, `size=0` the default 20); `size` above 100 is still capped at 100.
+  `page` above 21474836 is a 400 (`must be less than or equal to 21474836`): the offset, `page`
+  times `size`, reaches the query as a 32-bit `int` (JPA's `setFirstResult` and the product
+  filter's native query), and 21474836 is the largest page that fits at size 100. An offset
+  past 2,147,483,647 used to be a 500 (`/order?page=107374183` at the default size failed with
+  `Page offset exceeds Integer.MAX_VALUE`, the product filter with an integer overflow).
+  Further positions are reached with `after`.
+* The path `id` and the query parameters `after`, `customerId`, `productId`, `page` and `size` are
+  integers in canonical decimal form: ASCII digits, no plus, no leading zeros, a minus only before a
+  non-zero digit (the one spelling `Long.toString` writes). Anything else is the type-mismatch 400
+  (`invalid_parameter`, `Failed to convert 'id' with value: '0x1'`, no `errors`): `abc`, `0x1`,
+  `#1`, `1 0`, `+1`, `01`, `-0`, a digit outside ASCII such as U+0661 or U+FF11, leading or trailing
+  whitespace (which is also what the unencoded plus of `page=+2` decodes to), or a value outside the
+  64-bit range (32-bit for `page` and `size`). A negative value reaches its parameter's range check,
+  and a blank path id is a 400 (`Required path variable 'id' is not present.`).
 
-Every operation answers in `application/json`, a problem detail in `application/problem+json`,
-and the three controllers declare both media types as `produces`. An `Accept` header that admits
-neither is a 406 problem detail (`not_acceptable`, with the detail `Acceptable representations:
-[application/json, application/problem+json].`), decided when the request is mapped, before the
-parameters are validated or the body is read. Spring used to run the handler first and fail
-only when it wrote the response: a `POST /order` sent with `Accept: application/xml` created the
-order and then answered 406, and a `GET` of an unknown id or with an invalid parameter answered
-404 or 400. An `Accept` that also admits `*/*`, as a browser's and curl's do, is served JSON.
+  `DecimalParameterBinding` checks the untrimmed text against `0|-?[1-9][0-9]*` before
+  `Long.valueOf` or `Integer.valueOf`. It sees the text after percent-decoding and after the `;`
+  parameters of each path segment are removed, so `/order/%31` and `/order/1;x=1` are order 1 (ADR
+  0002 says what that means for a gateway). It exists because the parse alone accepted
+  `/order/%2B1`, `/order/01`, `/order/%D9%A1` and `/order/%EF%BC%91` as order 1, and because
+  Spring's number conversion strips whitespace and reads `0x` and `#` as hexadecimal: `/order/0x1`
+  and `/order/%231` returned order 1, `/order/1%200` order 10, and `page=0x2` passed validation as 2
+  while the resolver served page 0. It is an editor on the binder, not a converter, because the
+  binder retries a failed conversion with its lenient default editor.
+* An empty numeric query value counts as absent, as for Spring Data's resolver, and so does one of
+  whitespace only as `Character.isWhitespace` defines it (space, tab, line feed, vertical tab, form
+  feed, carriage return, U+001C to U+001F, and the Unicode space, line and paragraph separators
+  other than the three no-break spaces, such as U+2003). So `customerId=` does not filter,
+  `after=%20` asks for an offset page, and `page=` and `size=%09` take the defaults. `OpenAPI.yaml`
+  states this in the five parameter descriptions, because an integer schema cannot express it and
+  the validator honours `allowEmptyValue` only for string and array parameters.
+* A single-valued query parameter (`name`, `customerId`, `productId`, `after`, `page`, `size`) that
+  is repeated is a 400 (`'name' must not be repeated`, named in `errors`). Spring used to keep the
+  first number and join repeated strings with commas. The check runs after mapping and before
+  binding, so it is reported even when a value is also invalid. `sort` may be repeated, and a comma
+  inside a `name` stays part of the word.
+* A query string Tomcat cannot parse in full is a 400 on the three list endpoints
+  (`invalid_parameter`, `The query string could not be parsed`, no `errors`). That means a `%` not
+  followed by two hexadecimal digits in a value or a name (`customerId=1%`, `customerId=%ZZ1`,
+  `name=50%`, `%ZZ=1`), or a value without a name (`=1`).
 
-Every successful `GET` carries a weak `ETag` and `Cache-Control: no-cache`; sending that ETag
-back in `If-None-Match` yields `304 Not Modified` with no body when the representation is
-unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are additionally cached in the
-service for `CACHE_TTL`; `products` entries are evicted after an order containing the product
-commits, so the next read normally lists the new order, but a read that missed the cache before
-that commit can store the old value after the eviction, and the entry then stays stale for up
-to `CACHE_TTL` (ADR 0007).
-`GET /customer/{id}` is not cached in the service: its `orderCount` changes on every
-`POST /order` and nothing keys customers for eviction, so each read costs its 2 statements.
+  Tomcat drops such a parameter and sets `org.apache.catalina.parameter_parse_failed`. The list
+  endpoints used to run without it: on the seed `/order?customerId=1%` listed all 10,000 orders
+  (customer 1 has 96), `/order?productId=%ZZ2` all 10,000 (product 2 has 200), `/customer?name=50%`
+  and `/customer?name=Secret%ZZWord` all 100 customers; an undecodable `after`, `page`, `size` or
+  `sort` counted as absent; and `customerId=1&customerId=%ZZ` passed the repetition check.
+
+  `MalformedQueryInterceptor` runs before that check on every handler that binds a query parameter
+  and rejects the request when the attribute is set, whichever parameter failed, even one the
+  endpoint does not read. It has to, because Tomcat does not say which parameter it dropped, the bad
+  part can be the name, and only the first failure's reason is recorded (for `=1&customerId=1%` it
+  is the value without a name, while `customerId` was dropped as well).
+
+  The by-id reads and the `POST`s bind no query parameter, so the service never has Tomcat parse
+  their query string, and `/order/1?customerId=1%` is order 1. (Parsing a `POST`'s parameters would
+  also make Tomcat read a form body, which is why a form `POST` is rejected first.) A `%` in a
+  search word is sent as `%25`. Bytes that are not UTF-8 are not a parse failure: `%FF` decodes to
+  U+FFFD, which `customerId` rejects as not decimal and `name` searches for. The same escapes in the
+  path are Tomcat's HTML 400.
+
+### Caching
+Every successful `GET` carries a weak `ETag` (a hash of the representation) and `Cache-Control:
+no-cache`; sending the ETag back in `If-None-Match` yields `304 Not Modified` with no body when the
+representation is unchanged (ADR 0007). `GET /order/{id}` and `GET /products/{id}` are also cached
+in the service for `CACHE_TTL`. `products` entries are evicted after an order containing the product
+commits, so the next read normally lists the new order. But a read that missed the cache before that
+commit can store the old value after the eviction, and the entry then stays stale for up to
+`CACHE_TTL` (ADR 0007). `GET /customer/{id}` is not cached: its `orderCount` changes on every `POST
+/order` and nothing keys customers for eviction, so each read costs its 2 statements.
 
 ## Operations
-The service listens on two ports. The API is served on 8080; the actuator is served on a
-separate management connector, 8081 by default (`MANAGEMENT_PORT`), and is absent from 8080
-(`/actuator/health` on the application port is a 404). The ingress exposes 8080 only, so the
-probes and metrics are reachable from inside the cluster but never from the public network.
-* `GET :8081/actuator/health`, `/actuator/health/liveness`, `/actuator/health/readiness`;
-  liveness is Spring's `LivenessState`; readiness combines `ReadinessState` (which flips to
-  `ACCEPTING_TRAFFIC` once the context has started and back when shutdown begins; that flip
-  alone moves no traffic away, see the shutdown entries below) with the database
-  indicator, so a replica that has lost its database is taken out of rotation, and the body
-  names its components without details
-  (`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`);
-  `/actuator/health` stays detail-free. Neither probe proves that the API connector answers;
-  the container smoke test of the pipeline does that. ADR 0008 records the trade-off.
-* `GET :8081/actuator/info` reports the build (`build.artifact`, `build.name`, `build.group`,
-  `build.version`) from `META-INF/build-info.properties`, generated without the build time so
-  that a rebuild of unchanged sources is cacheable
-* `GET :8081/actuator/prometheus` for scraping; `cache_gets_total{cache=...,result=hit|miss}`
-  shows the hit rate of the `orders` and `products` caches, and `http_server_requests_seconds`
-  covers the API port only (management traffic is not recorded). Its series carry cumulative
-  latency buckets at 5, 10, 25, 50, 100, 250 and 500 ms and 1, 2.5, 5 and 10 s
-  (`management.metrics.distribution.slo.http.server.requests`), so
-  `histogram_quantile(0.99, sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))`
-  gives the p99 of each route across replicas, and the share of requests within a bound is
-  read from its bucket directly. That costs 12 `_bucket` lines per series (one per bound and
-  `+Inf`; a series is one combination of method, `uri`, status, outcome and exception), about
-  1.9 KB of scrape per series: 27,233 B for the 14 series left by the smoke test and a
-  1,000-request mix on the Compose stack. `percentiles-histogram` would publish Micrometer's
-  generic bucket set instead, 69 lines per series for this timer (about 11.6 KB each).
-  `ActuatorIT` pins the bucket set
-* Every response carries an `X-Request-Id`, except the 400 Tomcat sends itself for a request it
-  rejects before the servlet filters (see API). An inbound value is echoed when it matches
-  `[A-Za-z0-9._-]{1,128}`; otherwise, or when absent, a UUID is generated. The header is
-  declared as required on every response in `OpenAPI.yaml` and the contract check enforces it.
-  The filter runs
-  before every other filter, so 304, 400, 404 and 500 responses carry it too, and the id is in
-  the MDC as `requestId` for the duration of the request, so every log line of a request can be
-  found from the id a client quotes, and every request on the API port that reaches the
-  filters writes at least its access line (below). There is no tracing library: no collector
-  is in scope, and
-  the header is where a gateway's or a later tracer's id attaches.
-* `server.compression` applies to both connectors; the `ETag` filter and the `Cache-Control`
-  interceptor are registered for the API paths only
-* `RequestBodyLimitFilter` enforces `REQUEST_MAX_BODY_BYTES` and, like `RequestIdFilter`, is a
-  `@Component` filter registered on the API connector only: the management connector's child
-  context does not inherit it, and the actuator takes no request bodies. Tomcat's form limit,
-  which follows the same variable, is set on both connectors, as Spring Boot applies its Tomcat
-  settings to the management server too; `RequestBodyLimitIT` reads it back from both
-* Logs are ECS-formatted JSON inside the container (`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`):
-  one object per line with nested members, `"log":{"level":...,"logger":...}`,
-  `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (the service name and version come
-  from `spring.application.name` and the build version), `"message"`,
-  `"ecs":{"version":"8.11"}`, and every MDC entry and every key-value pair of the event as a
-  top-level member, so `"requestId":"<id>"` is on every line written while a request is
-  handled. The smoke test's `compose` mode checks the shape on the started image: it sends
-  `GET /order/1` with `X-Request-Id: smoke-<pid>` and requires that request's access line in
-  the `store` output with `"logger":"com.example.store.access"`, `"requestId":"smoke-<pid>"`,
-  `"route":"/order/{id}"` and `"service":{"name":"store","version":"`, looking up to five times
-  a second apart, because the ETag filter flushes the response before the line is written. A
-  data-integrity conflict is logged at WARN by SQL state and constraint name (the full cause is
-  at DEBUG), and neither line quotes the request's values, which the driver leaves out of its
-  messages (see the failed statements below)
-* Every request on the API port that reaches the servlet filters (all but the ones Tomcat
-  rejects itself, see API) writes one INFO line on the logger `com.example.store.access`
-  when it completes, for example `GET /order/{id} 200 3 ms`: the method, the route, the status
-  and the duration in whole milliseconds, so a cache hit usually logs 0 ms. In the ECS output
-  `route`, `status` (a number) and `durationMs` are also top-level members beside `message` and
-  `requestId`, so a log pipeline can filter and aggregate on them without parsing the message.
-  The route is the pattern Spring MVC matched (`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`),
-  the value of the `uri` tag of `http_server_requests_seconds` for the same request: a 304, a
-  400, a 404 from the service and a 413 carry their endpoint's pattern, a path that no
-  controller maps is served by the static-resource mapping and logs `/**`, and a 405, a 406 or
-  a 415, which Spring MVC raises while it maps the request because no handler of the path
-  accepts the method, the `Accept` header or the `Content-Type`, logs `UNKNOWN`. The status is
-  the one the client receives. An exception that escapes the servlet filters is answered by
-  Tomcat with a 500 and Spring Boot's default error body after the filter has run, so the line
-  logs 500 for it, the status `http_server_requests_seconds` records too, and not the status the
-  response held when the exception passed (on the jar of 5996b3c a `PUT` whose form body
-  Spring's form-content filter rejected, before that filter was switched off, was a 500 logged
-  as `PUT UNKNOWN 200 0 ms`); a response committed before the exception logs the status it
-  sent. The access line never holds the raw path, the query string or the body, so search
-  words stay out of it and the set of routes stays bounded; Tomcat's own INFO lines for a
-  request it cannot parse and for a query parameter it cannot decode do quote what they
-  rejected, query string or search word included (see API). `AccessLogFilter` is ordered
-  right after `RequestIdFilter` and `RequestBodyLimitFilter` and outside the ETag filter, so a
-  304 is logged as 304; like them it is registered on the API connector only, so probes and
-  scrapes on the management port write nothing. `AccessLogIT` pins the line and its members,
-  the 304, the `/**` route, the `UNKNOWN` route of a 405, a 406 and a 415, the missing query
-  string and the silent management port, and `AccessLogFilterTest` the status of an exception
-  that escapes the chain. A line is about 395 B on stdout (the mean of 1,008
-  lines left by the smoke test and a 1,000-request mix on the Compose stack, 370 to 403 B),
-  roughly 400 MB per million requests per replica. Its cost was measured on the server, as the
-  mean of the request timer, which encloses the filter, over 50,000 cached `GET /order/1` from
-  one keep-alive client (`ab -k -c 1`, Docker Desktop on arm64): 46.4 and 48.6 µs in two runs
-  with the line, 29.4 and 30.3 µs in two runs with `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF`,
-  so formatting and writing the line takes about 17 µs. For a 3-statement `GET /order?size=20`
-  the difference was within the spread between runs (766 and 785 µs with the line, 738 and
-  777 µs without), the client's throughput did not change (about 3,100 and 930 requests per
-  second) and no statement is added (`QueryCountIT` is unchanged). An ingress usually logs
-  every request as well; where it does, `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns this
-  line off without touching any other logger
-* A created order, customer or product writes one INFO line on
-  `com.example.store.service.CreationEventLogger` once its transaction has committed:
-  `Created order 10051 for customer 2 with 3 products`, `Created customer 101` or
-  `Created product 101`, with the request's `requestId` beside it in the ECS output; ids and
-  the number of products only, never a name or a description. The services publish
-  `OrderCreatedEvent`, `CustomerCreatedEvent` and `ProductCreatedEvent`, and
-  `@TransactionalEventListener(phase = AFTER_COMMIT)` methods log them: with sequence ids the
-  inserts are flushed at commit, after `create()` has returned, so a line written in the
-  service would also appear for a creation whose commit fails. `CreationLogIT` pins the three
-  lines and that a creation whose insert fails at commit logs nothing (it calls each service
-  directly with a 256-character text, which the request validation would have refused, so
-  that only the column rejects it)
-* A database that cannot be reached, loses the connection or does not answer in time is a 503
-  with `Retry-After: 5`, not a 500, except for one loss at a `POST`'s commit (below), and the
-  problem's `code` tells the cases apart. A request that cannot obtain a connection within the
-  pool's 5 s `connection-timeout` (the pool exhausted, or the database down) reaches the handler
-  as `CannotCreateTransactionException` and is answered `service_unavailable`
-  (`The service cannot obtain a database connection`). A statement cancelled at
-  `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets (see Configuration) reaches it as
-  `QueryTimeoutException`, and a transaction whose deadline passed before a query as
-  `TransactionTimedOutException`; both are answered `database_timeout`
-  (`The database did not answer in time`). A connection lost during one of the reads the service
-  method runs (every statement of a `GET`, and a `POST`'s reads of the customer and the
-  products), whether its backend is terminated, the server restarts or `DB_SOCKET_TIMEOUT` cuts
-  a stall, arrives differently: HikariCP marks the connection broken, the rollback then fails on
-  it, and Spring throws the rollback's exception in place of the original, a
-  `JpaSystemException` caused by Hibernate's `TransactionException`
-  (`Unable to rollback against JDBC Connection`), which is answered `service_unavailable` as
-  well. Before that, Spring's `TransactionInterceptor` logs the original exception at ERROR as
-  `Application exception overridden by rollback exception`, with the statement's SQL (bind
-  values appear as `?`) and the driver message; the line stays, because silencing that logger
-  would also hide a failed rollback that replaces a genuine application error. A `POST`'s
-  inserts run later: with sequence ids Hibernate flushes them at commit, after the service
-  method has returned, so a failure there is the commit's own exception, which no failed
-  rollback replaces, and how it is answered depends on the SQL state. A statement cancelled
-  during that flush is the `database_timeout` above, and a stall cut there by
-  `DB_SOCKET_TIMEOUT` (`08006`) is Hibernate's `JDBCConnectionException`, which Spring
-  translates to `DataAccessResourceFailureException`, answered `service_unavailable`. A session
-  that the database terminates during the flush (`57P01`, which `pg_terminate_backend` sends, as
-  does the fast shutdown of a server restart) is a `GenericJDBCException`
-  (`could not execute batch`), so the commit throws a `JpaSystemException` that no failed
-  rollback caused, and the request is a 500 `internal_error`, logged by the handler at ERROR as
-  `Unhandled exception` with the full exception. The handler tests the cause's type, never its
-  message, so a transaction deadline that passed before one of Hibernate's own statements (a
-  by-id read, the flush of a `POST`), which surfaces as a `TransactionException` too
-  (`transaction timeout expired`), is answered `service_unavailable` as well, and every other
-  `JpaSystemException` stays a 500. The advice imports two Hibernate types for this reason:
-  Spring's exceptions expose neither the name of a violated constraint
-  (`ConstraintViolationException`, which the 409's log line needs) nor whether a
-  `JpaSystemException` came from a failed rollback (`TransactionException`). The handler logs
-  each 503 at WARN by the class name of its most specific cause only (the driver message can
-  carry hosts or SQL; the full cause is at DEBUG), while Hibernate's `SqlExceptionHelper` still
-  logs the SQL state of a failed statement at WARN and the driver message at ERROR
-  (`ERROR: canceling statement due to statement timeout`), without the values the request sent
-  (next entry). The ingress therefore sees a 503
-  with `Retry-After` for each timed-out acquisition, and readiness reports `db` DOWN while no
-  connection can be obtained, but only after the same 5 s `connection-timeout`, so probe
-  timeouts must exceed it; a replica is then also taken out of rotation. All of them recover
-  without a restart once the database answers. Neither a 503 nor that 500 on a `POST` tells the
-  client whether the write was applied: the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`,
-  "API contract"). `DatabaseFailureIT` produces three of these answers on a real request: it
-  holds a lock on `order` from a second connection, waits until the backend of a
-  `GET /order?size=5` waits for it, and cancels it (`database_timeout`, with nothing logged by
-  the transaction interceptor) or terminates it (`service_unavailable`, with the ERROR line),
-  and it terminates the backend of a `POST /order` whose insert waits for that lock at commit (a
-  500 with the handler's ERROR line, nothing logged by the transaction interceptor and no order
-  written). `GlobalExceptionHandlerTests` pins each type's status, code and header,
-  `GlobalExceptionHandlerLogTest` the WARN lines of an unobtainable connection and of a timeout,
-  and `OpenApiContractIT` the declaration on every operation and the two real responses against
-  the `ServiceUnavailable` examples
-* A failed statement is logged without the values the request sent. PgJDBC runs with
-  `logServerErrorDetail: false` (`application.yaml`), so its exception messages hold the
-  server's severity and primary message only: a failed entry of a `POST`'s batched insert reads
-  `Batch entry 0 <unknown> was aborted:` followed by the server's message, where it would
-  otherwise quote the insert with the posted name or description, and the server's detail, hint
-  and position (the key of a violated constraint, the failing row) are left out, so the full
-  cause logged at DEBUG lacks them too. That covers the `SqlExceptionHelper` lines above, the
-  stack trace of the 500's ERROR line and the WARN line in which HikariCP marks a terminated
-  connection broken; Hibernate's own messages show the statement with `?` for each value. A
-  violated constraint is still named, because PostgreSQL puts the name in the primary message,
-  which is where Hibernate reads it for the 409's line. The price is the detail itself, and for
-  a 409 or a `database_timeout` 503 the statement as well: at the shipped levels those two
-  answers log only the SQL state, the server's primary message and the handler's WARN line with
-  the constraint or the cause's class, so the log of a failed `POST` no longer says which insert
-  failed. At the shipped levels the statement, with `?` for each value, appears only in the stack
-  trace of an ERROR line, the 500's or the transaction interceptor's for a read whose connection
-  was lost; the handler's DEBUG line adds it for a `database_timeout`, and for a 409 holds the
-  driver's exception alone. No line carries the key or the row. `FailedInsertLogIT` cancels the
-  insert of each `POST` at its commit, terminates one and violates a foreign key, and finds none
-  of the names and descriptions it sent in any line logged at the shipped levels, stack traces
-  included; `DatabaseTimeoutsIT` reads the setting back from the pool
-* Shutdown is graceful: on `SIGTERM` the requests in flight get up to 20 s to finish
-  (`server.shutdown: graceful`, `spring.lifecycle.timeout-per-shutdown-phase: 20s`). The drain
-  begins by closing the API connector's listening socket, so from then on the service refuses a
-  new connection to 8080 (through Docker Desktop's published port a client sees an empty reply
-  instead, see below), while the management port keeps answering, readiness with 503
-  (`OUT_OF_SERVICE`) and liveness with 200, until the requests in flight have finished; the
-  management server, the API server and the pool stop after them. A keep-alive connection that
-  is idle when the drain begins is not closed but stays open until the API server stops, and a
-  request sent on it in the meantime is not processed: Tomcat closes the connection without a
-  response (no 503, no access line, and a `POST` stores nothing). A keep-alive connection whose
-  request is in flight is closed right after that request's response, which carries no
-  `Connection: close` header. A request still running when the 20 s are up loses its
-  connection without a response, and Tomcat then waits up to 5 s for its thread before the
-  pool closes, so a `POST` cut there may still have been committed (the `POST`s are not
-  idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows the status its
-  handler set, which the client never received. A request that stays stuck therefore keeps the
-  process alive for the 20 s, Tomcat's 5 s and about 0.3 s more, which the 30 second stop grace
-  of `compose.yaml` covers
-* `GracefulShutdownIT` observes the sequence on a second application started on the shared
-  database: while a `GET /order?size=5` waits for a lock on `order` and the application closes,
-  a new connection is refused, readiness answers 503 and liveness 200, and the request is
-  answered 200 once the lock is released (with `server.shutdown: immediate` its connection is
-  reset instead); `FailClosedConfigurationTest` pins both properties. The test sends no request
-  on a connection that was idle at the signal; that case and the timings were observed by hand
-  on 2026-10-20 (Java 17 on macOS against PostgreSQL 16.2, the same held request). A `SIGTERM`
-  to the jar built from 0503f3e, 1.1 s after the request started, showed what the test shows: a
-  new connection 0.56 s after the signal was refused, readiness answered 503 and liveness 200,
-  the held request was answered 200 when the lock was released 3.4 s after the signal, and the
-  pool closed 13 ms after the drain had finished; with the phase timeout lowered to 2 s the held
-  request got an empty reply 2.0 s after the signal, and Tomcat waited 1.3 s more for its
-  thread, which still finished and logged a 200, before the process exited 3.5 s after the
-  signal. On the jar built from 3f93bc1, in five runs, keep-alive connections that had each
-  answered a request about a second before the signal were still open 1.0 to 3.6 s after it,
-  and a `GET /order/{id}` and a `POST /customer` sent on them then got no byte back, wrote no
-  access line and stored no row; a connection whose `GET /order` was in flight was closed as
-  soon as its 200 had been sent, and idle connections were closed when the API server stopped,
-  right after the held request had been answered. With the statement and socket timeouts set
-  to 0 and the transaction timeout to 120 s, so that the held request stayed stuck, it got an
-  empty reply 20.0 s after the signal, the idle connections were closed at the same moment, a
-  thread dump at 22.6 s showed the shutdown waiting for Tomcat's request threads, the pool
-  closed at 25.0 s, the stuck thread then logged a 503 access line, and the process exited 25.2
-  and 25.3 s after the signal in two runs
-* In the Compose stack a client reaches 8080 through Docker's published port, which on Docker
-  Desktop does not pass the refusal on: on Docker Desktop 4.38.0 (engine 27.5.1, macOS,
-  2026-10-20, two runs), with the jar built from 3f93bc1 in the runtime image, a new connection
-  to the published port during the drain completed its handshake and was then closed without a
-  byte (`curl` exit 52, an empty reply, where a refused connection is exit 7; `nc -z`
-  succeeded), while the same connection from inside the container's network namespace was
-  refused, and the published port refused only once the container had exited. Keep-alive
-  connections through the published port behaved as described above
-* A Kubernetes deployment needs a delay before that signal. Deleting a pod marks its endpoints
-  as not ready while the kubelet starts stopping the container, and kube-proxy and the ingress
-  act on that a moment later, so without a delay connections still arrive after the drain has
-  closed the API port, and they are refused: readiness turning `OUT_OF_SERVICE` moves no
-  traffic away by itself. The delay moves new connections only: kube-proxy chooses an endpoint
-  when a connection opens, so a connection that a client established through a Service before
-  the endpoint was removed stays on the pod, is served normally during the delay and, if it is
-  idle when the drain begins, gets no response to its next request. A client that pools its
-  connections can retry a `GET` on a new connection, which reaches another replica, but it
-  cannot tell whether a `POST` that got no response was applied. The image has no shell for an
-  `exec` hook, so the delay is the `sleep` handler (`lifecycle.preStop.sleep.seconds`, enabled
-  by default from Kubernetes 1.30), and `terminationGracePeriodSeconds` (30 s by default), which
-  counts from the start of the hook, must cover the delay, the 20 s phase and the 5 s for a
-  request cut at its end, plus a margin, for example a 10 s delay with
-  `terminationGracePeriodSeconds: 40`; otherwise the drain is cut short by `SIGKILL`
-* A missing `DB_USERNAME` or `DB_PASSWORD` fails at the first database connection, so the
-  process exits during start-up and the orchestrator reports a crash, not a running service
-  on sample credentials; `LIQUIBASE_CONTEXTS` unset means no sample data and blank is refused
-  at start-up (see Configuration)
-* Migrations are a job, not a start-up side effect: the Compose stack runs the same image once
-  as `migrate` with the schema owner's credentials before `store` starts, and `store` connects
-  as `store_app` (connect, `SELECT`, `INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`)
-  with `SPRING_LIQUIBASE_ENABLED=false`. `ddl-auto: validate` and the readiness `db` component
-  prove the runtime works under that role, and the smoke test's `compose` mode proves the
-  grants. The job runs with `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` set to `0`, because
-  Liquibase uses the service's pool and its timeouts (see Configuration). A Kubernetes rollout
-  runs the image as a `Job` or init container ahead of the deployment, with the same two
-  variables. Changesets 3, 4 and 7 index existing tables with a plain `CREATE INDEX`, which
-  holds every write to the table until the changeset commits (changeset 7 took about a second
-  on 1,000,000 orders), so applying them to a populated database needs a write window; ADR 0009
-  records the measured builds and the concurrent form that every new index changeset uses,
-  which changeset 8 follows for its two builds and its drop.
-  `bootRun` keeps in-process Liquibase as `admin` for development. ADR 0008 records the split,
-  which changeset needs a privileged role, and the `down -v` step for a volume created before
-  the job existed
-* The image runs the layered jar as the non-root user 65532 on
-  `gcr.io/distroless/java17-debian13:nonroot`, pinned by digest: Eclipse Temurin 17.0.20.1,
-  installed as the Debian package `temurin-17-jre`, among 25 Debian 13 packages, with no shell,
-  package manager, `curl` or `wget`. The JVM flags are arguments of the `ENTRYPOINT`
-  (`/usr/bin/java -XX:+UseSerialGC -XX:MaxRAMPercentage=30 -XX:+ExitOnOutOfMemoryError
-  org.springframework.boot.loader.launch.JarLauncher`), and the image sets no
-  `JAVA_TOOL_OPTIONS`: the JVM announces that variable, even an empty one, with a plain-text
-  `Picked up JAVA_TOOL_OPTIONS: ...` line on stderr ahead of the JSON, and the smoke test's
-  `compose` mode fails on such a line. Command-line flags win over `JAVA_TOOL_OPTIONS` and
-  `JDK_JAVA_OPTIONS`, so an operator can attach an agent through `JAVA_TOOL_OPTIONS` without
-  losing the heap flags (the JVM then prints its own `Picked up` line); only `_JAVA_OPTIONS` or
-  a replaced entrypoint changes them. Without a shell there is no `docker exec` into the
-  container; debug locally with the `:debug-nonroot` variant of the same image, which adds a
-  busybox shell and is never shipped. Distroless retires a Java image when it stops updating
-  that Java version on a Debian release (`java17-debian12` is no longer updated), so
-  `java17-debian13` may stop receiving updates while the service is still on Java 17. A stale
-  JRE alone passes the image scan: the scan lists `temurin-17-jre`, but none of its advisory
-  data covers Adoptium's package (ADR 0004), so JRE fixes arrive only with a new digest of the
-  base, the refresh Dependabot proposes (see Continuous integration). A stale base fails the
-  scan only once another of its Debian packages has a fixable high or critical advisory, as
-  `java17-debian12` already does through `libexpat1`, `libpcre2-8-0` and `liblcms2-2` (and
-  through its JRE, Debian's own `openjdk-17` build, which Debian's advisories cover), and the
-  way out is a move to a newer Java line (a `java21` image and the matching toolchain)
-* The Compose `store` and `migrate` services are hardened: `read_only: true` with `tmpfs: [/tmp]`
-  (Tomcat's base directory and the JVM's `hsperfdata` live there), `cap_drop: [ALL]`,
-  `security_opt: ["no-new-privileges:true"]`, `deploy.resources.limits.memory: 512m`, which
-  Compose v2 honours without Swarm, and `memswap_limit: 512m`, without which Docker allows as
-  much swap again as the limit, so an overrun swaps silently instead of failing. The heap is a
-  share of that limit: `-XX:MaxRAMPercentage=30` resolves `MaxHeapSize` to 154 MiB, and the rest
-  holds metaspace, the code cache, thread stacks and native buffers. The share is measured. A
-  load generator kept 200 keep-alive clients busy for 300 s on the list, by-id, cursor and search
-  reads and both `POST` endpoints, half of them asking for gzip, with the heap fully resident
-  from the start (`-XX:InitialRAMPercentage` equal to the maximum and `-XX:+AlwaysPreTouch`, the
-  state a long-running process approaches); peaks were read from the cgroup's `memory.peak` and
-  `memory.events`, `docker stats` and the process's `VmHWM`, and native memory tracking through
-  the HotSpot attach socket from a sidecar container sharing the PID namespace, since the JRE
-  image has no `jcmd`. At 30% the container peaked at 477.4 MiB with 241 threads, flat after 120
-  s, and at about 440 MiB with 50 clients (2,686 requests per second, p99 64.7 ms). At 75% (384
-  MiB of heap) the same load needed 636.8 MiB by native memory tracking, hit the limit and
-  swapped 104.7 MiB, and with swap off the container was killed (exit 137); 40% also reached the
-  limit, and 35% came within 1.1 MiB of it (510.9 MiB) in five minutes. SerialGC is set
-  explicitly: G1's own native structures took 59 to 63 MiB at a 35% heap and that run overran the
-  limit at 200 clients, and the JVM's ergonomics switch to G1 as soon as a deployment grants 1792
-  MiB or more with two or more CPUs. SerialGC's cost at 200 clients was 2,050 young collections
-  (13.5 s) and 3 full ones (283 ms) in 300 s. The runs used images with the Dockerfile's layers
-  and flags and its JVM, Temurin 17.0.20.1, on Docker Desktop on arm64 with transparent huge
-  pages set to `always` and 2040 KiB thread stacks (the arm64 default); a Linux host with the
-  common `madvise` setting, such as the amd64 CI runner, is expected to use less. A larger
-  `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or cache needs the limit raised and the share re-measured,
-  since each busy thread adds its stack and buffers outside the heap. `postgres` stays unhardened
-  because `initdb` runs as root and needs `CHOWN` and `SETUID` to hand the data directory to its
-  own user. Without the tmpfs `store` fails at start-up with `Unable to start web server`
-  (Tomcat's base directory lives under `java.io.tmpdir`), while `migrate` still exits 0. Both
-  services also rotate their log (`logging` with the `json-file` driver, `max-size: "10m"` and
-  `max-file: "3"`): Docker's default `json-file` driver keeps a container's whole output in one
-  file that grows without bound, and the access line makes that output grow with every
-  request. A line takes about 520 B in that file, the JSON line escaped inside Docker's own
-  record (computed from the record format), so the three files of 10 MB hold roughly the last
-  60,000 lines of each container. ADR 0008 records the settings. The smoke test's `compose`
-  mode reads each of them back with
-  `docker inspect` on both containers, so a pipeline run fails when one is removed, and a new
-  limit needs the asserted 536870912 changed with it
+In short:
+* API on 8080; probes and metrics on 8081.
+* An `X-Request-Id` and an access line for every request; ECS JSON logs.
+* Database failures are 503s with `Retry-After`.
+* A 20 s graceful drain; migrations as a job.
+* A hardened distroless image with a measured memory limit.
+
+### Ports, probes and metrics
+The actuator is on a separate management connector, 8081 by default (`MANAGEMENT_PORT`), and absent
+from 8080 (`/actuator/health` there is a 404). The ingress exposes 8080 only, so probes and metrics
+are reachable inside the cluster but never from the public network.
+
+The probes are `GET :8081/actuator/health`, `/actuator/health/liveness` and
+`/actuator/health/readiness`. Liveness is Spring's `LivenessState`. Readiness combines
+`ReadinessState` with the database indicator, so a replica that has lost its database leaves
+rotation; `ReadinessState` is `ACCEPTING_TRAFFIC` once the context has started and is withdrawn when
+shutdown begins, which by itself moves no traffic away (see Shutdown). Readiness names its
+components without details
+(`{"status":"UP","components":{"db":{"status":"UP"},"readinessState":{"status":"UP"}}}`);
+`/actuator/health` stays detail-free. Neither probe proves the API connector answers; the pipeline's
+smoke test does (ADR 0008 records the trade-off).
+
+`GET :8081/actuator/info` reports `build.artifact`, `build.name`, `build.group` and `build.version`
+from `META-INF/build-info.properties`, generated without the build time so that a rebuild of
+unchanged sources is cacheable.
+
+`GET :8081/actuator/prometheus` is for scraping. `cache_gets_total{cache=...,result=hit|miss}` gives
+the hit rate of the `orders` and `products` caches. `http_server_requests_seconds` covers the API
+port only. It carries cumulative latency buckets at 5, 10, 25, 50, 100, 250 and 500 ms and 1, 2.5, 5
+and 10 s (`management.metrics.distribution.slo.http.server.requests`). So `histogram_quantile(0.99,
+sum by (le, uri) (rate(http_server_requests_seconds_bucket[5m])))` gives the p99 per route across
+replicas, and the share of requests within a bound is read from its bucket. The cost is 12 `_bucket`
+lines per series, one per bound plus `+Inf` (a series is one combination of method, `uri`, status,
+outcome and exception): about 1.9 KB of scrape per series, 27,233 B for the 14 series left by the
+smoke test and a 1,000-request mix on the Compose stack. `percentiles-histogram` would publish
+Micrometer's generic set instead, 69 lines (about 11.6 KB) per series. `ActuatorIT` pins the bucket
+set.
+
+### Request ids and filters
+Every response carries an `X-Request-Id` except the 400 Tomcat sends itself (see API). An inbound
+value matching `[A-Za-z0-9._-]{1,128}` is echoed; otherwise a UUID is generated. `RequestIdFilter`
+runs before every other filter, so 304, 400, 404 and 500 responses carry it. It also puts the id in
+the MDC (the thread's logging context) as `requestId` for the request's duration, so every log line
+of a request can be found from the id a client quotes. There is no tracing library (no collector is
+in scope); the header is where a gateway's or a later tracer's id attaches.
+
+Which filters apply where: `server.compression` applies to both connectors; the `ETag` filter and
+the `Cache-Control` interceptor are registered for the API paths only. `RequestBodyLimitFilter`
+enforces `REQUEST_MAX_BODY_BYTES` and, like `RequestIdFilter`, is a `@Component` filter on the API
+connector only: the management connector's child context does not inherit it, and the actuator takes
+no bodies. Tomcat's form limit, which follows the same variable, is set on both connectors, because
+Spring Boot applies its Tomcat settings to the management server too (`RequestBodyLimitIT` reads it
+back from both).
+
+### Logs
+Logs are ECS JSON (Elastic Common Schema) inside the container
+(`LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs`): one object per line. Each line holds
+`"log":{"level":...,"logger":...}`, `"service":{"name":"store","version":"1.0.0-SNAPSHOT"}` (from
+`spring.application.name` and the build version), `"message"`, `"ecs":{"version":"8.11"}`, and every
+MDC entry and event key-value pair as a top-level member, so `"requestId":"<id>"` is on every line
+written while a request is handled. The smoke test's `compose` mode checks the shape on the started
+image, looking up to five times a second apart, because the ETag filter flushes the response before
+the line is written.
+
+**The access line.** Every request on the API port that reaches the filters writes one INFO line on
+`com.example.store.access` when it completes: `GET /order/{id} 200 3 ms` (method, route, status,
+whole milliseconds; a cache hit usually logs 0 ms). `route`, `status` (a number) and `durationMs`
+are top-level ECS members beside `message` and `requestId`.
+
+The route is the pattern Spring MVC matched (`HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE`), the
+same as the `uri` tag of `http_server_requests_seconds`. A 304, a 400, a service 404 and a 413 carry
+their endpoint's pattern; an unmapped path logs `/**` (the static-resource mapping); a 405, 406 or
+415, raised during mapping, logs `UNKNOWN`. The status is the one the client receives. An exception
+that escapes the filters is answered by Tomcat with a 500 after the filter has run, so the line logs
+500 (as the timer does), not the status the response held: on the jar of 5996b3c, a `PUT` whose form
+body the form-content filter rejected was a 500 logged as `PUT UNKNOWN 200 0 ms`. A response
+committed before the exception logs the status it sent.
+
+The line never holds the raw path, query string or body, so search words stay out and the set of
+routes stays bounded (Tomcat's own INFO lines do quote them, see API). `AccessLogFilter` sits
+right after `RequestIdFilter` and `RequestBodyLimitFilter` and outside the ETag filter, so a 304
+logs as 304. It runs on the API connector only, so probes and scrapes write nothing
+(`AccessLogIT`, `AccessLogFilterTest`).
+
+Cost: a line is about 395 B on stdout (mean of 1,008 lines from the smoke test and a 1,000-request
+mix on the Compose stack, 370 to 403 B), roughly 400 MB per million requests per replica. In CPU,
+the mean of the request timer over 50,000 cached `GET /order/1` from one keep-alive client (`ab -k
+-c 1`, Docker Desktop on arm64) was 46.4 and 48.6 µs with the line against 29.4 and 30.3 µs with
+`LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF`, about 17 µs. For a 3-statement `GET /order?size=20`
+the difference was within the spread between runs (766 and 785 µs with, 738 and 777 µs without),
+throughput was unchanged (about 3,100 and 930 requests per second), and no statement is added
+(`QueryCountIT`). Where an ingress already logs every request,
+`LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS=OFF` turns the line off without touching any other logger.
+
+**Creation lines.** A created order, customer or product writes one INFO line on
+`com.example.store.service.CreationEventLogger` after its transaction commits (`Created order
+10051 for customer 2 with 3 products`, `Created customer 101`, `Created product 101`), with
+`requestId` beside it; ids and the number of products only, never a name or description. The
+services publish `OrderCreatedEvent`, `CustomerCreatedEvent` and `ProductCreatedEvent`, logged
+by `@TransactionalEventListener(phase = AFTER_COMMIT)` methods, because with sequence ids the
+inserts are flushed at commit, after `create()` has returned, and a line written in the
+service would also appear for a commit that fails. `CreationLogIT` pins the lines and that a
+creation whose insert fails at commit logs nothing (it calls each service with a
+256-character text, which the request validation would have refused, so only the column
+rejects it).
+
+**Failed statements are logged without the request's values.** PgJDBC runs with
+`logServerErrorDetail: false`, so its messages hold the server's severity and primary message only.
+A failed batched insert reads `Batch entry 0 <unknown> was aborted:` plus the server's message,
+where it would otherwise quote the insert with the posted name or description. The server's detail,
+hint and position (the violated key, the failing row) are left out of: the full cause logged at
+DEBUG; Hibernate's `SqlExceptionHelper` lines; the 500's ERROR stack trace; and HikariCP's WARN line
+for a terminated connection. Hibernate's own messages show the statement with `?` for each value. A
+violated constraint is still named, because PostgreSQL puts the name in the primary message, where
+Hibernate reads it for the 409's WARN line (SQL state and constraint name; full cause at DEBUG).
+
+The price: a 409 or a `database_timeout` 503 logs only the SQL state, the primary message and the
+handler's WARN line with the constraint or the cause's class, so the log of a failed `POST` no
+longer says which insert failed. The statement, with `?` for each value, appears only in an ERROR
+stack trace (the 500's, or the transaction interceptor's for a read whose connection was lost); the
+handler's DEBUG line adds it for a `database_timeout` only. No line carries the key or the row.
+`FailedInsertLogIT` cancels, terminates and foreign-key-violates the insert of each `POST` at commit
+and finds none of the names and descriptions it sent in any line at the shipped levels, stack traces
+included; `DatabaseTimeoutsIT` reads the setting back.
+
+### Database failures
+A database that cannot be reached, loses the connection or does not answer in time is a 503
+with `Retry-After: 5`, not a 500, with one exception; `code` tells the cases apart, and all
+recover without a restart once the database answers.
+
+| Situation | Answer |
+|---|---|
+| No connection within the pool's 5 s `connection-timeout` (pool exhausted, or the database down) | 503 `service_unavailable`, `The service cannot obtain a database connection` |
+| A statement cancelled at `DB_STATEMENT_TIMEOUT` or at the `TX_TIMEOUT` deadline, a `POST`'s insert at commit included, or a transaction whose deadline passed before a query | 503 `database_timeout`, `The database did not answer in time` |
+| A connection lost during a service method's reads (every statement of a `GET`; a `POST`'s reads of the customer and products), whether the backend is terminated, the server restarts or `DB_SOCKET_TIMEOUT` cuts a stall: HikariCP marks it broken, the rollback fails, and Spring throws the rollback's exception (`Unable to rollback against JDBC Connection`) in place of the original | 503 `service_unavailable` |
+| A transaction deadline that passed before one of Hibernate's own statements (a by-id read, a `POST`'s flush): `transaction timeout expired` | 503 `service_unavailable` |
+| A `POST`'s insert at commit cut by `DB_SOCKET_TIMEOUT` (SQL state `08006`) | 503 `service_unavailable` |
+| A `POST`'s insert at commit whose session the database terminates (`57P01`: `pg_terminate_backend`, or the fast shutdown of a restart): `could not execute batch` | 500 `internal_error`, logged at ERROR as `Unhandled exception` |
+
+The commit cases differ because with sequence ids Hibernate flushes a `POST`'s inserts at commit,
+after the service method has returned. The failure is then the commit's own exception, which no
+failed rollback replaces, and the SQL state decides the answer.
+
+The handler tests the cause's type, never its message: `CannotCreateTransactionException`,
+`QueryTimeoutException`, `TransactionTimedOutException`, `JpaSystemException` caused by Hibernate's
+`TransactionException`, `DataAccessResourceFailureException` from a `JDBCConnectionException`, and
+`GenericJDBCException`. Every other `JpaSystemException` stays a 500. It imports two Hibernate types
+because Spring's exceptions expose neither the violated constraint's name
+(`ConstraintViolationException`, needed for the 409's log line) nor whether a `JpaSystemException`
+came from a failed rollback (`TransactionException`).
+
+What gets logged: for the lost-connection read, Spring's `TransactionInterceptor` logs the original
+exception at ERROR as `Application exception overridden by rollback exception`, with the SQL (bind
+values as `?`) and the driver message. The line stays, because silencing the logger would also hide
+a failed rollback that replaces a genuine application error. The handler logs each 503 at WARN by
+the class name of its most specific cause (the driver message can carry hosts or SQL; the full cause
+is at DEBUG). Hibernate's `SqlExceptionHelper` still logs the SQL state at WARN and the driver
+message at ERROR (`ERROR: canceling statement due to statement timeout`).
+
+Two consequences for operators: readiness reports `db` DOWN while no connection can be obtained, but
+only after the same 5 s, so probe timeouts must exceed it; and neither a 503 nor that 500 tells a
+client whether a `POST` was applied, because the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`,
+"API contract").
+
+`DatabaseFailureIT` produces three of these answers on real requests: it holds a lock on `order`,
+cancels or terminates the backend of a `GET /order?size=5`, and terminates that of a `POST /order`
+at commit (no order written). `GlobalExceptionHandlerTests`, `GlobalExceptionHandlerLogTest` and
+`OpenApiContractIT` pin the statuses, codes, headers, WARN lines and the `ServiceUnavailable`
+examples.
+
+### Shutdown
+On `SIGTERM` requests in flight get up to 20 s (`server.shutdown: graceful`,
+`spring.lifecycle.timeout-per-shutdown-phase: 20s`). The drain closes the API listening socket
+first, so a new connection to 8080 is refused while the management port keeps answering (readiness
+503 `OUT_OF_SERVICE`, liveness 200). The management server, the API server and the pool stop once
+the requests in flight have finished.
+
+What a client sees depends on its connection:
+* A keep-alive connection with a request in flight is closed right after its response (no
+  `Connection: close` header).
+* A keep-alive connection idle when the drain begins stays open until the API server stops, and a
+  request sent on it meanwhile gets no response at all (no 503, no access line; a `POST` stores
+  nothing).
+* A request still running at 20 s loses its connection without a response. Tomcat then waits up to 5
+  s for its thread before the pool closes, so a `POST` cut there may still have committed (the
+  `POST`s are not idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows the
+  status its handler set. A stuck request therefore keeps the process alive for 20 s plus 5 s plus
+  about 0.3 s, which the 30 second stop grace of `compose.yaml` covers.
+
+`GracefulShutdownIT` observes the drain on a second application on the shared database. While a `GET
+/order?size=5` waits for a lock and the application closes, a new connection is refused, readiness
+is 503 and liveness 200, and the request is answered 200 once the lock is released (with
+`server.shutdown: immediate` the connection is reset). `FailClosedConfigurationTest` pins both
+properties. The idle-connection case and the timings were observed by hand on 2026-10-20 (Java 17 on
+macOS, PostgreSQL 16.2, the same held request):
+* Jar 0503f3e, `SIGTERM` 1.1 s after the request started. A new connection 0.56 s after the signal
+  was refused. The held request was answered 200 when the lock was released 3.4 s after the signal,
+  and the pool closed 13 ms after the drain. With the shutdown timeout lowered to 2 s, the held
+  request got an empty reply 2.0 s after the signal; Tomcat waited 1.3 s more for its thread (which
+  finished and logged a 200), and the process exited 3.5 s after the signal.
+* Jar 3f93bc1, five runs. Keep-alive connections that had answered a request about a second before
+  the signal were still open 1.0 to 3.6 s after it; a `GET /order/{id}` and a `POST /customer` sent
+  on them got no byte back, wrote no access line and stored no row. A connection with a `GET /order`
+  in flight was closed as soon as its 200 was sent; idle connections were closed when the API server
+  stopped. Two further runs kept the held request stuck (statement and socket timeouts 0,
+  transaction timeout 120 s): an empty reply at 20.0 s, idle connections closed at the same moment,
+  a thread dump at 22.6 s showing the shutdown waiting for Tomcat's request threads, the pool closed
+  at 25.0 s, a 503 access line from the stuck thread, and exit at 25.2 and 25.3 s.
+* Docker Desktop's published port does not pass the refusal on. On Docker Desktop 4.38.0 (engine
+  27.5.1, macOS, 2026-10-20, two runs, jar 3f93bc1 in the runtime image), a new connection to the
+  published port during the drain completed its handshake and was closed without a byte (`curl` exit
+  52, where a refused connection is exit 7; `nc -z` succeeded). The same connection inside the
+  container's network namespace was refused, and the published port refused only once the container
+  had exited.
+
+Kubernetes needs a delay before the signal. Deleting a pod marks its endpoints not ready while the
+kubelet starts stopping the container, and kube-proxy and the ingress act a moment later; without a
+delay, connections still arrive after the drain has closed the port and are refused. Readiness
+turning `OUT_OF_SERVICE` moves no traffic by itself.
+
+The delay moves new connections only. kube-proxy chooses an endpoint when a connection opens, so a
+connection established through a Service before the endpoint was removed stays on the pod and is
+served during the delay; if it is idle when the drain begins, it gets no response to its next
+request. A pooling client can retry a `GET` on a new connection but cannot tell whether a `POST`
+without a response was applied.
+
+The image has no shell for an `exec` hook, so the delay is the `sleep` handler
+(`lifecycle.preStop.sleep.seconds`, on by default from Kubernetes 1.30).
+`terminationGracePeriodSeconds` (30 s by default) counts from the start of the hook and must cover
+the delay, the 20 s drain and the 5 s for a cut request, plus a margin: for example a 10 s delay
+with `terminationGracePeriodSeconds: 40`. Otherwise `SIGKILL` cuts the drain short.
+
+### Start-up and migrations
+Missing credentials make the process exit during start-up, so the orchestrator reports a crash
+rather than a service on sample credentials. `LIQUIBASE_CONTEXTS` unset means no sample data, and
+blank is refused (see Configuration).
+
+Migrations are a job, not a start-up side effect. Compose runs the image once as `migrate` with the
+schema owner's credentials before `store`. `store` connects as `store_app` (connect, `SELECT`,
+`INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`) with `SPRING_LIQUIBASE_ENABLED=false`;
+`ddl-auto: validate` and the readiness `db` component prove the runtime works under that role, and
+the smoke test proves the grants. The job sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` to `0`
+(see Configuration). A Kubernetes rollout runs the image as a `Job` or init container ahead of the
+deployment with the same two variables; `bootRun` keeps in-process Liquibase as `admin`. ADR 0008
+records the split, which changeset needs a privileged role, and the `down -v` step.
+
+Index changesets need a write window. Changesets 3, 4 and 7 index existing tables with a plain
+`CREATE INDEX`, which holds every write until the changeset commits (changeset 7 took about a second
+on 1,000,000 orders). ADR 0009 records the measured builds and the concurrent form every new index
+changeset uses, which changeset 8 follows for its two builds and its drop.
+
+### The image
+The image runs the layered jar as the non-root user 65532 on
+`gcr.io/distroless/java17-debian13:nonroot`, pinned by digest. That base holds Eclipse Temurin
+17.0.20.1 as the Debian package `temurin-17-jre` among 25 Debian 13 packages, with no shell, package
+manager, `curl` or `wget`, so there is no `docker exec` (debug locally with the `:debug-nonroot`
+variant, which adds a busybox shell and is never shipped).
+
+The JVM flags are `ENTRYPOINT` arguments (`/usr/bin/java -XX:+UseSerialGC -XX:MaxRAMPercentage=30
+-XX:+ExitOnOutOfMemoryError org.springframework.boot.loader.launch.JarLauncher`). The image sets no
+`JAVA_TOOL_OPTIONS`, because the JVM announces that variable, even empty, with a plain-text `Picked
+up JAVA_TOOL_OPTIONS: ...` line on stderr ahead of the JSON, which the smoke test fails on.
+Command-line flags win over `JAVA_TOOL_OPTIONS` and `JDK_JAVA_OPTIONS`, so an operator can attach an
+agent through `JAVA_TOOL_OPTIONS` without losing the heap flags (the JVM then prints its own `Picked
+up` line); only `_JAVA_OPTIONS` or a replaced entrypoint changes them.
+
+Distroless retires a Java image when it stops updating that Java version on a Debian release
+(`java17-debian12` is no longer updated), so `java17-debian13` may stop receiving updates while the
+service is still on Java 17. A stale JRE alone passes the scan: it lists `temurin-17-jre`, but no
+advisory data covers Adoptium's package (ADR 0004), so JRE fixes arrive only with a new base digest,
+the refresh Dependabot proposes. A stale base fails the scan only once another Debian package has a
+fixable `HIGH` or `CRITICAL` advisory. `java17-debian12` does, through `libexpat1`, `libpcre2-8-0`
+and `liblcms2-2` (and its JRE, Debian's own `openjdk-17`, which Debian's advisories cover). The way
+out is a newer Java line (a `java21` image and the matching toolchain).
+
+### Container hardening and memory
+The Compose `store` and `migrate` services are hardened as follows:
+* `read_only: true` and `tmpfs: [/tmp]`: Tomcat's base directory and the JVM's `hsperfdata` live in
+  `/tmp`; without the tmpfs `store` fails with `Unable to start web server` while `migrate` still
+  exits 0.
+* `cap_drop: [ALL]` and `security_opt: ["no-new-privileges:true"]`.
+* `deploy.resources.limits.memory: 512m` (Compose v2 honours it without Swarm) and `memswap_limit:
+  512m`; without the latter Docker allows as much swap again, so an overrun swaps silently instead
+  of failing.
+* Log rotation (`json-file`, `max-size: "10m"`, `max-file: "3"`), because Docker's default keeps a
+  container's whole output in one unbounded file and the access line grows it with every request. A
+  line takes about 520 B in that file (the JSON escaped inside Docker's record), so three files of
+  10 MB hold roughly the last 60,000 lines per container.
+
+`postgres` stays unhardened because `initdb` runs as root and needs `CHOWN` and `SETUID`. ADR 0008
+records the settings. The smoke test's `compose` mode reads each back with `docker inspect`, so a
+new limit needs the asserted 536870912 changed too.
+
+The heap is a share of the 512 MiB: `-XX:MaxRAMPercentage=30` gives a `MaxHeapSize` of 154 MiB, the
+rest holding metaspace, the code cache, thread stacks and native buffers. The share was measured
+like this:
+* Load: a load generator kept 200 keep-alive clients busy for 300 s on the list, by-id, cursor and
+  search reads and both `POST`s, half asking for gzip.
+* JVM: the heap fully resident from the start (`-XX:InitialRAMPercentage` equal to the maximum,
+  `-XX:+AlwaysPreTouch`), on images with the Dockerfile's layers, flags and JVM.
+* Readings: the cgroup's `memory.peak` and `memory.events`, `docker stats`, `VmHWM`, and native
+  memory tracking through the HotSpot attach socket from a sidecar sharing the PID namespace (the
+  JRE image has no `jcmd`).
+* Host: Docker Desktop on arm64 with transparent huge pages `always` and 2040 KiB thread stacks (the
+  arm64 default). A Linux host with the common `madvise` setting, such as the amd64 CI runner, is
+  expected to use less.
+
+| Heap share | Result at 200 clients |
+|---|---|
+| 30% (the setting) | Peaked at 477.4 MiB with 241 threads, flat after 120 s; about 440 MiB with 50 clients (2,686 requests per second, p99 64.7 ms) |
+| 35% | Within 1.1 MiB of the limit (510.9 MiB) in five minutes |
+| 40% | Reached the limit |
+| 75% (384 MiB of heap) | 636.8 MiB by native memory tracking, hit the limit and swapped 104.7 MiB; with swap off, killed (exit 137) |
+
+SerialGC is explicit for two reasons. G1's own native structures took 59 to 63 MiB at a 35% heap,
+and that run overran the limit. And the JVM's ergonomics switch to G1 once a deployment grants 1792
+MiB or more with two or more CPUs. SerialGC cost 2,050 young collections (13.5 s) and 3 full ones
+(283 ms) in the 300 s. A larger `TOMCAT_THREADS_MAX`, `DB_POOL_SIZE` or cache needs the limit raised
+and the share re-measured, since each busy thread adds its stack and buffers outside the heap.
 
 ## Further reading
 * `docs/ASSUMPTIONS.md`: the judgement calls behind each task and how they can be defended.
