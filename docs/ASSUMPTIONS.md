@@ -643,14 +643,18 @@ actions, base images and Gradle distribution the pipeline downloads are pinned.
 
 ### Pull requests and history
 
-- A change is merged once both CI jobs are green and a second account has approved it. Branch
-  rulesets and required checks are not available on a private free-plan repository, so the gate is a
-  procedure, not a platform control, and the approval is posted by the procedure that then merges: a
-  step of it, not an independent review.
+- A change is merged once both CI jobs are green and a second account has approved it. Since the
+  repository went public on 2026-10-22, a ruleset on `main` enforces this: a pull request, the
+  `build` and `docker` checks, one approval and rebase merges only, with force pushes and deletion
+  blocked. While it was private, the free plan offered no rulesets, so the same gate was a
+  procedure. The approval is posted by the procedure that then merges: a step of it, not an
+  independent review.
 - The procedure has held from #27 on. Before it a merge waited for `build` only: #7 to #10 merged
   while their `docker` job was still running, #11 after that job failed at set-up (its image was
   neither built nor scanned), and no push run on `main` finished green between #5 and #30.
-- `main`'s history is not rewritten. Squash commits up to #64 keep their pull-request text:
+- `main`'s history was rewritten once, on 2026-10-21, to record every commit under the project's
+  own identity. That gave each commit a new id, and the docs quote the new ids; it is not rewritten
+  otherwise. Squash commits up to #64 keep their pull-request text:
   imperative subjects from #27, and bodies wrapped at 72 columns from #51 (one 73-column line in
   #60 excepted). From #65 pull requests are rebase-merged, so each commit keeps its author, and
   GitHub records the merging account as committer (`docs/DESIGN.md`, Development workflow).
@@ -666,8 +670,7 @@ actions, base images and Gradle distribution the pipeline downloads are pinned.
   scan and SBOM list but no advisory data the scan uses covers, so JRE fixes arrive only with a new
   base-image digest, which Dependabot proposes (ADR 0004, `docs/DESIGN.md`, Operations).
 - Liveness and readiness probes are on the management port (8081), which the ingress does not
-  publish; readiness includes the database indicator (ADR 0008). There is no Docker `HEALTHCHECK`
-  (ADR 0008):
+  publish; readiness includes the database indicator (ADR 0008). There is no Docker `HEALTHCHECK`:
   - Kubernetes ignores one and probes `/actuator/health/liveness` and `/actuator/health/readiness`
     itself.
   - Nothing in `compose.yaml` waits on the store's health.
@@ -770,9 +773,9 @@ clean.
   repository's retention is also 90 days, and should it ever drop below, the action uses the
   repository's setting and logs a warning). GitLab keeps `sbom.cdx.json` as long
   (`expire_in: 90 days`). The SBOM is not a signed attestation bound to the digest: GitHub offers
-  artifact attestations on the Free, Pro and Team plans for public repositories only, and this is a
-  private Free-plan repository. For an older image the SBOM is made again from the pushed digest:
-  - `docker login ghcr.io` with a token carrying `read:packages`;
+  artifact attestations on the Free, Pro and Team plans for public repositories only, and the
+  repository was private until 2026-10-22, so none is produced yet. For an older image the SBOM is
+  made again from the pushed digest, with no login, because the package is public:
   - `docker buildx imagetools inspect ghcr.io/neeleshrambally/store:sha-<short sha>` prints the
     digest;
   - `syft ghcr.io/neeleshrambally/store@sha256:<digest> -o spdx-json` describes that image.
@@ -798,9 +801,8 @@ requires a request's access line to appear in the container's ECS (Elastic Commo
 output.
 
 The image published from the default branch is that scanned and smoke-tested image, retagged, never
-a rebuild. A failing smoke test fails the `docker` job (`smoke` on GitLab); the merge procedure
-requires both jobs green and an approval; the platform cannot enforce required checks on a private
-free-plan repository, so the procedure is the gate.
+a rebuild. A failing smoke test fails the `docker` job (`smoke` on GitLab), and the ruleset on
+`main` requires both jobs green and an approval before a merge.
 
 ## Defects found in the original code and what was done
 
@@ -822,9 +824,9 @@ and where the reasoning lives.
   equality, a constant hash code and an id-only `toString`. ADR 0001.
 - **Entity columns nullable while the schema is `NOT NULL`** (`Customer.java:17`, `Order.java:15-18`
   against `schema.sql:4,10-11`). Now `@Column(nullable = false)`, `optional = false` and
-  `@JoinColumn(nullable = false)`, so the mapping states what the schema enforces and `ddl-auto:
-  validate` checks the two at start-up; a null never reaches the entity because the request records
-  reject it first.
+  `@JoinColumn(nullable = false)`, so the mapping states what the schema enforces; a null never
+  reaches the entity because the request records reject it first. `ddl-auto: validate` checks
+  tables, columns and types at start-up, not nullability.
 - **`GenerationType.IDENTITY`** (`Customer.java:14`, `Order.java:12`) **and serial sequences left at
   1 after the explicit-id seed** (`data.sql`, `db.changelog-2.yaml`), so the first insert failed.
   Changeset 3 moves each sequence past the highest seeded id; the entities use `SEQUENCE` with block
