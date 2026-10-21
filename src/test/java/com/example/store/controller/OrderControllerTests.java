@@ -4,6 +4,7 @@ import com.example.store.config.JacksonConfig;
 import com.example.store.dto.CreateOrderRequest;
 import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
+import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.OrderCustomerDTO;
 import com.example.store.dto.OrderDTO;
 import com.example.store.dto.OrderFilter;
@@ -11,9 +12,11 @@ import com.example.store.dto.OrderProductDTO;
 import com.example.store.exception.InvalidOrderFilterException;
 import com.example.store.exception.InvalidSortPropertyException;
 import com.example.store.exception.ResourceNotFoundException;
+import com.example.store.service.IdempotentRequests;
 import com.example.store.service.OrderService;
 
 import org.apache.catalina.Globals;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -28,14 +31,18 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +66,62 @@ class OrderControllerTests {
 
     @MockitoBean
     private OrderService orderService;
+
+    @MockitoBean
+    private IdempotentRequests idempotentRequests;
+
+    @BeforeEach
+    void runEachCreateThroughTheIdempotentRequests() {
+        when(idempotentRequests.execute(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation ->
+                        invocation.<Supplier<ResponseEntity<?>>>getArgument(4).get());
+    }
+
+    @Test
+    void createWithAnIdempotencyKeyPassesTheKeyThePathAndTheBoundRequest() throws Exception {
+        when(orderService.create(new CreateOrderRequest("Test Order", 1L, List.of(2L))))
+                .thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "order-7f3c")
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/order/1"));
+
+        verify(idempotentRequests)
+                .execute(
+                        eq(new IdempotencyKey("order-7f3c")),
+                        eq("/order"),
+                        eq(new CreateOrderRequest("Test Order", 1L, List.of(2L))),
+                        eq(OrderDTO.class),
+                        any());
+    }
+
+    @Test
+    void createWithoutAnIdempotencyKeyPassesNoKey() throws Exception {
+        when(orderService.create(any())).thenReturn(ORDER);
+
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
+                .andExpect(status().isCreated());
+
+        verify(idempotentRequests).execute(isNull(), eq("/order"), any(), eq(OrderDTO.class), any());
+    }
+
+    @Test
+    void createRejectsAnIdempotencyKeyOutsideVisibleAscii() throws Exception {
+        mockMvc.perform(post("/order")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "caf\u00e9")
+                        .content("{\"description\":\"Test Order\",\"customerId\":1,\"productIds\":[2]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"));
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+        verify(orderService, never()).create(any());
+    }
 
     @Test
     void createReturnsCreatedOrder() throws Exception {

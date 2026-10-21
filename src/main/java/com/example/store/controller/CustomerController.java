@@ -3,9 +3,11 @@ package com.example.store.controller;
 import com.example.store.dto.CreateCustomerRequest;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
+import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.ListResponse;
 import com.example.store.dto.PageResponse;
 import com.example.store.service.CustomerService;
+import com.example.store.service.IdempotentRequests;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,6 +40,7 @@ import java.net.URI;
 public class CustomerController {
 
     private final CustomerService customerService;
+    private final IdempotentRequests idempotentRequests;
 
     @GetMapping
     public ListResponse<CustomerDTO> getAllCustomers(
@@ -64,8 +68,14 @@ public class CustomerController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<CustomerDTO> createCustomer(@Valid @RequestBody CreateCustomerRequest request) {
-        CustomerDTO created = customerService.create(request);
-        return ResponseEntity.created(URI.create("/customer/" + created.id())).body(created);
+    public ResponseEntity<CustomerDTO> createCustomer(
+            @RequestHeader(name = IdempotencyKey.HEADER, required = false) String idempotencyKey,
+            @Valid @RequestBody CreateCustomerRequest request) {
+        return idempotentRequests.execute(
+                IdempotencyKey.fromHeader(idempotencyKey), "/customer", request, CustomerDTO.class, () -> {
+                    CustomerDTO created = customerService.create(request);
+                    return ResponseEntity.created(URI.create("/customer/" + created.id()))
+                            .body(created);
+                });
     }
 }

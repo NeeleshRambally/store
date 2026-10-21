@@ -23,6 +23,28 @@ Feature: Customer management
     And the response problem lists a validation error for "id"
     And customer 5 is still named "Jean Daniel"
 
+  Scenario: A customer creation repeated with its Idempotency-Key replays the first response
+    When I create a customer named "Replayed Customer" with the Idempotency-Key "cucumber-customer-replay"
+    Then the response status is 201
+    And the response is not a replay
+    When I create a customer named "Replayed Customer" with the Idempotency-Key "cucumber-customer-replay"
+    Then the response status is 201
+    And the response replays the previous response
+
+  Scenario: An Idempotency-Key reused with another body is rejected
+    When I create a customer named "First Body" with the Idempotency-Key "cucumber-customer-reuse"
+    Then the response status is 201
+    When I create a customer named "Second Body" with the Idempotency-Key "cucumber-customer-reuse"
+    Then the response status is 422
+    And the response problem code is "idempotency_key_reused"
+    And the response problem detail is "Idempotency-Key was already used with a different request"
+
+  Scenario: An Idempotency-Key holding a space is rejected
+    When I create a customer named "Spaced Key" with the Idempotency-Key "has a space"
+    Then the response status is 400
+    And the response problem code is "invalid_idempotency_key"
+    And the response problem detail is "Idempotency-Key must be 1 to 255 visible ASCII characters"
+
   Scenario: A form body sent with a method the API does not offer is refused without being read
     When I send PUT "/customer" with a 70000-byte form body
     Then the response status is 405

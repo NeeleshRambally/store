@@ -12,12 +12,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.ApplicationContext;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.orm.jpa.support.OpenEntityManagerInViewInterceptor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -327,6 +330,87 @@ class QueryCountIT extends AbstractIntegrationTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(statistics.getPrepareStatementCount()).isBetween(4L, 5L);
+    }
+
+    @Test
+    void createCustomerUsesOneStatementPlusTheBlockAllocation() {
+        ResponseEntity<String> response =
+                restTemplate.postForEntity("/customer", Map.of("name", "Counted customer"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(1L, 2L);
+    }
+
+    @Test
+    void createProductUsesOneStatementPlusTheBlockAllocation() {
+        ResponseEntity<String> response =
+                restTemplate.postForEntity("/products", Map.of("description", "Counted product"), String.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(1L, 2L);
+    }
+
+    @Test
+    void keyedCreateCustomerAddsTheClaimAndTheCompletion() {
+        ResponseEntity<String> response = keyedPost("/customer", Map.of("name", "Keyed customer"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(3L, 4L);
+    }
+
+    @Test
+    void keyedCreateProductAddsTheClaimAndTheCompletion() {
+        ResponseEntity<String> response = keyedPost("/products", Map.of("description", "Keyed product"));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(3L, 4L);
+    }
+
+    @Test
+    void keyedCreateOrderWithThreeProductsAddsTheClaimAndTheCompletion() {
+        ResponseEntity<String> response = keyedPost(
+                "/order", Map.of("description", "Keyed order", "customerId", 1, "productIds", List.of(1, 2, 3)));
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(statistics.getPrepareStatementCount()).isBetween(6L, 7L);
+    }
+
+    @Test
+    void replayedCreateUsesTheClaimAndTheReadOfTheStoredRow() {
+        String key = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of("name", "Replayed customer");
+        assertThat(keyedPost("/customer", body, key).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        statistics.clear();
+
+        ResponseEntity<String> response = keyedPost("/customer", body, key);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getHeaders().getFirst("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+        assertThat(statistics.getEntityLoadCount()).isZero();
+    }
+
+    @Test
+    void reusedKeyUsesTheClaimAndTheReadOfTheStoredRow() {
+        String key = UUID.randomUUID().toString();
+        assertThat(keyedPost("/customer", Map.of("name", "First body"), key).getStatusCode())
+                .isEqualTo(HttpStatus.CREATED);
+        statistics.clear();
+
+        ResponseEntity<String> response = keyedPost("/customer", Map.of("name", "Second body"), key);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(statistics.getPrepareStatementCount()).isEqualTo(2);
+    }
+
+    private ResponseEntity<String> keyedPost(String path, Map<String, Object> body) {
+        return keyedPost(path, body, UUID.randomUUID().toString());
+    }
+
+    private ResponseEntity<String> keyedPost(String path, Map<String, Object> body, String key) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Idempotency-Key", key);
+        return restTemplate.postForEntity(path, new HttpEntity<>(body, headers), String.class);
     }
 
     @Test

@@ -6,10 +6,13 @@ import com.example.store.dto.CursorPageResponse;
 import com.example.store.dto.CursorRequest;
 import com.example.store.dto.CustomerDTO;
 import com.example.store.dto.CustomerOrderDTO;
+import com.example.store.dto.IdempotencyKey;
 import com.example.store.exception.ResourceNotFoundException;
 import com.example.store.service.CustomerService;
+import com.example.store.service.IdempotentRequests;
 
 import org.apache.catalina.Globals;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,13 +24,19 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.net.URI;
 import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -47,6 +56,127 @@ class CustomerControllerTests {
 
     @MockitoBean
     private CustomerService customerService;
+
+    @MockitoBean
+    private IdempotentRequests idempotentRequests;
+
+    @BeforeEach
+    void runEachCreateThroughTheIdempotentRequests() {
+        when(idempotentRequests.execute(any(), any(), any(), any(), any()))
+                .thenAnswer(invocation ->
+                        invocation.<Supplier<ResponseEntity<?>>>getArgument(4).get());
+    }
+
+    @Test
+    void createWithoutAnIdempotencyKeyPassesNoKey() throws Exception {
+        when(customerService.create(new CreateCustomerRequest("John Doe")))
+                .thenReturn(new CustomerDTO(1L, "John Doe", List.of(), 0));
+
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().doesNotExist("Idempotent-Replayed"));
+
+        verify(idempotentRequests)
+                .execute(
+                        isNull(),
+                        eq("/customer"),
+                        eq(new CreateCustomerRequest("John Doe")),
+                        eq(CustomerDTO.class),
+                        any());
+    }
+
+    @Test
+    void createWithAnIdempotencyKeyPassesTheKeyThePathAndTheBoundRequest() throws Exception {
+        when(customerService.create(new CreateCustomerRequest("John Doe")))
+                .thenReturn(new CustomerDTO(1L, "John Doe", List.of(), 0));
+
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "customer-7f3c")
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/customer/1"))
+                .andExpect(jsonPath("$.id").value(1));
+
+        verify(idempotentRequests)
+                .execute(
+                        eq(new IdempotencyKey("customer-7f3c")),
+                        eq("/customer"),
+                        eq(new CreateCustomerRequest("John Doe")),
+                        eq(CustomerDTO.class),
+                        any());
+    }
+
+    @Test
+    void createAnswersWhatTheIdempotentRequestsReplay() throws Exception {
+        doReturn(ResponseEntity.created(URI.create("/customer/7"))
+                        .header("Idempotent-Replayed", "true")
+                        .body(new CustomerDTO(7L, "John Doe", List.of(), 0)))
+                .when(idempotentRequests)
+                .execute(any(), any(), any(), any(), any());
+
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "customer-7f3c")
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(header().string("Location", "/customer/7"))
+                .andExpect(header().string("Idempotent-Replayed", "true"))
+                .andExpect(jsonPath("$.id").value(7))
+                .andExpect(jsonPath("$.name").value("John Doe"));
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAnIdempotencyKeyWithASpace() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "has a space")
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"))
+                .andExpect(jsonPath("$.detail").value("Idempotency-Key must be 1 to 255 visible ASCII characters"))
+                .andExpect(jsonPath("$.errors").doesNotExist());
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+        verify(customerService, never()).create(any());
+    }
+
+    @Test
+    void createRejectsAnEmptyIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "")
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"));
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createRejectsAnIdempotencyKeyLongerThanTwoHundredAndFiftyFiveCharacters() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "k".repeat(256))
+                        .content("{\"name\":\"John Doe\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("invalid_idempotency_key"));
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void createValidatesTheBodyBeforeTheIdempotencyKey() throws Exception {
+        mockMvc.perform(post("/customer")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("Idempotency-Key", "has a space")
+                        .content("{\"name\":\"  \"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("validation_failed"))
+                .andExpect(jsonPath("$.errors[0].field").value("name"));
+        verify(idempotentRequests, never()).execute(any(), any(), any(), any(), any());
+    }
 
     @Test
     void createReturnsCreatedCustomer() throws Exception {

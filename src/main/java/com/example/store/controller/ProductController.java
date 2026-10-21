@@ -2,9 +2,11 @@ package com.example.store.controller;
 
 import com.example.store.dto.CreateProductRequest;
 import com.example.store.dto.CursorRequest;
+import com.example.store.dto.IdempotencyKey;
 import com.example.store.dto.ListResponse;
 import com.example.store.dto.PageResponse;
 import com.example.store.dto.ProductDTO;
+import com.example.store.service.IdempotentRequests;
 import com.example.store.service.ProductService;
 
 import jakarta.validation.Valid;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +38,7 @@ import java.net.URI;
 public class ProductController {
 
     private final ProductService productService;
+    private final IdempotentRequests idempotentRequests;
 
     @GetMapping
     public ListResponse<ProductDTO> getAllProducts(
@@ -54,8 +58,14 @@ public class ProductController {
     }
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<ProductDTO> createProduct(@Valid @RequestBody CreateProductRequest request) {
-        ProductDTO created = productService.create(request);
-        return ResponseEntity.created(URI.create("/products/" + created.id())).body(created);
+    public ResponseEntity<ProductDTO> createProduct(
+            @RequestHeader(name = IdempotencyKey.HEADER, required = false) String idempotencyKey,
+            @Valid @RequestBody CreateProductRequest request) {
+        return idempotentRequests.execute(
+                IdempotencyKey.fromHeader(idempotencyKey), "/products", request, ProductDTO.class, () -> {
+                    ProductDTO created = productService.create(request);
+                    return ResponseEntity.created(URI.create("/products/" + created.id()))
+                            .body(created);
+                });
     }
 }
