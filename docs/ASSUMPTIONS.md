@@ -15,7 +15,7 @@ delivered.
   (`docs/DESIGN.md`, Testing).
 - The service is assumed to run behind an authenticating gateway; see ADR 0002 for why
   authentication is deferred and what is shipped in the meantime. The resource-server phase is
-  [issue #70](https://github.com/neeleshambally/store/issues/70), due before 2027-03-31.
+  [issue #70](https://github.com/NeeleshRambally/store/issues/70), due before 2027-03-31.
 - Configuration fails closed. The base profile has no default for `DB_USERNAME` or
   `DB_PASSWORD` and applies only the context-free Liquibase changesets (`LIQUIBASE_CONTEXTS`
   defaults to `prod`), so an environment that forgets a variable gets no sample credentials
@@ -226,8 +226,8 @@ delivered.
   write was applied) creates a duplicate. That is recorded as a deferral, not an oversight: no
   retrying client is in scope, a correct implementation needs a key store with a TTL and the
   original response to replay, and it is the next API change after authentication (ADR 0002):
-  [issue #71](https://github.com/neeleshambally/store/issues/71) tracks it, due before
-  2027-04-30, after [issue #70](https://github.com/neeleshambally/store/issues/70), because a key
+  [issue #71](https://github.com/NeeleshRambally/store/issues/71) tracks it, due before
+  2027-04-30, after [issue #70](https://github.com/NeeleshRambally/store/issues/70), because a key
   is unique only within one client's requests.
 - `/customer` and `/order` stay singular to match the original README; `/products` will be
   plural because the task names it so. The inconsistency is acknowledged rather than silently
@@ -760,15 +760,15 @@ delivered.
   version in `DependencyOverridesTest`), reviewed weekly through the Dependabot pull requests
   and removed at the upgrade; the two Framework 6 advisories without a 6.x fix are time-boxed
   exceptions (ADR 0004). The upgrade to Spring Boot 4.1.x is tracked as
-  [issue #57](https://github.com/neeleshambally/store/issues/57), due before the 2027-01-31
+  [issue #57](https://github.com/NeeleshRambally/store/issues/57), due before the 2027-01-31
   expiry of those exceptions. An SBOM is produced for every build so the deployed dependency
   set is auditable, for a bounded window: a run keeps its `sbom` artifact for 90 days
   (`retention-days: 90`; the repository's artifact retention is 90 days, and should that
   setting drop below 90 the action uses the setting and logs a warning), and GitLab keeps
   `sbom.cdx.json` as long (`expire_in: 90 days`). For an older image the SBOM is made again
   from the pushed digest: `docker login ghcr.io` with a token that carries `read:packages`,
-  then `docker buildx imagetools inspect ghcr.io/neeleshambally/store:sha-<short sha>` prints
-  the digest and `syft ghcr.io/neeleshambally/store@sha256:<digest> -o spdx-json` describes
+  then `docker buildx imagetools inspect ghcr.io/neeleshrambally/store:sha-<short sha>` prints
+  the digest and `syft ghcr.io/neeleshrambally/store@sha256:<digest> -o spdx-json` describes
   that image. The SBOM is not bound to the digest as a signed attestation, because GitHub
   offers artifact attestations on the Free, Pro and Team plans for public repositories only,
   and this repository is a private one on the Free plan. The data generator's one dependency

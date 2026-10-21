@@ -26,11 +26,11 @@ web test and provide no actual protection.
   as a non-root user.
 - A later phase adds `spring-boot-starter-oauth2-resource-server` with JWT validation, scope
   based authorisation (for example `orders:write` on `POST /order`). It is tracked as
-  [issue #70](https://github.com/neeleshambally/store/issues/70), due before 2027-03-31, after
-  the Spring Boot 4.1 upgrade of [issue #57](https://github.com/neeleshambally/store/issues/57),
+  [issue #70](https://github.com/NeeleshRambally/store/issues/70), due before 2027-03-31, after
+  the Spring Boot 4.1 upgrade of [issue #57](https://github.com/NeeleshRambally/store/issues/57),
   so that the filter chain is written once, on the Spring Security line that Boot 4.1 manages.
   The `Idempotency-Key` support that the `POST`s lack (`docs/ASSUMPTIONS.md`, API contract)
-  follows it as [issue #71](https://github.com/neeleshambally/store/issues/71), due before
+  follows it as [issue #71](https://github.com/NeeleshRambally/store/issues/71), due before
   2027-04-30, because a key is unique only within one client's requests and the service has no
   client identity until that phase.
 - Request bodies are bounded by the service itself, not only by the gateway: a `POST`'s JSON
