@@ -31,6 +31,14 @@ class FailClosedConfigurationTest {
     }
 
     @Test
+    void runtimeRoleOfTheGrantChangesetsIsStoreApp() {
+        StandardEnvironment environment = environmentWith(Map.of());
+
+        assertThat(environment.getProperty("spring.liquibase.parameters.runtimeRole"))
+                .isEqualTo("store_app");
+    }
+
+    @Test
     void localProfileIsTheReadmePath() {
         StandardEnvironment environment = localProfileEnvironment();
 

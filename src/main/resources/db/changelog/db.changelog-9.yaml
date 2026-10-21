@@ -1,0 +1,42 @@
+databaseChangeLog:
+  - changeSet:
+      id: 9-idempotency-key
+      author: developer@securitease.com
+      comment: One row per Idempotency-Key and client, holding the fingerprint of the request and the response to replay; the expiry index serves the purge
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: |
+              CREATE TABLE idempotency_key (
+                  client_id VARCHAR(255) NOT NULL,
+                  idempotency_key VARCHAR(255) NOT NULL,
+                  request_fingerprint CHAR(64) NOT NULL,
+                  request_path VARCHAR(255) NOT NULL,
+                  status VARCHAR(16) NOT NULL,
+                  response_status SMALLINT,
+                  response_location VARCHAR(512),
+                  response_body TEXT,
+                  created_at TIMESTAMPTZ NOT NULL,
+                  expires_at TIMESTAMPTZ NOT NULL,
+                  CONSTRAINT pk_idempotency_key PRIMARY KEY (client_id, idempotency_key)
+              );
+              CREATE INDEX idx_idempotency_key_expires_at ON idempotency_key (expires_at);
+      rollback:
+        - sql:
+            sql: DROP TABLE IF EXISTS idempotency_key;
+  - changeSet:
+      id: 9-idempotency-key-runtime-grants
+      author: developer@securitease.com
+      comment: The runtime role completes, releases and purges keys, so it needs UPDATE and DELETE on this one table; skipped where the role does not exist
+      preConditions:
+        - onFail: MARK_RAN
+        - sqlCheck:
+            expectedResult: 1
+            sql: SELECT count(*) FROM pg_roles WHERE rolname = '${runtimeRole}'
+      changes:
+        - sql:
+            dbms: postgresql
+            sql: GRANT UPDATE, DELETE ON idempotency_key TO ${runtimeRole};
+      rollback:
+        - sql:
+            sql: REVOKE UPDATE, DELETE ON idempotency_key FROM ${runtimeRole};
