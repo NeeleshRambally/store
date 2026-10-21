@@ -21,8 +21,9 @@ info:
     the delivered 1.0, 2.1.0 adds the code database_timeout, 3.0.0 bounds page at 21474836,
     3.1.0 adds the optional Idempotency-Key request header and the Idempotent-Replayed response
     header on the three POSTs with the codes invalid_idempotency_key, idempotency_key_reused and
-    idempotency_request_in_progress, and docs/ASSUMPTIONS.md ("Contract version and client
-    migration") lists what a client of an earlier version has to change.
+    idempotency_request_in_progress (a 3.0.0 client that sends no key needs no change), and
+    docs/ASSUMPTIONS.md ("Contract version and client migration") lists what a client of an
+    earlier version has to change.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
