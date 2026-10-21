@@ -34,8 +34,11 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -622,6 +625,99 @@ class OpenApiContractIT extends AbstractIntegrationTest {
                 arguments("/products", Map.of("id", 5, "description", "Contract id product")));
     }
 
+    @ParameterizedTest(name = "POST {0}")
+    @MethodSource("keyedCreations")
+    void aRepeatWithTheSameIdempotencyKeyMatchesTheContract(String path, Map<String, Object> body) {
+        String key = UUID.randomUUID().toString();
+
+        Interaction first = post(path, body, key);
+        Interaction repeat = post(path, body, key);
+
+        assertThat(first.status()).isEqualTo(HttpStatus.CREATED);
+        assertThat(first.headers().getFirst("Idempotent-Replayed")).isNull();
+        assertConforms(first);
+        assertThat(repeat.status()).isEqualTo(HttpStatus.CREATED);
+        assertThat(repeat.headers().getFirst("Idempotent-Replayed")).isEqualTo("true");
+        assertThat(repeat.headers().getLocation()).isEqualTo(first.headers().getLocation());
+        assertThat(repeat.json()).isEqualTo(first.json());
+        assertConforms(repeat);
+    }
+
+    static Stream<Arguments> keyedCreations() {
+        return Stream.of(
+                arguments(
+                        "/order",
+                        Map.of("description", "Contract keyed order", "customerId", 1, "productIds", List.of(1))),
+                arguments("/customer", Map.of("name", "Contract keyed customer")),
+                arguments("/products", Map.of("description", "Contract keyed product")));
+    }
+
+    @Test
+    void aReplayedResponseWithAnotherReplayedValueIsRejectedByTheContract() {
+        Interaction created = post(
+                "/customer",
+                Map.of("name", "Contract replay value"),
+                UUID.randomUUID().toString());
+        Response tampered = SimpleResponse.Builder.status(HttpStatus.CREATED.value())
+                .withContentType(MediaType.APPLICATION_JSON_VALUE)
+                .withHeader("Location", created.headers().getLocation().toString())
+                .withHeader("X-Request-Id", "synthetic")
+                .withHeader("Idempotent-Replayed", "yes")
+                .withBody(created.entity().getBody())
+                .build();
+
+        ValidationReport report = VALIDATOR.validateResponse("/customer", Request.Method.POST, tampered);
+
+        assertThat(report.getMessages()).singleElement().satisfies(message -> {
+            assertThat(message.getKey()).startsWith("validation.response.header");
+            assertThat(message.getMessage()).contains("(\"yes\") not found in enum (possible values: [\"true\"])");
+        });
+    }
+
+    @Test
+    void invalidIdempotencyKeyResponseEqualsTheDocumentedExample() {
+        Interaction interaction = post("/customer", Map.of("name", "Contract spaced key"), "has a space");
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(interaction.json()).isEqualTo(example("BadRequest", "invalidIdempotencyKey"));
+        assertThat(VALIDATOR.validateRequest(interaction.request()).hasErrors()).isTrue();
+        assertResponseConforms(interaction);
+    }
+
+    @Test
+    void reusedIdempotencyKeyResponseEqualsTheDocumentedExample() {
+        String key = UUID.randomUUID().toString();
+        assertThat(post("/customer", Map.of("name", "Contract first body"), key).status())
+                .isEqualTo(HttpStatus.CREATED);
+
+        Interaction interaction = post("/customer", Map.of("name", "Contract second body"), key);
+
+        assertThat(interaction.status()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(interaction.json()).isEqualTo(example("UnprocessableEntity", "idempotencyKeyReused"));
+        assertConforms(interaction);
+    }
+
+    @Test
+    void requestInProgressResponseEqualsTheDocumentedExample() throws Exception {
+        String key = UUID.randomUUID().toString();
+        Map<String, Object> body = Map.of("name", "Contract held customer");
+        CompletableFuture<Interaction> held;
+        Interaction repeat;
+        try (TableLock lock = TableLock.on(container, "customer")) {
+            held = lock.holdWaiting(() -> post("/customer", body, key));
+            repeat = post("/customer", body, key);
+        }
+
+        assertThat(repeat.status()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(repeat.headers().getFirst("Retry-After")).isEqualTo("1");
+        assertThat(repeat.json()).isEqualTo(example("Conflict", "requestInProgress"));
+        assertConforms(repeat);
+        assertThat(held).succeedsWithin(Duration.ofSeconds(30)).satisfies(first -> {
+            assertThat(first.status()).isEqualTo(HttpStatus.CREATED);
+            assertConforms(first);
+        });
+    }
+
     @Test
     void oversizedOrderMatchesTheContract() {
         Interaction interaction =
@@ -1022,6 +1118,13 @@ class OpenApiContractIT extends AbstractIntegrationTest {
     private Interaction post(String path, Object body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        return exchange(HttpMethod.POST, path, Map.of(), headers, toJson(body));
+    }
+
+    private Interaction post(String path, Object body, String idempotencyKey) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("Idempotency-Key", idempotencyKey);
         return exchange(HttpMethod.POST, path, Map.of(), headers, toJson(body));
     }
 

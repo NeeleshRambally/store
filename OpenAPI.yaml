@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: store
-  version: '3.0.0'
+  version: '3.1.0'
   description: >-
     A simple store. Every error handled by the service's Spring MVC layer on the API port is an
     RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
@@ -18,9 +18,11 @@ info:
     know and handle it by the status, because adding a code is a minor version of this contract;
     removing or renaming one is a major version. The version is that of the contract itself,
     independent of the version of the service that implements it; 2.0.0 is incompatible with
-    the delivered 1.0, 2.1.0 adds the code database_timeout, 3.0.0 bounds page at 21474836, and
-    docs/ASSUMPTIONS.md ("Contract version and client migration") lists what a client of an
-    earlier version has to change.
+    the delivered 1.0, 2.1.0 adds the code database_timeout, 3.0.0 bounds page at 21474836,
+    3.1.0 adds the optional Idempotency-Key request header and the Idempotent-Replayed response
+    header on the three POSTs with the codes invalid_idempotency_key, idempotency_key_reused and
+    idempotency_request_in_progress, and docs/ASSUMPTIONS.md ("Contract version and client
+    migration") lists what a client of an earlier version has to change.
   contact:
     name: SecuritEase Dev
     url: 'https://www.securitease.com'
@@ -85,12 +87,16 @@ paths:
       summary: Create Order
       tags:
         - store
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created
+          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
           headers:
             Location:
               $ref: '#/components/headers/Location'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
           content:
@@ -109,6 +115,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/ServerError'
         '503':
@@ -231,12 +239,16 @@ paths:
       summary: Create Customer
       tags:
         - store
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created
+          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
           headers:
             Location:
               $ref: '#/components/headers/Location'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
           content:
@@ -253,6 +265,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/ServerError'
         '503':
@@ -359,12 +373,16 @@ paths:
       summary: Create Product
       tags:
         - store
+      parameters:
+        - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created
+          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
           headers:
             Location:
               $ref: '#/components/headers/Location'
+            Idempotent-Replayed:
+              $ref: '#/components/headers/IdempotentReplayed'
             X-Request-Id:
               $ref: '#/components/headers/RequestId'
           content:
@@ -381,6 +399,8 @@ paths:
           $ref: '#/components/responses/PayloadTooLarge'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/UnprocessableEntity'
         '500':
           $ref: '#/components/responses/ServerError'
         '503':
@@ -453,6 +473,32 @@ components:
       schema:
         type: string
         example: W/"0b9f4a2c7d8e1f3a5b6c7d8e9f0a1b2c3"
+    idempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: >-
+        A key the client chooses for this request: 1 to 255 visible ASCII characters (no space, no
+        control character, nothing outside ASCII), compared exactly, so a key written in another
+        case is another key; use a random value such as a UUID. A POST sent with a key is stored
+        with a fingerprint of its path and bound body and with its response for the key's lifetime
+        (24 hours by default, IDEMPOTENCY_TTL), and a repeat of the same request with the same key
+        within that time is answered with the stored status, Location and body, marked
+        Idempotent-Replayed: true, without creating anything again; the same request is the same
+        path and the same bound body, whatever its whitespace or property order. The same key sent
+        with another path or body is rejected with 422 (idempotency_key_reused), and a repeat that
+        arrives while the first request is still being processed with 409
+        (idempotency_request_in_progress) and Retry-After: 1. A request that fails is not stored,
+        so its key may be sent again with a corrected request. A key is scoped to the calling
+        client; until the service authenticates callers (ADR 0002) every caller is one client,
+        which is why keys must be random. A value outside the pattern is rejected with 400
+        (invalid_idempotency_key). Without the header the POST behaves as it always did.
+      schema:
+        type: string
+        pattern: '^[\x21-\x7E]{1,255}$'
+        minLength: 1
+        maxLength: 255
+        example: 7f3c2a1e-9b4d-4c6e-8a2f-1d5e6f7a8b9c
     page:
       name: page
       in: query
@@ -616,11 +662,21 @@ components:
         example: /order/10001
     RetryAfter:
       description: >-
-        Seconds after which the request may be retried; sent with every 503
+        Seconds after which the request may be retried; sent with every 503, and with the 409 of
+        a request whose Idempotency-Key is still being processed (always 1 there)
       required: true
       schema:
         type: string
         example: '5'
+    IdempotentReplayed:
+      description: >-
+        Present, with the value true, on a 201 that replays the stored response of the earlier
+        request with the same Idempotency-Key; absent when this request created the resource
+      required: false
+      schema:
+        type: string
+        enum:
+          - 'true'
     ETag:
       description: >-
         Weak validator of the response body (W/"..."), on every 200 and 304 of a GET; send it
@@ -652,7 +708,8 @@ components:
       description: >-
         The request is malformed, has a query string that cannot be parsed in full, fails
         validation, repeats a query parameter other than sort, sorts by a property outside the
-        documented list, combines after with page or sort, or combines customerId with productId
+        documented list, combines after with page or sort, combines customerId with productId, or
+        carries an Idempotency-Key outside its pattern
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -688,6 +745,15 @@ components:
                 detail: customerId and productId cannot be combined
                 instance: /order
                 code: conflicting_filters
+            invalidIdempotencyKey:
+              summary: POST /customer with an Idempotency-Key holding a space
+              value:
+                type: about:blank
+                title: Bad Request
+                status: 400
+                detail: Idempotency-Key must be 1 to 255 visible ASCII characters
+                instance: /customer
+                code: invalid_idempotency_key
     NotFound:
       description: >-
         The referenced resource does not exist: the id in the path, or the customer or a
@@ -752,8 +818,48 @@ components:
                 code: not_acceptable
     Conflict:
       description: >-
-        The write conflicts with existing data (a database constraint rejected it); the body
-        is a problem detail without internal details
+        Either the write conflicts with existing data (a database constraint rejected it; code
+        conflict), or a request with the same Idempotency-Key is still being processed (code
+        idempotency_request_in_progress, with Retry-After: 1; repeat the request after that delay
+        to receive its stored response); the body is a problem detail without internal details
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: >-
+            Sent with the code idempotency_request_in_progress only, always 1; absent with the
+            code conflict
+          required: false
+          schema:
+            type: string
+            example: '1'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+          examples:
+            constraintViolation:
+              summary: POST /order whose insert a database constraint rejects
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: The request conflicts with existing data
+                instance: /order
+                code: conflict
+            requestInProgress:
+              summary: POST /customer repeated with its Idempotency-Key while the first request is still running
+              value:
+                type: about:blank
+                title: Conflict
+                status: 409
+                detail: A request with this Idempotency-Key is still in progress
+                instance: /customer
+                code: idempotency_request_in_progress
+    UnprocessableEntity:
+      description: >-
+        The Idempotency-Key was already used, within its lifetime, for a request with another path
+        or body; a key identifies one request, so a new request needs a new key
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -761,13 +867,16 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/ProblemDetail'
-          example:
-            type: about:blank
-            title: Conflict
-            status: 409
-            detail: The request conflicts with existing data
-            instance: /order
-            code: conflict
+          examples:
+            idempotencyKeyReused:
+              summary: POST /customer with the Idempotency-Key of an earlier request and another name
+              value:
+                type: about:blank
+                title: Unprocessable Entity
+                status: 422
+                detail: Idempotency-Key was already used with a different request
+                instance: /customer
+                code: idempotency_key_reused
     PayloadTooLarge:
       description: >-
         The application/json request body exceeds the configured bound (65536 bytes by default,
@@ -837,7 +946,9 @@ components:
         instead. database_timeout means that a statement was cancelled, normally at the
         statement timeout (10 s by default) or at the deadline of the transaction timeout, or
         that a query came after that deadline. On a POST the write may or may not have been
-        applied (the POSTs are not idempotent)
+        applied; a POST sent with an Idempotency-Key can be repeated with the same key and body,
+        and the repeat replays the stored response when the first attempt was committed and runs
+        the request afresh when it was not
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -908,6 +1019,10 @@ components:
             insert is committed is an internal_error instead), or the transaction's deadline had
             passed before a read by id or a POST's insert. database_timeout: a database
             statement was cancelled, or a query came after the transaction's deadline.
+            invalid_idempotency_key: the Idempotency-Key header is outside its pattern.
+            idempotency_key_reused: the Idempotency-Key was already used for a request with
+            another path or body. idempotency_request_in_progress: a request with the same
+            Idempotency-Key is still being processed; retry after the Retry-After delay.
             internal_error: an unexpected failure. A client must accept a code that is not
             listed here (see the description of the API).
           enum:
@@ -926,6 +1041,9 @@ components:
             - method_not_allowed
             - service_unavailable
             - database_timeout
+            - invalid_idempotency_key
+            - idempotency_key_reused
+            - idempotency_request_in_progress
             - internal_error
         errors:
           type: array
