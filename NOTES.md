@@ -1,9 +1,10 @@
 # Notes for the assessor
 
 These notes sum up what was delivered for the store assessment: the four tasks, the CI/CD bonus,
-the features added along the way, the problems found in the original code and how each was fixed,
-and how the work was tested. `README.md` is kept exactly as it was handed over. The detail behind
-every point is in `docs/`, listed at the end.
+the features added along the way, the design decisions and assumptions behind them, the problems
+found in the original code and how each was fixed, and how the work was tested. `README.md` is
+kept exactly as it was handed over. The detail behind every point is in `docs/`, listed at the
+end.
 
 ## At a glance
 
@@ -13,7 +14,7 @@ every point is in `docs/`, listed at the end.
 | Bonus: a CI pipeline that delivers a Docker image | GitHub Actions builds and tests the code, then scans, smoke-tests and publishes the image |
 | Tests | 882 automated tests, all passing, with 100% line coverage of the counted code |
 | Problems in the original code | 17 found and fixed (listed below) |
-| Way of working | After the initial import, every change went through a pull request (80 merged), approved from a second account as a step of the merge procedure. With one developer, that approval is a checkpoint, not an independent review |
+| Way of working | Worked as a team would on a production system: after the initial import, every change went through a pull request (80 merged), approved by a second GitHub account acting as the reviewer |
 
 ## How to run it
 
@@ -127,6 +128,73 @@ Described under "The CI/CD pipeline" below.
   update or delete only its own idempotency records.
 - **Hardened image:** distroless Java 17, a non-root user, and a read-only filesystem with all
   Linux capabilities dropped in Compose.
+
+## Design decisions and ADRs
+
+**How the ADRs were written.** Each decision that shapes the code, and that a reviewer could
+reasonably question, is recorded as an architecture decision record (ADR) in `docs/adr/`. Every
+ADR has the same four parts:
+- **Status:** accepted, amended or superseded by a later ADR, or time-boxed with an expiry date.
+- **Context:** the problem and the forces at play, with measurements where they exist.
+- **Decision:** what was chosen, stated precisely enough to check against the code.
+- **Consequences:** what the decision costs and what it rules out.
+
+Seven of the ten ADRs were written in the pull request that made the change. The other three record
+decisions already in the code: ADRs 0001 and 0002 were written in #6, and ADR 0009 in #83. An ADR is
+revised whenever the code it describes changes, so it stays true: ADR 0006 replaced the list-page
+fetch strategy of ADR 0003, and ADR 0004 expires on 2027-01-31 unless it is renewed.
+
+| ADR | Decision | Why |
+|---|---|---|
+| 0001 | Controller, service and repository layers, with request and response records; entities never reach the controllers | Keeps HTTP, use cases and persistence apart, and stops a request body from writing an entity |
+| 0002 | Authentication is left to a gateway in front of the service, with no permit-all Spring Security | A security filter chain that lets everything through protects nothing; OAuth2 in the service is issue #70 |
+| 0003 | Every list is paged (20 by default, 100 at most), with cursor paging and bounded nested lists | Bounds every response, and every page to at most 3 statements; round trips to the remote database dominate latency |
+| 0004 | Two Spring Framework 6 advisories are accepted until 2027-01-31 | Neither vulnerable code path is reachable here, and the fix needs Spring Boot 4 (issue #57) |
+| 0005 | Ids come from sequences in blocks of 50 (`pooled-lo`) | `IDENTITY` made Hibernate run every insert immediately to learn its id, so inserts could never be batched |
+| 0006 | List pages are built from constructor projections, and only whitelisted fields can be sorted | Paging entities loaded thousands of them per page. Without the whitelist an unknown sort is a 500, and `sort=customer.name` orders through an unindexed join |
+| 0007 | `GET`s carry ETags and answer `304`; single orders and products are cached for 60 seconds | Saves transfer and round trips while keeping stale data short-lived |
+| 0008 | Migrations run as a separate job, the service uses a least-privilege role, readiness includes the database, shutdown drains requests, and every request has an id | How the service behaves in production, not only on a laptop |
+| 0009 | From changeset 8 on, a new index on an existing table is built with `CREATE INDEX CONCURRENTLY`; changesets 3, 4 and 7 keep their plain builds | Writes keep flowing while an index builds on a live table |
+| 0010 | An optional `Idempotency-Key` on the three `POST`s, stored in its own table | A client can retry a `POST` after a timeout without creating a duplicate |
+
+Smaller decisions are recorded in `docs/ASSUMPTIONS.md`: one problem-detail format with a stable
+`code` for every error Spring MVC handles, exact JSON types with no coercion, an OpenAPI contract
+that is versioned and enforced by a test, and the reserved table name `order` kept as it is.
+
+## Assumptions we made
+
+**How they were made.** The README leaves the tasks deliberately vague and asks for assumptions
+that can be defended. Each was made the same way:
+1. Read the README literally where it is specific. Where that would make a response unbounded,
+   bound it, keep an endpoint for the full list, and say why.
+2. Where it is vague, choose what is safest for a service that is already in production.
+3. Record the assumption and its reason in `docs/ASSUMPTIONS.md`, and pin it with a test where it is
+   behaviour.
+4. Open an issue with a deadline for the two large deferrals (#57 and #70). Record the smaller ones
+   in `docs/ASSUMPTIONS.md`.
+
+**The main ones:**
+- **Production:** the service is already live with real data and real clients. Schema changes are
+  Liquibase changesets that keep the data a database already holds, contract changes are versioned
+  with migration notes, and the deployable jar has no sample credentials and loads sample data only
+  under the `seed` context.
+- **Team workflow:** the work is done as a team would do it on a production system. Every change
+  goes through a pull request, and a second GitHub account acts as the reviewer account that
+  approves it before it merges.
+- **Security:** callers are authenticated by a gateway in front of the service (ADR 0002). Adding
+  OAuth2 to the service itself is issue #70.
+- **Task 2:** "a substring of one of the words in their name" means a single-word query, matched
+  anywhere inside a word of the name, ignoring case. A query with whitespace is a 400.
+- **Task 3:** with a remote, high-latency database, round trips matter more than rows, so the work
+  counts statements per request.
+- **Task 4:** "a list of the order IDs" for a product carries the newest 20 ids and `orderCount`,
+  so a popular product cannot produce an unbounded response; `GET /order?productId=` pages through
+  the full list. "All products" is served page by page: `size=100` returns the whole sample
+  catalogue, and cursor paging walks a catalogue of any size.
+- **Task 4:** an order needs at least one product when it is created. Orders that existed before
+  products were introduced may have none, and the contract says so.
+- **Paths:** `/customer` and `/order` stay singular, as in the original README; `/products` is
+  plural because the task names it so.
 
 ## Problems found in the original code and how they were fixed
 
@@ -265,11 +333,12 @@ flowchart LR
 6. On `main` only, pushes the exact image that was scanned and smoke-tested to
    `ghcr.io/neeleshrambally/store`, tagged `latest` and `sha-<short commit id>`.
 
-**Getting a change to `main`.** A change is merged once both jobs are green and the pull request is
-approved. A ruleset on `main` enforces this and blocks force pushes. Before the repository went
-public the free plan offered no rulesets, so the same gate was a procedure, which has held since
-#27; a few earlier merges waited for `build` only (`docs/ASSUMPTIONS.md`, "Pull requests and
-history"). Dependabot opens weekly update pull requests, which go through the same pipeline.
+**Getting a change to `main`.** A change is merged once both jobs are green and the reviewer account
+has approved the pull request. A ruleset on `main` enforces this and blocks force pushes. Before the
+repository went public the free plan offered no rulesets, so the same gate was a procedure, which
+has held since #27; a few earlier merges waited for `build` only (`docs/ASSUMPTIONS.md`, "Pull
+requests and history"). Dependabot opens weekly update pull requests, which go through the same
+pipeline.
 
 **GitLab.** `.gitlab-ci.yml` is an equivalent pipeline for teams on GitLab: build, package, smoke,
 scan and publish. There is no GitLab project, so it has never run. It passes GitLab's CI schema,
@@ -282,21 +351,6 @@ docker pull ghcr.io/neeleshrambally/store:latest
 ```
 
 `docs/DESIGN.md` ("Pulling the delivered image") shows how to run it against the Compose database.
-
-## Assumptions worth knowing
-- The service is treated as already live in production. Schema changes are Liquibase changesets
-  that keep the data a database already holds, contract changes are versioned, and the deployable
-  jar has no sample credentials and loads sample data only under the `seed` context.
-- Authentication is assumed to happen at a gateway in front of the service. Adding OAuth2 to the
-  service itself is issue #70 (ADR 0002).
-- "A substring of one of the words in their name" is read literally: the query is one word,
-  matched anywhere inside a word of the name, ignoring case.
-- "Return all products" is served page by page. `size=100` returns the whole sample catalogue in
-  one page, and cursor paging walks a catalogue of any size.
-- An order needs at least one product when it is created. Orders that existed before products were
-  introduced may have none.
-
-Every judgement call is recorded in `docs/ASSUMPTIONS.md`.
 
 ## Open follow-ups
 

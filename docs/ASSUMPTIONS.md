@@ -643,12 +643,12 @@ actions, base images and Gradle distribution the pipeline downloads are pinned.
 
 ### Pull requests and history
 
-- A change is merged once both CI jobs are green and a second account has approved it. Since the
-  repository went public on 2026-10-22, a ruleset on `main` enforces this: a pull request, the
+- The work assumes a team on a production system: a change is merged once both CI jobs are green
+  and a second GitHub account, acting as the reviewer account, has approved the pull request. Since
+  the repository went public on 2026-10-22, a ruleset on `main` enforces this: a pull request, the
   `build` and `docker` checks, one approval and rebase merges only, with force pushes and deletion
   blocked. While it was private, the free plan offered no rulesets, so the same gate was a
-  procedure. The approval is posted by the procedure that then merges: a step of it, not an
-  independent review.
+  procedure.
 - The procedure has held from #27 on. Before it a merge waited for `build` only: #7 to #10 merged
   while their `docker` job was still running, #11 after that job failed at set-up (its image was
   neither built nor scanned), and no push run on `main` finished green between #5 and #30.
