@@ -69,6 +69,10 @@ store:
     limit: ${NESTED_ORDERS_LIMIT:20}
   request:
     max-body-bytes: ${REQUEST_MAX_BODY_BYTES:65536}
+  idempotency:
+    ttl: ${IDEMPOTENCY_TTL:PT24H}
+    stale-after: ${IDEMPOTENCY_STALE_AFTER:PT30S}
+    purge-interval: ${IDEMPOTENCY_PURGE_INTERVAL:PT10M}
 
 server:
   shutdown: graceful
