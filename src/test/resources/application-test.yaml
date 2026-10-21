@@ -8,3 +8,6 @@ spring:
 logging:
   level:
     org.hibernate.stat: WARN
+store:
+  idempotency:
+    purge-interval: PT1H
