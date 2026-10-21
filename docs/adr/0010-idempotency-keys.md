@@ -78,7 +78,10 @@ key, and how expired keys are removed.
   the claim takes an expired row over, so an expired key behaves as a fresh one. `IdempotencyKeyPurge`
   deletes the rows whose `expires_at` has passed every `purge-interval` (10 minutes by default,
   `IDEMPOTENCY_PURGE_INTERVAL`) after the same initial delay, in a transaction of its own, logging
-  the count at DEBUG; `@EnableScheduling` lives in `SchedulingConfig`. The test profile sets the
+  the count at DEBUG; `@EnableScheduling` lives in `SchedulingConfig`. Both exist in the serving
+  process only (`@ConditionalOnWebApplication`): the `migrate` job of ADR 0008 runs the same image
+  without a web server and exits because nothing keeps the JVM alive, and a scheduler's thread
+  would, so the job would never complete and `store` would never start. The test profile sets the
   interval to an hour, so no sweep runs inside a test JVM and none can add a statement to a count a
   test pins. The three durations are bound and validated by `IdempotencyProperties`.
 - **The runtime role.** The Compose runtime role `store_app` has `SELECT` and `INSERT` on every
@@ -119,8 +122,9 @@ key, and how expired keys are removed.
   constraint violation release the key; an expired row and a stale `IN_PROGRESS` row are taken
   over; a fresh `IN_PROGRESS` row, a repeat while the first create blocks on a latch and one while
   its insert waits for a table lock are 409s, after which the first request completes and is then
-  replayed; the after-commit listeners still run; keys compare exactly; the purge keeps live rows
-  and the sweep is registered with the configured interval. The slice tests pin the header parsing
+  replayed; the after-commit listeners still run; keys compare exactly; the purge keeps live rows,
+  the sweep is registered with the configured interval, and a process started without a web server
+  registers neither. The slice tests pin the header parsing
   with the component mocked, `IdempotentRequestsTest` the transaction boundaries and the release
   paths with the store mocked, and the Cucumber features the replay on each `POST`, the 422 and the
   400. `scripts/smoke-test.sh` replays a keyed `POST /customer` in both modes.
