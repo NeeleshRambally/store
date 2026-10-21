@@ -156,13 +156,10 @@ key, and how expired keys are removed.
 - A `POST` answered with a 503 or a 500 can now be repeated safely when it was sent with a key:
   the repeat replays the stored response when the first attempt was committed and runs the request
   afresh when it was not, so `docs/DESIGN.md`'s warning that those answers do not say whether the
-  write was applied holds only for unkeyed `POST`s. `docs/DESIGN.md` (that warning in Operations
-  and in the shutdown note, the configuration table without `IDEMPOTENCY_TTL`,
-  `IDEMPOTENCY_STALE_AFTER` and `IDEMPOTENCY_PURGE_INTERVAL`, the runtime role described without
-  its `UPDATE` and `DELETE` on this table, the problem-code table without the three codes, and the
-  contract check said to reach no real 409) and `docs/ASSUMPTIONS.md` (the API-contract bullet
-  that still defers the header, and the contract version section that stops at 3.0.0) describe
-  the service before this ADR and follow it in a separate change.
+  write was applied holds only for unkeyed `POST`s; `docs/DESIGN.md` says so in Operations and
+  lists the header rules, the three settings, the role grant and the three codes, and
+  `docs/ASSUMPTIONS.md` records the behaviour under API contract and the 3.1.0 entry under
+  Contract version and client migration.
 - Until issue #70 lands, the `anonymous` scope means a key is shared by every caller: a client
   that derives keys from its own data (an order number) could collide with another client's, and
   would get a 422 for the other's body or, for the same body, the other's response. Random keys
@@ -173,4 +170,7 @@ key, and how expired keys are removed.
   (ADR 0002).
 - A deployment that renames the runtime role must pass the name as the Liquibase parameter on
   the migration job, or the grant lands on a role that does not exist and the changeset is skipped,
-  after which the first keyed `POST` fails with `permission denied for table idempotency_key`.
+  after which the first keyed `POST` fails with `permission denied for table idempotency_key`. The
+  changeset runs again when the name changes (`runOnChange`), so a rename after a skipped or an
+  earlier run grants the renamed role instead of failing the checksum validation; its rollback
+  revokes only where the role exists.

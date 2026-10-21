@@ -39,7 +39,8 @@ sets every variable explicitly.
 The Compose stack has three services:
 * `postgres`, on 5434 so that the README's 5433 instance can stay up alongside. When its volume is
   first initialised, `scripts/postgres-init/01-roles.sql` creates the runtime role `store_app`,
-  which can only connect, read and insert.
+  which can only connect, read and insert; changeset 9 adds `UPDATE` and `DELETE` on the
+  `idempotency_key` table alone (ADR 0010).
 * `migrate`, which runs the migrations once with the same image
   (`SPRING_MAIN_WEB_APPLICATION_TYPE=none`), as the schema owner `admin` and with the `seed`
   context.
@@ -85,6 +86,9 @@ which the process fails closed (below).
 | `CACHE_TTL` | `60s` | Time an `orders` or `products` entry stays cached (`expireAfterWrite`) |
 | `NESTED_ORDERS_LIMIT` | `20` | Newest orders embedded in each customer and newest order ids in each product (1 to 100); `orderCount` always carries the total |
 | `REQUEST_MAX_BODY_BYTES` | `65536` | Largest JSON body a `POST` accepts (at least 1024); a longer declared `Content-Length`, or a chunked body read past it, is a 413. Also Tomcat's limit for parsing a URL-encoded form (`server.tomcat.max-http-form-post-size`) on both connectors; a multipart body and the body of a `PUT`, `PATCH` or `DELETE` are never read (see API) |
+| `IDEMPOTENCY_TTL` | `PT24H` | How long the stored answer to a `POST` sent with an `Idempotency-Key` is replayed (an ISO 8601 duration, positive); after it the key behaves as a new one (see API) |
+| `IDEMPOTENCY_STALE_AFTER` | `PT30S` | How long a key claimed by a request that never finished (a process killed, a connection lost) stays reserved before the next request with it may take it over. It must cover the time a keyed `POST` can hold its claim, the 5 s connection wait plus `TX_TIMEOUT` plus `DB_STATEMENT_TIMEOUT` (30 s at the defaults): a shorter window stops start-up, and with either timeout disabled the check only warns |
+| `IDEMPOTENCY_PURGE_INTERVAL` | `PT10M` | Interval of the sweep that deletes expired key rows (positive); it runs in the serving process only, never in the `migrate` job |
 | `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 ### Pool and threads
@@ -245,33 +249,38 @@ Real requests cover these statuses:
 | Status | Reached by |
 |---|---|
 | 200 | Every list page (offset, cursor and the two `/order` filters) and every by-id read |
-| 201 | Each `POST` |
+| 201 | Each `POST`, and each `POST` repeated with its `Idempotency-Key`, answered from the store with `Idempotent-Replayed: true` |
 | 400 (body) | Each `POST` with a rejected body: a whitespace-only `name`, a repeated product id, a fractional `customerId`, a numeric `description`, a NUL in a string, a client-supplied `id`, a repeated property, content after the object |
 | 400 (input rules) | The input rules the API section gives for ids, sort properties, cursors, pages, sizes, filters and search words, including a `size` beyond the 32-bit range, a `customerId` of 0 or in fullwidth digits and a `name` containing a NUL. A no-break space and a word containing U+0085 and U+2028 are accepted by server and specification alike |
 | 404 | An unknown order, product and customer, and an order for an unknown customer |
 | 406 | Each of the nine operations with `Accept: application/xml` |
 | 413 | An oversized body |
 | 415 | A `POST /order` sent as `text/plain` |
+| 400 (header) | Each `POST` with an `Idempotency-Key` that is empty, too long or not visible ASCII |
+| 409 | A keyed `POST /customer` repeated while the first request with that key waits for a table lock (`TableLock`) |
+| 422 | An `Idempotency-Key` sent again with another body |
 | 304 | A conditional `GET /order/{id}`, `GET /products/{id}`, `GET /customer/{id}` and `GET /customer` page |
 | 503 | A `GET /order?size=5` whose statement is cancelled, or whose session is terminated, while it waits for a lock a second connection holds on `order` (`TableLock`) |
 
 What real requests cannot reach is covered another way:
 * 405: it cannot be declared per operation, because the method is absent from the contract, so
   `info.description` states it and the smoke test sends `DELETE /order/1`.
-* 409, 500 and 503 bodies: validated synthetically against `POST /order` and `GET /order`. Nothing
-  the check sends reaches a 409 or a 500 (there are no unique constraints; `DatabaseFailureIT`
-  produces the one real 500, a `POST` whose session is terminated at commit), and the real 503s are
-  captured on a `GET` only.
+* The constraint 409, the 500 and the 503 bodies: validated synthetically against `POST /order` and
+  `GET /order`. Nothing the check sends reaches the constraint 409 or a 500 (there are no unique
+  constraints; `DatabaseFailureIT` produces the one real 500, a `POST` whose session is terminated
+  at commit), and the real 503s are captured on a `GET` only. The other 409, a keyed `POST`
+  repeated while its first request still runs, is reached for real (above).
 * Required headers (`X-Request-Id` on every response, `Location` on every 201, `Retry-After` on
-  every 503, `ETag` and `Cache-Control` on every 200 and 304 of a `GET`): enforced by the validator;
-  synthetic responses without them pin that.
+  every 503 and on the in-progress 409, `ETag` and `Cache-Control` on every 200 and 304 of a
+  `GET`): enforced by the validator; synthetic responses without them pin that.
 * `additionalProperties: false`: the three request schemas declare it themselves, because the
   validator injects it into every schema that lacks it while a client built from the specification
   would not. A second validator that injects nothing checks that each `POST` schema rejects an `id`
   on its own.
 * Named examples (`unknownSortProperty`, `cursorWithPage`, `combinedFilters`, `unknownOrder`,
-  `unknownProduct`, `unknownCustomer`, `orderAsXml`, `serviceUnavailable`, `databaseTimeout`):
-  compared with the responses to the requests their summaries name.
+  `unknownProduct`, `unknownCustomer`, `orderAsXml`, `serviceUnavailable`, `databaseTimeout`,
+  `invalidIdempotencyKey`, `requestInProgress`, `idempotencyKeyReused`): compared with the
+  responses to the requests their summaries name.
 
 ## Continuous integration
 `.github/workflows/ci.yml` runs on every push to `main` and on every pull request. `build`
@@ -308,8 +317,9 @@ commit, not the jar bytes.
 ### The smoke test
 `scripts/smoke-test.sh` (POSIX `sh`, needs only `curl`) checks that:
 * readiness reports `UP` on 8081 within 120 seconds, with the `db` component;
-* 8080 serves `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page, answers 413 to
-  a 70,000 byte body and 404 to `/actuator/health`;
+* 8080 serves `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page, replays a
+  `POST /customer` repeated with its `Idempotency-Key` (same id, `Idempotent-Replayed: true`), and
+  answers 413 to a 70,000 byte body and 404 to `/actuator/health`;
 * liveness on 8081 answers 200.
 
 The optional third argument `compose` adds checks that use `docker compose` and `docker inspect` and
@@ -322,7 +332,8 @@ must run from the repository root:
   so run the script with the value the stack was started with);
 * `store_app` can `select count(*) from customer` through `psql`, while `create table` and `update
   customer` as `store_app` fail with `permission denied for schema public` and `permission denied
-  for table customer`;
+  for table customer`, and `has_table_privilege` reports `UPDATE` and `DELETE` on `idempotency_key`
+  for the role;
 * `DELETE /order/1` is a 405 problem detail;
 * `GET /order/1` with `X-Request-Id: smoke-<pid>` leaves an ECS JSON access line in the `store`
   output with the `com.example.store.access` logger, `"requestId":"smoke-<pid>"`, the route
@@ -333,8 +344,8 @@ Run it locally with:
 ```shell
 docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
 ```
-A local run leaves the `Smoke Test` customer in the Compose volume; `docker compose down -v`
-clears it.
+A local run leaves the `Smoke Test` and `Smoke Replay` customers in the Compose volume;
+`docker compose down -v` clears them.
 
 ### Build cache and time limits
 The image build warms its Gradle cache with `./gradlew resolveDependencies`, a task in
@@ -462,8 +473,10 @@ group, so two pipelines never push at once. Thirteen details differ from GitHub:
 ## Data model
 An order has an id and a description, belongs to the customer that placed it, and contains one
 or more products. A customer has an id, a name, and zero or more orders. A product has an id
-and a description and can appear in any number of orders. Beyond the primary keys, the schema
-has these indexes:
+and a description and can appear in any number of orders. An `idempotency_key` row records one
+`POST` sent with an `Idempotency-Key`, keyed by client and key: the fingerprint of the request
+and the response to replay, until the row expires (ADR 0010). Beyond the primary keys, the
+schema has these indexes:
 
 | Index | On | Serves |
 |---|---|---|
@@ -472,6 +485,7 @@ has these indexes:
 | `idx_order_product_product_id_order_id` | `order_product (product_id, order_id)`, beside the primary key on `(order_id, product_id)` | The `productId` filter, and a product's order ids in id order |
 | `idx_customer_name_trgm` | `lower(customer.name)` with trigrams (a GIN index from `pg_trgm`) | The case-insensitive substring search on `name` |
 | `idx_order_description_id`, `idx_product_description_id`, `idx_customer_name_id` | Each whitelisted sort column together with `id` | A sorted page as an index scan instead of a sort of the whole table |
+| `idx_idempotency_key_expires_at` | `idempotency_key (expires_at)` | The sweep that deletes expired keys |
 
 ## API
 The contract is `OpenAPI.yaml`, version 3.0.0, the contract's own version, not the build's;
@@ -523,7 +537,7 @@ ids of the newest orders containing it the same way, plus `orderCount` (ADR 0003
 collections").
 
 ### Creating resources
-Each `POST` follows five rules:
+Each `POST` follows six rules:
 * Content type: it reads only `application/json` (`consumes`; a `charset` parameter is accepted).
   Any other `Content-Type` (a URL-encoded or multipart form, text, or a JSON-based type like
   `application/vnd.api+json`), or none, is a 415 decided at mapping, before the body is read. The
@@ -538,6 +552,18 @@ Each `POST` follows five rules:
 * Response: every `POST` answers 201 with a `Location` holding the relative path of the created
   resource (`/order/{id}`, `/products/{id}`, `/customer/{id}`); relative so that a gateway rewriting
   the host stays correct (RFC 9110 permits it).
+* Idempotency: a `POST` may carry an `Idempotency-Key` header of 1 to 255 visible ASCII
+  characters, compared exactly (anything else is a 400, `invalid_idempotency_key`). The first
+  request with a key runs as usual and its 201 is stored for `IDEMPOTENCY_TTL` (24 hours); a repeat
+  with the same key and body gets the stored status, `Location` and body back with
+  `Idempotent-Replayed: true` and creates nothing. The same key with another body or on another
+  path is a 422 (`idempotency_key_reused`); a repeat while the first request still runs is a 409
+  (`idempotency_request_in_progress`, `Retry-After: 1`). An error response is never stored, so the
+  key can be sent again with a corrected request. A key whose request never finished is taken
+  over after `IDEMPOTENCY_STALE_AFTER` (30 s); a request taken over while it still runs is rolled
+  back and answered 409. Until authentication (ADR 0002) supplies a client identity every caller
+  shares one key scope, so keys must be random (UUIDs). Without the header nothing changes. The
+  store, the claim token and the stale window are in ADR 0010.
 * No `PUT`, `PATCH` or `DELETE`: such a request is the 405 decided at mapping (a 404 for an unknown
   path), whatever body it carries, and the body is not read.
 
@@ -603,12 +629,15 @@ renaming one a major version. Validation failures (of a body or a query paramete
 | `invalid_sort` | 400 | A `sort` property outside the endpoint's list |
 | `invalid_cursor` | 400 | `after` combined with a `page` other than 0 or a `sort` whose first property is not `id` ascending |
 | `conflicting_filters` | 400 | `customerId` combined with `productId` |
+| `invalid_idempotency_key` | 400 | An `Idempotency-Key` header that is empty, longer than 255 characters or not all visible ASCII |
 | `not_found` | 404 | An unknown id in the path, an unknown customer or product in a `POST /order` body, or a path without a handler |
 | `method_not_allowed` | 405 | A method the path does not support |
 | `not_acceptable` | 406 | An `Accept` header naming no media type the endpoint produces |
 | `conflict` | 409 | A write that a database constraint rejects |
+| `idempotency_request_in_progress` | 409 | A `POST` repeated with an `Idempotency-Key` whose first request is still running, or a keyed `POST` whose claim was taken over while it ran, which is rolled back (with `Retry-After: 1`) |
 | `payload_too_large` | 413 | A JSON body over `REQUEST_MAX_BODY_BYTES` |
 | `unsupported_media_type` | 415 | A `POST` whose `Content-Type` is missing or is not `application/json`, decided before the body is read |
+| `idempotency_key_reused` | 422 | An `Idempotency-Key` sent again with another body or on another path |
 | `internal_error` | 500 | An unexpected failure (no `detail`) |
 | `service_unavailable` | 503 | A database connection that cannot be obtained, or one lost during the request, including one cut by `DB_SOCKET_TIMEOUT`, except a session that the database terminates while a `POST`'s insert is flushed at commit, which is `internal_error`; also a by-id read or a `POST`'s insert attempted after the `TX_TIMEOUT` deadline (with `Retry-After`; see Operations) |
 | `database_timeout` | 503 | A database statement cancelled at `DB_STATEMENT_TIMEOUT` or at the deadline `TX_TIMEOUT` sets, or a query issued after that deadline (with `Retry-After`) |
@@ -926,8 +955,9 @@ message at ERROR (`ERROR: canceling statement due to statement timeout`).
 
 Two consequences for operators: readiness reports `db` DOWN while no connection can be obtained, but
 only after the same 5 s, so probe timeouts must exceed it; and neither a 503 nor that 500 tells a
-client whether a `POST` was applied, because the `POST`s are not idempotent (`docs/ASSUMPTIONS.md`,
-"API contract").
+client whether a `POST` was applied. A `POST` sent with an `Idempotency-Key` can simply be sent
+again: the service replays it if the first attempt committed and runs it afresh if not (see API).
+An unkeyed `POST` cannot be repeated safely (`docs/ASSUMPTIONS.md`, "API contract").
 
 `DatabaseFailureIT` produces three of these answers on real requests: it holds a lock on `order`,
 cancels or terminates the backend of a `GET /order?size=5`, and terminates that of a `POST /order`
@@ -949,10 +979,11 @@ What a client sees depends on its connection:
   request sent on it meanwhile gets no response at all (no 503, no access line; a `POST` stores
   nothing).
 * A request still running at 20 s loses its connection without a response. Tomcat then waits up to 5
-  s for its thread before the pool closes, so a `POST` cut there may still have committed (the
-  `POST`s are not idempotent: `docs/ASSUMPTIONS.md`, "API contract"), and its access line shows the
-  status its handler set. A stuck request therefore keeps the process alive for 20 s plus 5 s plus
-  about 0.3 s, which the 30 second stop grace of `compose.yaml` covers.
+  s for its thread before the pool closes, so a `POST` cut there may still have committed (a keyed
+  `POST` can be sent again safely, an unkeyed one cannot: `docs/ASSUMPTIONS.md`, "API contract"),
+  and its access line shows the status its handler set. A stuck request therefore keeps the
+  process alive for 20 s plus 5 s plus about 0.3 s, which the 30 second stop grace of
+  `compose.yaml` covers.
 
 `GracefulShutdownIT` observes the drain on a second application on the shared database. While a `GET
 /order?size=5` waits for a lock and the application closes, a new connection is refused, readiness
@@ -1004,7 +1035,8 @@ blank is refused (see Configuration).
 
 Migrations are a job, not a start-up side effect. Compose runs the image once as `migrate` with the
 schema owner's credentials before `store`. `store` connects as `store_app` (connect, `SELECT`,
-`INSERT`, sequence usage; no DDL, `UPDATE` or `DELETE`) with `SPRING_LIQUIBASE_ENABLED=false`;
+`INSERT` and sequence usage, plus `UPDATE` and `DELETE` on `idempotency_key` alone; no DDL) with
+`SPRING_LIQUIBASE_ENABLED=false`;
 `ddl-auto: validate` and the readiness `db` component prove the runtime works under that role, and
 the smoke test proves the grants. The job sets `DB_STATEMENT_TIMEOUT` and `DB_SOCKET_TIMEOUT` to `0`
 (see Configuration). A Kubernetes rollout runs the image as a `Job` or init container ahead of the
@@ -1015,6 +1047,12 @@ Index changesets need a write window. Changesets 3, 4 and 7 index existing table
 `CREATE INDEX`, which holds every write until the changeset commits (changeset 7 took about a second
 on 1,000,000 orders). ADR 0009 records the measured builds and the concurrent form every new index
 changeset uses, which changeset 8 follows for its two builds and its drop.
+
+Changeset 9 grants `UPDATE` and `DELETE` on `idempotency_key` to the role named by the Liquibase
+parameter `runtimeRole` (`spring.liquibase.parameters.runtimeRole`, `store_app` by default). Where
+no such role exists the changeset is recorded as skipped, so a deployment that renames the role
+must pass the name to the migration job, or the first keyed `POST` fails with `permission denied`
+(ADR 0010).
 
 ### The image
 The image runs the layered jar as the non-root user 65532 on
