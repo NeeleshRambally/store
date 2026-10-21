@@ -613,7 +613,7 @@ its 2 MB swallow limit, and keeps none of it; past 2 MB it closes the connection
 answer's `Connection: close` announced. So the thread stays busy until the rest has arrived or
 the client has sent nothing for `server.tomcat.connection-timeout`, 10 s. With Tomcat's default
 of 60 s, 200 clients that sent nothing after their answer held all 200 request threads for a
-minute: on the jar of 286d65b, 200 form `POST`s each declaring 1,900,000 bytes and sending 8 KiB
+minute: on the jar of 5996b3c, 200 form `POST`s each declaring 1,900,000 bytes and sending 8 KiB
 were all answered 415 within 0.03 s, readiness on the management port still answered 200, and a
 `GET /order/1` sent next was answered after 60.05 s; with the 10 s timeout it was answered after
 9.89 s, and a client that sent nothing after its answer was disconnected after 10.0 s instead of
@@ -899,7 +899,7 @@ probes and metrics are reachable from inside the cluster but never from the publ
   the one the client receives. An exception that escapes the servlet filters is answered by
   Tomcat with a 500 and Spring Boot's default error body after the filter has run, so the line
   logs 500 for it, the status `http_server_requests_seconds` records too, and not the status the
-  response held when the exception passed (on the jar of 286d65b a `PUT` whose form body
+  response held when the exception passed (on the jar of 5996b3c a `PUT` whose form body
   Spring's form-content filter rejected, before that filter was switched off, was a 500 logged
   as `PUT UNKNOWN 200 0 ms`); a response committed before the exception logs the status it
   sent. The access line never holds the raw path, the query string or the body, so search
@@ -1039,13 +1039,13 @@ probes and metrics are reachable from inside the cluster but never from the publ
   reset instead); `FailClosedConfigurationTest` pins both properties. The test sends no request
   on a connection that was idle at the signal; that case and the timings were observed by hand
   on 2026-10-20 (Java 17 on macOS against PostgreSQL 16.2, the same held request). A `SIGTERM`
-  to the jar built from 977abd1, 1.1 s after the request started, showed what the test shows: a
+  to the jar built from 0503f3e, 1.1 s after the request started, showed what the test shows: a
   new connection 0.56 s after the signal was refused, readiness answered 503 and liveness 200,
   the held request was answered 200 when the lock was released 3.4 s after the signal, and the
   pool closed 13 ms after the drain had finished; with the phase timeout lowered to 2 s the held
   request got an empty reply 2.0 s after the signal, and Tomcat waited 1.3 s more for its
   thread, which still finished and logged a 200, before the process exited 3.5 s after the
-  signal. On the jar built from 7d4ff7c, in five runs, keep-alive connections that had each
+  signal. On the jar built from 3f93bc1, in five runs, keep-alive connections that had each
   answered a request about a second before the signal were still open 1.0 to 3.6 s after it,
   and a `GET /order/{id}` and a `POST /customer` sent on them then got no byte back, wrote no
   access line and stored no row; a connection whose `GET /order` was in flight was closed as
@@ -1058,7 +1058,7 @@ probes and metrics are reachable from inside the cluster but never from the publ
   and 25.3 s after the signal in two runs
 * In the Compose stack a client reaches 8080 through Docker's published port, which on Docker
   Desktop does not pass the refusal on: on Docker Desktop 4.38.0 (engine 27.5.1, macOS,
-  2026-10-20, two runs), with the jar built from 7d4ff7c in the runtime image, a new connection
+  2026-10-20, two runs), with the jar built from 3f93bc1 in the runtime image, a new connection
   to the published port during the drain completed its handshake and was then closed without a
   byte (`curl` exit 52, an empty reply, where a refused connection is exit 7; `nc -z`
   succeeded), while the same connection from inside the container's network namespace was

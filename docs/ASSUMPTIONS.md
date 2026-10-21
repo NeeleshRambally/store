@@ -373,7 +373,7 @@ delivered.
   the answer before it sends more gets the problem detail, while one that keeps sending gets a
   broken pipe once Tomcat has closed (in one run after it had sent 2.8 MB past the answer) and
   may not see the answer if it had not read it by then. A client that sends nothing more keeps
-  the connection and its request thread until the connection timeout. On the jar of 286d65b
+  the connection and its request thread until the connection timeout. On the jar of 5996b3c
   (2026-10-20, JDK 17.0.14, a throwaway PostgreSQL 16.2), with Tomcat's default of 60 s, a
   `POST` declaring 1,900,000 or 100,000,000 bytes as JSON (413) or 100,000,000 as a form (415)
   had its answer within 16 ms and its connection closed after 60.0 s;
@@ -389,7 +389,7 @@ delivered.
   `ServletServerHttpRequest` builds the body from the request parameters, so Tomcat read and
   parsed it itself, up to that 2 MB form limit, into an array sized from the declared
   `Content-Length` before the first byte arrived, and Spring answered 415 only after that.
-  Measured on the jar of bae63db (2026-10-20, JDK 17.0.14 on an arm64 Mac, `-Xmx154m`, which
+  Measured on the jar of 7db5f20 (2026-10-20, JDK 17.0.14 on an arm64 Mac, `-Xmx154m`, which
   that JVM rounds up to a 160 MiB heap, a throwaway PostgreSQL 16.2): a `POST /customer`
   declaring 1,900,000 form bytes and sending 8 KiB had no answer within 5 s and its 415 72 ms
   after the rest was sent, where the same declaration as JSON had its 413 after 2 ms; a thread
@@ -421,7 +421,7 @@ delivered.
   through Tomcat rather than the bounded stream, up to Spring Boot's limits of 1 MB a part and
   10 MB a request, and spooling each part to a file in Tomcat's work directory under
   `java.io.tmpdir`, which the Compose stack keeps on its memory-backed `/tmp`. Measured on the
-  jar of bae63db (2026-10-20, the same environment): a `POST /order` declaring 9,000,000
+  jar of 7db5f20 (2026-10-20, the same environment): a `POST /order` declaring 9,000,000
   `multipart/form-data` bytes and sending 8 KiB had no answer within 5 s, and neither had the
   same request to `/products`, one to `/customer` as `multipart/mixed` or a `GET /order` that
   carried such a body; five such `POST`s that had each sent 900 KiB of a file part held five
@@ -446,7 +446,7 @@ delivered.
 - A URL-encoded body sent with `PUT`, `PATCH` or `DELETE` was read before the request was
   mapped, by Spring's `FormContentFilter`, which Spring Boot registers by default to turn such a
   body into request parameters. It reads through the bounded stream, yet the API has no endpoint
-  for those methods. Measured on the jar of 286d65b (2026-10-20, the same environment): a
+  for those methods. Measured on the jar of 5996b3c (2026-10-20, the same environment): a
   `PUT /customer`, `PATCH /order/1`, `DELETE /order/1` or `PUT /no-such-path` declaring
   1,900,000 form bytes, or a `PUT /customer` sending 70,000 of them chunked, was a 500 within 3 ms
   with Spring Boot's default error body
@@ -805,7 +805,7 @@ checks on a private free-plan repository, so the procedure is the gate.
 
 ## Defects found in the original code and what was done
 The README says bad choices were made deliberately. This is the consolidated list, one line per
-defect: where it was in the imported code (`git show 57a5fa1:<path>`, line numbers of that
+defect: where it was in the imported code (`git show d0532d8:<path>`, line numbers of that
 revision), what was done, and where the reasoning lives.
 - Controllers wired to repositories and entities (`CustomerController.java:20-31`,
   `OrderController.java:20-31`): replaced by controller → service interface → repository, with
