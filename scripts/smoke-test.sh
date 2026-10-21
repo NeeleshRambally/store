@@ -1,13 +1,14 @@
 #!/bin/sh
-# Smoke test for a started store container: readiness, the API and management ports, and with "compose" the migration job, hardening, port bindings, runtime role and access log.
+# Smoke test for a started store container: readiness, the API and management ports, an Idempotency-Key replay, and with "compose" the migration job, hardening, port bindings, runtime role and access log.
 set -eu
 
 app=$1
 mgmt=$2
 mode=${3:-}
 body=$(mktemp)
+headers=$(mktemp)
 oversized=$(mktemp)
-trap 'rm -f "$body" "$oversized"' EXIT
+trap 'rm -f "$body" "$headers" "$oversized"' EXIT
 
 request() {
   : > "$body"
@@ -67,6 +68,16 @@ contains "GET /order/1" '"products"'
 
 expect "POST /customer" 201 -X POST -H 'Content-Type: application/json' -d '{"name":"Smoke Test"}' "$app/customer"
 
+key="smoke-$$-$(date +%s)"
+expect "POST /customer with Idempotency-Key $key" 201 -X POST -H 'Content-Type: application/json' -H "Idempotency-Key: $key" -D "$headers" -d '{"name":"Smoke Replay"}' "$app/customer"
+first_id=$(sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p' "$body")
+[ -n "$first_id" ] || fail "POST /customer with Idempotency-Key $key: no id in the body"
+if grep -qi '^idempotent-replayed:' "$headers"; then fail "POST /customer with Idempotency-Key $key: the first answer is marked as replayed"; fi
+expect "POST /customer repeated with Idempotency-Key $key" 201 -X POST -H 'Content-Type: application/json' -H "Idempotency-Key: $key" -D "$headers" -d '{"name":"Smoke Replay"}' "$app/customer"
+contains "POST /customer repeated with Idempotency-Key $key" "\"id\":$first_id,"
+grep -qi '^idempotent-replayed: *true' "$headers" || fail "POST /customer repeated with Idempotency-Key $key: no Idempotent-Replayed: true header"
+echo "ok   POST /customer repeated with Idempotency-Key $key -> replayed customer $first_id"
+
 head -c 70000 /dev/zero | tr '\0' a > "$oversized"
 expect "POST /order with a 70000 byte body" 413 -X POST -H 'Content-Type: application/json' --data-binary "@$oversized" "$app/order"
 contains "POST /order with a 70000 byte body" 'Request body exceeds 65536 bytes'
@@ -120,6 +131,10 @@ if [ "$mode" = compose ]; then
 
   expect_denied "store_app create table" 'permission denied for schema public' 'create table smoke_probe(id int)'
   expect_denied "store_app update customer" 'permission denied for table customer' 'update customer set name = name where id = 1'
+
+  as_store_app "select has_table_privilege('store_app', 'idempotency_key', 'UPDATE') and has_table_privilege('store_app', 'idempotency_key', 'DELETE')" || fail "store_app idempotency_key grants: psql failed"
+  [ "$(cat "$body")" = t ] || fail "store_app idempotency_key grants: UPDATE and DELETE are not both granted"
+  echo "ok   store_app update and delete on idempotency_key -> granted"
 
   expect "DELETE /order/1" 405 -X DELETE "$app/order/1"
   contains "DELETE /order/1" '"status":405'
