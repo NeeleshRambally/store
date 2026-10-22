@@ -173,7 +173,6 @@ paths:
           schema:
             type: string
             pattern: '^[^ \t\r\n\f\u000B\u0000-\u001F\u007F]+$'
-            example: onne
         - $ref: '#/components/parameters/page'
         - $ref: '#/components/parameters/size'
         - $ref: '#/components/parameters/customerSort'
@@ -447,7 +446,6 @@ components:
         304 Not Modified with no body and the current ETag; otherwise the full response is sent.
       schema:
         type: string
-        example: W/"0b9f4a2c7d8e1f3a5b6c7d8e9f0a1b2c3"
     idempotencyKey:
       name: Idempotency-Key
       in: header
@@ -473,7 +471,6 @@ components:
         pattern: '^[\x21-\x7E]{1,255}$'
         minLength: 1
         maxLength: 255
-        example: 7f3c2a1e-9b4d-4c6e-8a2f-1d5e6f7a8b9c
     page:
       name: page
       in: query
@@ -532,7 +529,6 @@ components:
         type: integer
         format: int64
         minimum: 0
-        example: 0
     customerId:
       name: customerId
       in: query
@@ -553,7 +549,6 @@ components:
         type: integer
         format: int64
         minimum: 1
-        example: 1
     productId:
       name: productId
       in: query
@@ -574,7 +569,6 @@ components:
         type: integer
         format: int64
         minimum: 1
-        example: 2
     orderSort:
       name: sort
       in: query
@@ -588,7 +582,6 @@ components:
         be repeated.
       schema:
         type: string
-        example: description,desc
     customerSort:
       name: sort
       in: query
@@ -602,7 +595,6 @@ components:
         be repeated.
       schema:
         type: string
-        example: name,asc
     productSort:
       name: sort
       in: query
@@ -615,7 +607,6 @@ components:
         query parameter that may be repeated.
       schema:
         type: string
-        example: description,asc
   headers:
     RequestId:
       description: >-
@@ -1037,6 +1028,12 @@ components:
       title: CreateOrderRequest
       type: object
       additionalProperties: false
+      example:
+        description: Analytical Engine
+        customerId: 1
+        productIds:
+          - 2
+          - 8
       required:
         - description
         - customerId
@@ -1068,6 +1065,8 @@ components:
       title: CreateProductRequest
       type: object
       additionalProperties: false
+      example:
+        description: Brass Gear
       required:
         - description
       properties:
@@ -1130,6 +1129,8 @@ components:
       title: CreateCustomerRequest
       type: object
       additionalProperties: false
+      example:
+        name: Ada Lovelace
       required:
         - name
       properties:
