@@ -89,6 +89,7 @@ which the process fails closed (below).
 | `IDEMPOTENCY_TTL` | `PT24H` | How long the stored answer to a `POST` sent with an `Idempotency-Key` is replayed (an ISO 8601 duration, positive); after it the key behaves as a new one (see API) |
 | `IDEMPOTENCY_STALE_AFTER` | `PT30S` | How long a key claimed by a request that never finished (a process killed, a connection lost) stays reserved before the next request with it may take it over. It must cover the time a keyed `POST` can hold its claim, the 5 s connection wait plus `TX_TIMEOUT` plus `DB_STATEMENT_TIMEOUT` (30 s at the defaults): a shorter window stops start-up, and with either timeout disabled the check only warns |
 | `IDEMPOTENCY_PURGE_INTERVAL` | `PT10M` | Interval of the sweep that deletes expired key rows (positive); it runs in the serving process only, never in the `migrate` job |
+| `SWAGGER_UI_ENABLED` | `true` | Serves Swagger UI at `/swagger-ui.html` and the checked-in contract at `/openapi.yaml` on the API port; `false` leaves both out, so they are 404s like any unknown path (see API) |
 | `LOGGING_LEVEL_COM_EXAMPLE_STORE_ACCESS` | none (inherits `INFO`) | Boot's own `logging.level` for the access log (see Operations); `OFF` removes the line per request where an ingress already logs every request |
 
 ### Pool and threads
@@ -320,7 +321,8 @@ commit, not the jar bytes.
 * readiness reports `UP` on 8081 within 120 seconds, with the `db` component;
 * 8080 serves `GET /order/1`, `POST /customer`, `GET /products/2` and a cursor page, replays a
   `POST /customer` repeated with its `Idempotency-Key` (same id, `Idempotent-Replayed: true`), and
-  answers 413 to a 70,000 byte body and 404 to `/actuator/health`;
+  answers 413 to a 70,000 byte body and 404 to `/actuator/health`, and serves Swagger UI, its
+  bundle and `/openapi.yaml`;
 * liveness on 8081 answers 200.
 
 The optional third argument `compose` adds checks that use `docker compose` and `docker inspect` and
@@ -513,6 +515,16 @@ against the delivered 1.0, or against 2.1.0 or 3.0.0, has to change.
 | `GET` | `/products?after=&size=` | Cursor page of products with an id greater than `after` |
 | `GET` | `/products/{id}` | A single product with the ids of the newest orders containing it and `orderCount` |
 | `POST` | `/products` | Create a product: `{"description": "..."}` |
+
+### API documentation
+Swagger UI is at http://localhost:8080/swagger-ui.html. It renders `OpenAPI.yaml` exactly as checked
+in: the build copies the file into the jar, and the service serves it at `/openapi.yaml`. Nothing is
+generated from the code, so the page shows the contract that `OpenApiContractIT` enforces, and
+"Try it out" sends requests to the `servers` entry, `http://localhost:8080`. The page loads the
+Swagger UI WebJar from the service itself and makes no call to the public spec validator. The
+management port, which shares the web configuration, serves the same page, but from there "Try it
+out" would be a cross-origin request to 8080, which the API does not allow.
+`SWAGGER_UI_ENABLED=false` removes the page and the file (ADR 0011).
 
 ### Paging, sorting and filters
 **Page envelope.** List responses carry `content`, `page`, `size`, `totalElements` and `totalPages`;
