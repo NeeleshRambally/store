@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke test for a started store container: readiness, the API and management ports, an Idempotency-Key replay, and with "compose" the migration job, hardening, port bindings, runtime role and access log.
+# Smoke test for a started store container: readiness, the API and management ports, an Idempotency-Key replay, Swagger UI, and with "compose" the migration job, hardening, port bindings, runtime role and access log.
 set -eu
 
 app=$1
@@ -87,6 +87,12 @@ contains "GET /products/2" '"orders"'
 
 expect "GET /order?after=0&size=2" 200 "$app/order?after=0&size=2"
 contains "GET /order?after=0&size=2" '"nextCursor"'
+
+expect "GET /swagger-ui.html" 200 "$app/swagger-ui.html"
+contains "GET /swagger-ui.html" '/webjars/swagger-ui/swagger-ui-bundle.js'
+expect "GET /webjars/swagger-ui/swagger-ui-bundle.js" 200 "$app/webjars/swagger-ui/swagger-ui-bundle.js"
+expect "GET /openapi.yaml" 200 "$app/openapi.yaml"
+contains "GET /openapi.yaml" '^openapi: 3.0.0'
 
 expect "GET /actuator/health on the application port" 404 "$app/actuator/health"
 
