@@ -34,6 +34,7 @@ spotless {
 ext {
     mapstructVersion = '1.6.3'
     cucumberVersion = '7.21.1'
+    swaggerUiVersion = '5.34.0'
     set('tomcat.version', '10.1.61')
     set('jackson-bom.version', '2.21.8')
     set('postgresql.version', '42.7.14')
@@ -47,6 +48,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-cache'
     implementation 'com.github.ben-manes.caffeine:caffeine'
     runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+    runtimeOnly "org.webjars:swagger-ui:${swaggerUiVersion}"
+    runtimeOnly 'org.webjars:webjars-locator-lite'
     implementation 'org.liquibase:liquibase-core'
     runtimeOnly 'org.postgresql:postgresql'
 
@@ -69,6 +72,19 @@ dependencies {
     testCompileOnly 'org.projectlombok:lombok'
     testAnnotationProcessor 'org.projectlombok:lombok'
     testAnnotationProcessor "org.mapstruct:mapstruct-processor:${mapstructVersion}"
+}
+
+tasks.named('processResources') {
+    def contract = file('OpenAPI.yaml')
+    doFirst {
+        if (!contract.isFile()) {
+            throw new GradleException("${contract} is missing: the jar serves it at /openapi.yaml")
+        }
+    }
+    from(contract) {
+        into 'swagger-ui'
+        rename { 'openapi.yaml' }
+    }
 }
 
 springBoot {

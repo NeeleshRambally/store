@@ -5,6 +5,7 @@ COPY gradlew build.gradle settings.gradle gradle.properties ./
 COPY gradle ./gradle
 RUN ./gradlew --no-daemon resolveDependencies > /dev/null
 COPY src ./src
+COPY OpenAPI.yaml ./
 RUN ./gradlew --no-daemon bootJar -x test \
     && java -Djarmode=tools -jar build/libs/store-*[!plain].jar extract --layers --launcher --destination extracted
 
