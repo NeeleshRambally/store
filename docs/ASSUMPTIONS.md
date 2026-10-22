@@ -615,8 +615,9 @@ that the validator enforces them.
   per operation sending `Accept: application/xml`. The service answered 406 before too, but only
   after running the handler.
 - A 405 for a method a path does not list cannot be declared, since the method does not exist in the
-  contract: `info.description` says so and the smoke test checks `DELETE /order/1`. The `servers`
-  entry says the public base URL is set by the gateway (ADR 0002) rather than listing a placeholder.
+  contract: `docs/DESIGN.md` (Errors) lists it and the smoke test checks `DELETE /order/1`. The
+  `servers` entry says the public base URL is set by the gateway (ADR 0002) rather than listing a
+  placeholder.
 - `code` is a required string enum on every problem detail, carried by every captured and synthetic
   error body and by the examples; two synthetic cases pin that a missing or unlisted code is
   rejected.
