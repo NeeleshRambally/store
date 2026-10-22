@@ -65,6 +65,8 @@ spring:
     timeout-per-shutdown-phase: 20s
 
 store:
+  swagger-ui:
+    enabled: ${SWAGGER_UI_ENABLED:true}
   nested-orders:
     limit: ${NESTED_ORDERS_LIMIT:20}
   request:
