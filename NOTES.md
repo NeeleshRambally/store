@@ -12,7 +12,7 @@ end.
 |---|---|
 | README tasks 1 to 4 | Delivered, covered by unit, slice, integration and Cucumber tests, and described in `OpenAPI.yaml` |
 | Bonus: a CI pipeline that delivers a Docker image | GitHub Actions builds and tests the code, then scans, smoke-tests and publishes the image |
-| Tests | 882 automated tests, all passing, with 100% line coverage of the counted code |
+| Tests | 890 automated tests, all passing, with 100% line coverage of the counted code |
 | Problems in the original code | 17 found and fixed (listed below) |
 | Way of working | Worked as a team would on a production system: after the initial import, every change went through a pull request (80 merged), approved by a second GitHub account acting as the reviewer |
 
@@ -36,7 +36,8 @@ docker compose up --build
 docker compose up -d --build && sh scripts/smoke-test.sh http://localhost:8080 http://localhost:8081 compose
 ```
 
-The API is on http://localhost:8080. Health and metrics are on a separate port,
+The API is on http://localhost:8080, and Swagger UI on http://localhost:8080/swagger-ui.html shows
+the contract and lets you try every endpoint. Health and metrics are on a separate port,
 http://localhost:8081 (for example `/actuator/health`). A few requests to try against the sample
 data:
 
@@ -111,6 +112,9 @@ Described under "The CI/CD pipeline" below.
   stable `code` field (19 codes, listed in `docs/DESIGN.md`). A request so malformed that Tomcat
   rejects it before it reaches the service, such as an undecodable path, gets Tomcat's own 400
   (`docs/DESIGN.md`, "Requests Tomcat rejects itself").
+- **API documentation:** Swagger UI at `/swagger-ui.html` renders the checked-in `OpenAPI.yaml`,
+  which the service also serves at `/openapi.yaml`, so the page always shows the contract the tests
+  enforce (ADR 0011).
 - **Safe retries:** an optional `Idempotency-Key` header on every `POST`, so a client can resend
   a request after a timeout without creating a duplicate (ADR 0010).
 - **Strict input:** unknown JSON fields, a client-supplied `id`, wrong JSON types and bodies over
@@ -139,10 +143,10 @@ ADR has the same four parts:
 - **Decision:** what was chosen, stated precisely enough to check against the code.
 - **Consequences:** what the decision costs and what it rules out.
 
-Seven of the ten ADRs were written in the pull request that made the change. The other three record
-decisions already in the code: ADRs 0001 and 0002 were written in #6, and ADR 0009 in #83. An ADR is
-revised whenever the code it describes changes, so it stays true: ADR 0006 replaced the list-page
-fetch strategy of ADR 0003, and ADR 0004 expires on 2027-01-31 unless it is renewed.
+Eight of the eleven ADRs were written in the pull request that made the change. The other three
+record decisions already in the code: ADRs 0001 and 0002 were written in #6, and ADR 0009 in #83. An
+ADR is revised whenever the code it describes changes, so it stays true: ADR 0006 replaced the
+list-page fetch strategy of ADR 0003, and ADR 0004 expires on 2027-01-31 unless it is renewed.
 
 | ADR | Decision | Why |
 |---|---|---|
@@ -156,6 +160,7 @@ fetch strategy of ADR 0003, and ADR 0004 expires on 2027-01-31 unless it is rene
 | 0008 | Migrations run as a separate job, the service uses a least-privilege role, readiness includes the database, shutdown drains requests, and every request has an id | How the service behaves in production, not only on a laptop |
 | 0009 | From changeset 8 on, a new index on an existing table is built with `CREATE INDEX CONCURRENTLY`; changesets 3, 4 and 7 keep their plain builds | Writes keep flowing while an index builds on a live table |
 | 0010 | An optional `Idempotency-Key` on the three `POST`s, stored in its own table | A client can retry a `POST` after a timeout without creating a duplicate |
+| 0011 | Swagger UI renders the checked-in `OpenAPI.yaml`; nothing is generated from the code | The page cannot drift from the contract the tests enforce, which a generated specification could |
 
 Smaller decisions are recorded in `docs/ASSUMPTIONS.md`: one problem-detail format with a stable
 `code` for every error Spring MVC handles, exact JSON types with no coercion, an OpenAPI contract
@@ -253,9 +258,9 @@ Problems found along the way:
 
 | Level | Tool | What it checks | Tests |
 |---|---|---|---|
-| Unit | JUnit 5, Mockito | Services, mappers, validation rules and configuration, each on its own | 209 |
+| Unit | JUnit 5, Mockito | Services, mappers, validation rules and configuration, each on its own | 212 |
 | Web slice | `@WebMvcTest` | The HTTP layer alone: status codes, JSON shape, validation and error bodies | 211 |
-| Integration | Spring Boot with Testcontainers PostgreSQL | Real requests through the whole service into a real database: migrations, indexes, statement counts, timeouts, shutdown and the API contract | 383 |
+| Integration | Spring Boot with Testcontainers PostgreSQL | Real requests through the whole service into a real database: migrations, indexes, statement counts, timeouts, shutdown, the API contract and Swagger UI | 388 |
 | Acceptance | Cucumber (Gherkin) | The API's behaviour, written as plain-language scenarios | 79 |
 | Smoke | `scripts/smoke-test.sh` | The real Docker image in the running Compose stack | 1 script, run by the CI `docker` job and locally, not by `./gradlew build` |
 
@@ -366,6 +371,6 @@ docker pull ghcr.io/neeleshrambally/store:latest
 | `docs/DESIGN.md` | Running, configuring, testing and operating the service; the API, its errors and the pipelines |
 | `docs/ASSUMPTIONS.md` | Every judgement call, and the full list of original defects with line numbers |
 | `docs/PERFORMANCE.md` | Task 3 in depth: measurements, query plans, indexes and caching |
-| `docs/adr/` | Ten architecture decision records |
+| `docs/adr/` | Eleven architecture decision records |
 | `OpenAPI.yaml` | The API contract: contract version 3.1.0, written in OpenAPI 3.0 |
 | `utils/README.md` | How to generate more sample data |

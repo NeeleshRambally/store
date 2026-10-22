@@ -224,6 +224,9 @@ service accepts one reading only.
   one is a minor version, removing or renaming one a major.
 - **Paths.** `/customer` and `/order` stay singular to match the original README; `/products` is
   plural because the task names it so. The inconsistency is acknowledged, not silently changed.
+- **Documentation.** Swagger UI at `/swagger-ui.html` renders the checked-in `OpenAPI.yaml`, which
+  the service serves at `/openapi.yaml`, rather than a specification generated from the code. The
+  documentation is therefore the contract the tests enforce (ADR 0011).
 
 ## Contract version and client migration
 
