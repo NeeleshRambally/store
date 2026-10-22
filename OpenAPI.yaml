@@ -9,8 +9,7 @@ info:
 servers:
   - url: 'http://localhost:8080'
     description: >-
-      Local development (./gradlew bootRun or the Compose stack). The public base URL is set by
-      the gateway in front of the service (ADR 0002), so no production server is listed here.
+      Local development. In production the gateway sets the public URL (ADR 0002).
 paths:
   /order:
     get:
@@ -27,7 +26,7 @@ paths:
         - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: OK; an offset page, or a cursor page when after is present
+          description: A page of orders, or a cursor page when after is set.
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
@@ -53,11 +52,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getOrders
       description: >-
-        Get a page of orders, each with its customer and the products it contains, optionally
-        restricted to the orders of one customer (customerId) or to the orders containing one
-        product (productId); the two filters cannot be combined. Without after the page is
-        addressed by page and size; with after the page is the (matching) orders whose id is
-        greater than after, in ascending id order (keyset pagination, cheaper for deep pages).
+        Pages of orders with their customer and products. Filter by customerId or productId, not both. Use after for cursor paging.
     post:
       summary: Create Order
       tags:
@@ -66,7 +61,7 @@ paths:
         - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
+          description: Created, or the replayed answer to a repeated Idempotency-Key.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -98,8 +93,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: createOrder
       description: >-
-        Create a new order for an existing customer containing the given products; the response
-        carries the customer and the products
+        Create an order for an existing customer with 1 to 100 existing products.
       requestBody:
         required: true
         content:
@@ -116,10 +110,7 @@ paths:
           in: path
           required: true
           description: >-
-            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
-            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
-            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
-            around or between them) or one outside the 64-bit range is rejected with 400.
+            Order id, in plain decimal digits.
           schema:
             type: integer
             format: int64
@@ -151,7 +142,7 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getOrder
-      description: Get a single order by id, with its customer and the products it contains
+      description: Get one order with its customer and products.
   /customer:
     get:
       summary: Get Customers
@@ -162,14 +153,7 @@ paths:
           in: query
           required: false
           description: >-
-            Case-insensitive substring of one word of the customer's name. Must be a single word:
-            no ASCII whitespace (space, tab, line feed, vertical tab, form feed, carriage
-            return) and no C0 control character or DEL (U+0000 to U+001F, U+007F); any other
-            character, including a no-break space, a C1 control such as U+0085 and U+2028, is
-            part of the word and matched literally. When omitted, all customers are returned. A %
-            in the word is sent as %25: a query string the server cannot parse in full, such as
-            name=50% (a % must be followed by two hexadecimal digits) or one holding a nameless
-            value (=1), is rejected with 400, whichever parameter it affects.
+            One word, matched anywhere in a customer's name, ignoring case. A space or control character is a 400.
           schema:
             type: string
             pattern: '^[^ \t\r\n\f\u000B\u0000-\u001F\u007F]+$'
@@ -180,7 +164,7 @@ paths:
         - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: OK; an offset page, or a cursor page when after is present
+          description: A page of customers, or a cursor page when after is set.
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
@@ -206,9 +190,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getCustomers
       description: >-
-        Get a page of customers, each with its orders, optionally filtered by a word substring of
-        the name. Without after the page is addressed by page and size; with after the page is the
-        (matching) customers whose id is greater than after, in ascending id order.
+        Pages of customers with their newest orders. Filter by a word in the name with name. Use after for cursor paging.
     post:
       summary: Create Customer
       tags:
@@ -217,7 +199,7 @@ paths:
         - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
+          description: Created, or the replayed answer to a repeated Idempotency-Key.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -246,7 +228,7 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: createCustomer
-      description: Create a new customer
+      description: Create a customer.
       requestBody:
         required: true
         content:
@@ -263,10 +245,7 @@ paths:
           in: path
           required: true
           description: >-
-            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
-            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
-            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
-            around or between them) or one outside the 64-bit range is rejected with 400.
+            Customer id, in plain decimal digits.
           schema:
             type: integer
             format: int64
@@ -299,8 +278,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getCustomer
       description: >-
-        Get a single customer by id, with its newest orders (bounded like the list items) and
-        orderCount, the total
+        Get one customer with their newest orders and orderCount.
   /products:
     get:
       summary: Get Products
@@ -314,7 +292,7 @@ paths:
         - $ref: '#/components/parameters/ifNoneMatch'
       responses:
         '200':
-          description: OK; an offset page, or a cursor page when after is present
+          description: A page of products, or a cursor page when after is set.
           headers:
             ETag:
               $ref: '#/components/headers/ETag'
@@ -340,9 +318,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProducts
       description: >-
-        Get a page of products, each with the ids of its newest orders (bounded, see
-        Product.orders) and orderCount. Without after the page is addressed by page and size; with
-        after the page is the products whose id is greater than after, in ascending id order.
+        Pages of products with the ids of their newest orders and orderCount. Use after for cursor paging.
     post:
       summary: Create Product
       tags:
@@ -351,7 +327,7 @@ paths:
         - $ref: '#/components/parameters/idempotencyKey'
       responses:
         '201':
-          description: Created, or the replayed response of the earlier request with the same Idempotency-Key
+          description: Created, or the replayed answer to a repeated Idempotency-Key.
           headers:
             Location:
               $ref: '#/components/headers/Location'
@@ -380,7 +356,7 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: createProduct
-      description: Create a new product
+      description: Create a product.
       requestBody:
         required: true
         content:
@@ -397,10 +373,7 @@ paths:
           in: path
           required: true
           description: >-
-            Written in ASCII decimal digits, without a plus sign or leading zeros and with a minus
-            sign only before a non-zero digit. Any other value (such as abc, the hexadecimal 0x1,
-            +1, 01, a digit outside ASCII such as the fullwidth U+FF11, or digits with whitespace
-            around or between them) or one outside the 64-bit range is rejected with 400.
+            Product id, in plain decimal digits.
           schema:
             type: integer
             format: int64
@@ -433,8 +406,7 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
       operationId: getProduct
       description: >-
-        Get a single product with the ids of its newest orders (bounded, see Product.orders) and
-        orderCount
+        Get one product with the ids of its newest orders and orderCount.
 components:
   parameters:
     ifNoneMatch:
@@ -442,8 +414,7 @@ components:
       in: header
       required: false
       description: >-
-        The ETag of a previously received representation. When it still matches, the response is
-        304 Not Modified with no body and the current ETag; otherwise the full response is sent.
+        ETag from an earlier response. If it still matches, the answer is a 304 with no body.
       schema:
         type: string
     idempotencyKey:
@@ -451,21 +422,7 @@ components:
       in: header
       required: false
       description: >-
-        A key the client chooses for this request: 1 to 255 visible ASCII characters (no space, no
-        control character, nothing outside ASCII), compared exactly, so a key written in another
-        case is another key; use a random value such as a UUID. A POST sent with a key is stored
-        with a fingerprint of its path and bound body and with its response for the key's lifetime
-        (24 hours by default, IDEMPOTENCY_TTL), and a repeat of the same request with the same key
-        within that time is answered with the stored status, Location and body, marked
-        Idempotent-Replayed: true, without creating anything again; the same request is the same
-        path and the same bound body, whatever its whitespace or property order. The same key sent
-        with another path or body is rejected with 422 (idempotency_key_reused), and a repeat that
-        arrives while the first request is still being processed with 409
-        (idempotency_request_in_progress) and Retry-After: 1. A request that fails is not stored,
-        so its key may be sent again with a corrected request. A key is scoped to the calling
-        client; until the service authenticates callers (ADR 0002) every caller is one client,
-        which is why keys must be random. A value outside the pattern is rejected with 400
-        (invalid_idempotency_key). Without the header the POST behaves as it always did.
+        Optional key, such as a UUID: 1 to 255 visible ASCII characters. Repeating a request with the same key replays the first answer; the same key with a different request is a 422.
       schema:
         type: string
         pattern: '^[\x21-\x7E]{1,255}$'
@@ -475,15 +432,7 @@ components:
       name: page
       in: query
       description: >-
-        Zero-based page index, at most 21474836, so that the offset of a page (page times size)
-        stays within the 32-bit range at the largest size, 100; positions further on are reached
-        with after. A value below 0 or above 21474836 is rejected with 400 naming page; a value
-        that is not written in ASCII decimal digits without a plus sign or leading zeros (such as
-        0x2, +1, 01 or -0) or one outside the 32-bit range is rejected with 400 as well. An empty
-        value or one made only of whitespace (page= or page=%20) counts as absent: page 0 is
-        returned. A query string the server cannot parse in full, such as page=%ZZ (a % must be
-        followed by two hexadecimal digits) or one holding a nameless value (=1), is rejected with
-        400, whichever parameter it affects.
+        Page number from 0, at most 21474836. An empty value counts as absent.
       schema:
         type: integer
         format: int32
@@ -494,14 +443,7 @@ components:
       name: size
       in: query
       description: >-
-        Page size. Values above 100 are accepted and capped at 100 rather than rejected, so the
-        schema carries no maximum; the size echoed in the response is the effective one. A value
-        below 1 is rejected with 400 naming size; a value that is not written in ASCII decimal
-        digits without a plus sign or leading zeros (such as 0x10, +5 or 05) or one outside the
-        32-bit range is rejected with 400 as well. An empty value or one made only of whitespace
-        (size= or size=%09) counts as absent: the default 20 applies. A query string the server
-        cannot parse in full, such as size=%ZZ (a % must be followed by two hexadecimal digits) or
-        one holding a nameless value (=1), is rejected with 400, whichever parameter it affects.
+        Page size, 20 by default; larger values are capped at 100. An empty value counts as absent.
       schema:
         type: integer
         format: int32
@@ -512,19 +454,7 @@ components:
       in: query
       required: false
       description: >-
-        Cursor: return the elements whose id is greater than this value, in ascending id order,
-        and respond with a CursorPage instead of a Page. Use 0 to start a walk and the previous
-        response's nextCursor to continue it; a null nextCursor means the walk is complete. The
-        page size is still size (default 20, capped at 100). after cannot be combined with page
-        (other than 0) or with a sort whose first property is not id ascending: such a request is
-        rejected with 400 (see the cursorWithPage example of the BadRequest response). A value
-        below 0 is rejected with 400 naming after; a value that is not written in ASCII decimal
-        digits without a plus sign or leading zeros (such as 0x10, +1, 01 or -0) or one outside
-        the 64-bit range is rejected with 400 as well. An empty value or one made only of
-        whitespace (after= or after=%20) counts as absent: the response is an offset Page. A query
-        string the server cannot parse in full, such as after=%ZZ (a % must be followed by two
-        hexadecimal digits) or one holding a nameless value (=1), is rejected with 400, whichever
-        parameter it affects.
+        Cursor: items with an id greater than this, in id order (0 starts). Not combinable with page or a non-id sort. An empty value counts as absent.
       schema:
         type: integer
         format: int64
@@ -534,17 +464,7 @@ components:
       in: query
       required: false
       description: >-
-        Only the orders placed by this customer, in both paging modes. An id that matches no
-        order (including an unknown customer) yields an empty page with totalElements 0, not a
-        404. A value below 1 is rejected with 400 naming customerId; a value that is not written in
-        ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
-        outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
-        whitespace (customerId= or customerId=%20) counts as absent: the orders are not filtered
-        by customer. A query string the server cannot parse in full, such as customerId=1% (a %
-        must be followed by two hexadecimal digits) or one holding a nameless value (=1), is
-        rejected with 400, whichever parameter it affects.
-        Cannot be combined with productId: such a request is rejected with 400 (see the
-        combinedFilters example of the BadRequest response).
+        Only the orders of this customer. Not combinable with productId. An empty value counts as absent.
       schema:
         type: integer
         format: int64
@@ -554,17 +474,7 @@ components:
       in: query
       required: false
       description: >-
-        Only the orders that contain this product, in both paging modes. An id that matches no
-        order (including an unknown product) yields an empty page with totalElements 0, not a
-        404. A value below 1 is rejected with 400 naming productId; a value that is not written in
-        ASCII decimal digits without a plus sign or leading zeros (such as 0x1, +1 or 01) or one
-        outside the 64-bit range is rejected with 400 as well. An empty value or one made only of
-        whitespace (productId= or productId=%20) counts as absent: the orders are not filtered by
-        product. A query string the server cannot parse in full, such as productId=2%G (a % must
-        be followed by two hexadecimal digits) or one holding a nameless value (=1), is rejected
-        with 400, whichever parameter it affects.
-        Cannot be combined with customerId: such a request is rejected with 400 (see the
-        combinedFilters example of the BadRequest response).
+        Only the orders that contain this product. Not combinable with customerId. An empty value counts as absent.
       schema:
         type: integer
         format: int64
@@ -573,46 +483,27 @@ components:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
-        the contract: the only accepted properties are id and description. Any other property,
-        including nested paths such as customer.name, is rejected with 400 (see the
-        unknownSortProperty example of the BadRequest response). Ties are broken by id in the
-        same direction as the last sort property, so page boundaries are deterministic. Repeat
-        the parameter to sort by more than one property; it is the only query parameter that may
-        be repeated.
+        property,asc or property,desc, where property is id or description. Default: id.
       schema:
         type: string
     customerSort:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
-        the contract: the only accepted properties are id and name. Any other property,
-        including nested paths such as orders.description, is rejected with 400 (see the
-        unknownSortProperty example of the BadRequest response). Ties are broken by id in the
-        same direction as the last sort property, so page boundaries are deterministic. Repeat
-        the parameter to sort by more than one property; it is the only query parameter that may
-        be repeated.
+        property,asc or property,desc, where property is id or name. Default: id.
       schema:
         type: string
     productSort:
       name: sort
       in: query
       description: >-
-        Sort criteria in the form property,(asc|desc); defaults to id ascending. This list is
-        the contract: the only accepted properties are id and description. Any other property is
-        rejected with 400 (see the unknownSortProperty example of the BadRequest response). Ties
-        are broken by id in the same direction as the last sort property, so page boundaries are
-        deterministic. Repeat the parameter to sort by more than one property; it is the only
-        query parameter that may be repeated.
+        property,asc or property,desc, where property is id or description. Default: id.
       schema:
         type: string
   headers:
     RequestId:
       description: >-
-        Correlation id of the request, on every response of every operation. The inbound
-        X-Request-Id is echoed when it matches the pattern; otherwise, or when absent, a UUID is
-        generated. Quote it when reporting a problem: it is on every log line of the request.
+        Correlation id of the request: a valid inbound X-Request-Id, or a new UUID.
       required: true
       schema:
         type: string
@@ -620,24 +511,21 @@ components:
         example: 7f3c2a1e-9b4d-4c6e-8a2f-1d5e6f7a8b9c
     Location:
       description: >-
-        The path of the created resource (/order/{id}, /products/{id} or /customer/{id}),
-        relative to the server that answered so that a gateway rewriting the host stays correct
+        Path of the created resource.
       required: true
       schema:
         type: string
         example: /order/10001
     RetryAfter:
       description: >-
-        Seconds after which the request may be retried; sent with every 503, and with the 409 of
-        a request whose Idempotency-Key is still being processed (always 1 there)
+        Seconds to wait before retrying.
       required: true
       schema:
         type: string
         example: '5'
     IdempotentReplayed:
       description: >-
-        Present, with the value true, on a 201 that replays the stored response of the earlier
-        request with the same Idempotency-Key; absent when this request created the resource
+        true when this 201 replays an earlier request with the same Idempotency-Key.
       required: false
       schema:
         type: string
@@ -645,15 +533,13 @@ components:
           - 'true'
     ETag:
       description: >-
-        Weak validator of the response body (W/"..."), on every 200 and 304 of a GET; send it
-        back in If-None-Match to revalidate. Weak so that the body can still be compressed.
+        Weak validator of the body; send it back in If-None-Match.
       required: true
       schema:
         type: string
     CacheControl:
       description: >-
-        Always no-cache, on every 200 and 304 of a GET: the response may be stored but must be
-        revalidated with If-None-Match before it is reused.
+        Always no-cache: revalidate with If-None-Match before reusing the response.
       required: true
       schema:
         type: string
@@ -661,8 +547,7 @@ components:
   responses:
     NotModified:
       description: >-
-        The representation has not changed since the ETag given in If-None-Match; the body is
-        empty and the ETag is repeated
+        Unchanged since the ETag in If-None-Match; the body is empty.
       headers:
         ETag:
           $ref: '#/components/headers/ETag'
@@ -672,10 +557,7 @@ components:
           $ref: '#/components/headers/RequestId'
     BadRequest:
       description: >-
-        The request is malformed, has a query string that cannot be parsed in full, fails
-        validation, repeats a query parameter other than sort, sorts by a property outside the
-        documented list, combines after with page or sort, combines customerId with productId, or
-        carries an Idempotency-Key outside its pattern
+        The request is invalid; code says why and errors names the fields.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -722,8 +604,7 @@ components:
                 code: invalid_idempotency_key
     NotFound:
       description: >-
-        The referenced resource does not exist: the id in the path, or the customer or a
-        product named in a POST /order body (the detail names the lowest missing product id)
+        The id in the path, or a customer or product named in the body, does not exist.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -761,10 +642,7 @@ components:
                 code: not_found
     NotAcceptable:
       description: >-
-        The Accept header admits neither application/json nor application/problem+json, the
-        media types every operation produces. The request was not processed: the 406 is
-        decided before the parameters are validated or the body is read, so a POST created
-        nothing. An Accept that also admits */*, as a browser's does, is served JSON.
+        The Accept header admits neither application/json nor application/problem+json.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -784,17 +662,13 @@ components:
                 code: not_acceptable
     Conflict:
       description: >-
-        Either the write conflicts with existing data (a database constraint rejected it; code
-        conflict), or a request with the same Idempotency-Key is still being processed (code
-        idempotency_request_in_progress, with Retry-After: 1; repeat the request after that delay
-        to receive its stored response); the body is a problem detail without internal details
+        A database constraint rejected the write (conflict), or the first request with this Idempotency-Key is still running (idempotency_request_in_progress).
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
         Retry-After:
           description: >-
-            Sent with the code idempotency_request_in_progress only, always 1; absent with the
-            code conflict
+            Sent with idempotency_request_in_progress only; always 1.
           required: false
           schema:
             type: string
@@ -824,8 +698,7 @@ components:
                 code: idempotency_request_in_progress
     UnprocessableEntity:
       description: >-
-        The Idempotency-Key was already used, within its lifetime, for a request with another path
-        or body; a key identifies one request, so a new request needs a new key
+        The Idempotency-Key was already used for a different request.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -845,10 +718,7 @@ components:
                 code: idempotency_key_reused
     PayloadTooLarge:
       description: >-
-        The application/json request body exceeds the configured bound (65536 bytes by default,
-        REQUEST_MAX_BODY_BYTES), judged by the declared Content-Length before any byte is read or
-        by the bytes counted while a chunked body is read; the connection is closed after the
-        response
+        The JSON body is larger than 64 KiB (REQUEST_MAX_BODY_BYTES).
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -865,10 +735,7 @@ components:
             code: payload_too_large
     UnsupportedMediaType:
       description: >-
-        The Content-Type is missing or is not application/json (for example a URL-encoded or
-        multipart form, text or a JSON-based type such as application/vnd.api+json), so the
-        request was rejected when it was mapped and its body was not read; the Accept header names
-        application/json
+        The Content-Type is missing or is not application/json.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -885,8 +752,7 @@ components:
             code: unsupported_media_type
     ServerError:
       description: >-
-        An unexpected failure; the body is a problem detail without internal details (no
-        detail property, no stack trace)
+        An unexpected failure; no internal details are returned.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -902,19 +768,7 @@ components:
             code: internal_error
     ServiceUnavailable:
       description: >-
-        The database cannot serve the request; retry after the Retry-After delay. The code
-        service_unavailable means that no database connection could be obtained (the pool's
-        connection-timeout of 5 s elapsed, or the database is unreachable), that the connection
-        was lost during the request, including a database that sent nothing for the socket
-        timeout (15 s by default), or that the transaction timeout (15 s by default) had expired
-        before a read by id or a POST's insert; a POST whose session the database terminates
-        while its insert is committed, as a database restart does, is answered with a 500
-        instead. database_timeout means that a statement was cancelled, normally at the
-        statement timeout (10 s by default) or at the deadline of the transaction timeout, or
-        that a query came after that deadline. On a POST the write may or may not have been
-        applied; a POST sent with an Idempotency-Key can be repeated with the same key and body,
-        and the repeat replays the stored response when the first attempt was committed and runs
-        the request afresh when it was not
+        The database is unavailable or did not answer in time; retry after Retry-After.
       headers:
         X-Request-Id:
           $ref: '#/components/headers/RequestId'
@@ -966,31 +820,7 @@ components:
         code:
           type: string
           description: >-
-            Stable identity of the problem. validation_failed: a body field or a query parameter
-            breaks a constraint, or a body value has the wrong JSON type or lies beyond the
-            64-bit range (errors names each). invalid_parameter: a path or query parameter that
-            cannot be converted (GET /order/abc, page=abc), a query string that cannot be parsed
-            in full (customerId=1%), or a query parameter other than sort that is repeated (errors
-            names it). unknown_property: the body carries a property the request does not define
-            (errors names it). malformed_body: the body is not one JSON
-            object that can be read (malformed JSON, another JSON value, a repeated property,
-            content after the object). invalid_sort: a sort property outside the documented
-            list. invalid_cursor: after combined with page or sort (see the after parameter).
-            conflicting_filters: customerId combined with productId. not_found: the resource, or
-            a customer or product named in the body, does not exist. conflict: the write
-            conflicts with existing data. payload_too_large, unsupported_media_type,
-            not_acceptable and method_not_allowed: the conditions their statuses name.
-            service_unavailable: no database connection could be obtained, the connection was
-            lost during the request (a POST whose session the database terminates while its
-            insert is committed is an internal_error instead), or the transaction's deadline had
-            passed before a read by id or a POST's insert. database_timeout: a database
-            statement was cancelled, or a query came after the transaction's deadline.
-            invalid_idempotency_key: the Idempotency-Key header is outside its pattern.
-            idempotency_key_reused: the Idempotency-Key was already used for a request with
-            another path or body. idempotency_request_in_progress: a request with the same
-            Idempotency-Key is still being processed; retry after the Retry-After delay.
-            internal_error: an unexpected failure. A client must accept a code that is not
-            listed here (see the description of the API).
+            Stable identity of the problem: branch on code, not on detail, and handle an unknown code by its status.
           enum:
             - validation_failed
             - invalid_parameter
@@ -1014,9 +844,7 @@ components:
         errors:
           type: array
           description: >-
-            Present with the codes validation_failed and unknown_property, and with the
-            invalid_parameter of a repeated query parameter, naming each field by its path
-            (productIds[0]) or the query parameter by its name
+            The offending fields, each with a message.
           items:
             type: object
             properties:
@@ -1044,8 +872,7 @@ components:
           minLength: 1
           maxLength: 255
           description: >-
-            Single-line text that is not blank: no control character (U+0000 to U+001F or
-            U+007F, so no tab or line break) and at least one character that is not whitespace
+            Non-blank, single-line text.
           pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
         customerId:
           type: integer
@@ -1056,8 +883,7 @@ components:
           maxItems: 100
           uniqueItems: true
           description: >-
-            Ids of the products contained in the order, between 1 and 100 of them, without
-            repetition; every id must exist
+            1 to 100 distinct product ids; every one must exist.
           items:
             type: integer
             format: int64
@@ -1075,8 +901,7 @@ components:
           minLength: 1
           maxLength: 255
           description: >-
-            Single-line text that is not blank: no control character (U+0000 to U+001F or
-            U+007F, so no tab or line break) and at least one character that is not whitespace
+            Non-blank, single-line text.
           pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
     Product:
       title: Product
@@ -1095,16 +920,14 @@ components:
         orders:
           type: array
           description: >-
-            Ids of the newest orders that contain this product (the highest ids), at most the
-            configured limit (20 by default), in ascending id order; the full list is
-            GET /order?productId={id}
+            Ids of the newest orders that contain this product (20 by default), ascending. GET /order?productId= lists them all.
           items:
             type: integer
             format: int64
         orderCount:
           type: integer
           format: int64
-          description: Total number of orders that contain this product, listed or not
+          description: Number of orders that contain this product.
     ProductPage:
       title: ProductPage
       allOf:
@@ -1139,8 +962,7 @@ components:
           minLength: 1
           maxLength: 255
           description: >-
-            Single-line text that is not blank: no control character (U+0000 to U+001F or
-            U+007F, so no tab or line break) and at least one character that is not whitespace
+            Non-blank, single-line text.
           pattern: '^[^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F][^\u0000-\u001F\u007F]*$'
     Order:
       title: Order
@@ -1170,10 +992,7 @@ components:
         products:
           type: array
           description: >-
-            The products contained in the order, ascending by id. Every order created through
-            this API has at least one. An order that predates changeset 5, which added products,
-            has none in a database migrated without the sample data and is returned with an
-            empty list, which is why the schema declares no minItems.
+            The products in the order, ascending by id. Orders created before products existed may have none.
           items:
             type: object
             required:
@@ -1202,8 +1021,7 @@ components:
         orders:
           type: array
           description: >-
-            The newest orders of the customer (the highest ids), at most the configured limit
-            (20 by default), in ascending id order; the full list is GET /order?customerId={id}
+            The customer's newest orders (20 by default), ascending. GET /order?customerId= lists them all.
           items:
             type: object
             required:
@@ -1218,7 +1036,7 @@ components:
         orderCount:
           type: integer
           format: int64
-          description: Total number of orders of the customer, listed or not
+          description: Number of the customer's orders.
     OrderPage:
       title: OrderPage
       allOf:
@@ -1262,7 +1080,7 @@ components:
     Page:
       title: Page
       type: object
-      description: Offset page envelope, returned when after is absent
+      description: Offset page, returned when after is absent.
       required:
         - content
         - page
@@ -1286,7 +1104,7 @@ components:
     CursorPage:
       title: CursorPage
       type: object
-      description: Cursor page envelope, returned when after is present; it carries no totals
+      description: Cursor page, returned when after is set; it has no totals.
       required:
         - content
         - size
@@ -1297,14 +1115,13 @@ components:
           items: {}
         size:
           type: integer
-          description: The requested page size; the content may be shorter on the last page
+          description: The requested page size.
         nextCursor:
           type: integer
           format: int64
           nullable: true
           description: >-
-            The id of the last element when more elements exist, to pass as after on the next
-            request; null when the walk is complete
+            Pass as after to get the next page; null at the end.
 tags:
   - name: store
     description: store operations
