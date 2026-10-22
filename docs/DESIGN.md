@@ -265,8 +265,8 @@ Real requests cover these statuses:
 | 503 | A `GET /order?size=5` whose statement is cancelled, or whose session is terminated, while it waits for a lock a second connection holds on `order` (`TableLock`) |
 
 What real requests cannot reach is covered another way:
-* 405: it cannot be declared per operation, because the method is absent from the contract, so
-  `info.description` states it and the smoke test sends `DELETE /order/1`.
+* 405: it cannot be declared per operation, because the method is absent from the contract; the
+  Errors table below lists it, and the smoke test sends `DELETE /order/1`.
 * The constraint 409, the 500 and the 503 bodies: validated synthetically against `POST /order` and
   `GET /order`. Nothing the check sends reaches the constraint 409 or a 500 (there are no unique
   constraints; `DatabaseFailureIT` produces the one real 500, a `POST` whose session is terminated

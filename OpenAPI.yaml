@@ -2,33 +2,7 @@ openapi: 3.0.0
 info:
   title: store
   version: '3.1.0'
-  description: >-
-    A simple store. Every error handled by the service's Spring MVC layer on the API port is an
-    RFC 7807 problem detail (application/problem+json) with the statuses declared per operation
-    below. A method that is not listed on a path (for example DELETE /order/1, which the
-    pipeline's smoke test sends) answers a 405 problem detail with the code method_not_allowed,
-    whatever body it carries, which is not read; OpenAPI cannot declare a response for a method
-    the contract does not define, so that case is stated here instead. A request the HTTP server
-    rejects before that layer (a request line and headers over 8 KB, or a path holding %00, %2F,
-    a % not followed by two hexadecimal digits or bytes that are not UTF-8) gets a text/html 400
-    without X-Request-Id. Every problem detail
-    carries a code, the stable identity of the problem
-    (the values are listed in the ProblemDetail schema; type stays about:blank): branch on the
-    code, never on the detail text, which may change. A client must accept a code it does not
-    know and handle it by the status, because adding a code is a minor version of this contract;
-    removing or renaming one is a major version. The version is that of the contract itself,
-    independent of the version of the service that implements it; 2.0.0 is incompatible with
-    the delivered 1.0, 2.1.0 adds the code database_timeout, 3.0.0 bounds page at 21474836,
-    3.1.0 adds the optional Idempotency-Key request header and the Idempotent-Replayed response
-    header on the three POSTs with the codes invalid_idempotency_key, idempotency_key_reused and
-    idempotency_request_in_progress (a 3.0.0 client that sends no key needs no change), and
-    docs/ASSUMPTIONS.md ("Contract version and client migration") lists what a client of an
-    earlier version has to change.
-  contact:
-    name: SecuritEase Dev
-    url: 'https://www.securitease.com'
-    email: internal@securitease.com
-  termsOfService: 'https://www.securitease.com'
+  description: A simple store of customers, the orders they place and the products in each order.
   license:
     name: Apache 2.0
     url: 'https://www.apache.org/licenses/LICENSE-2.0.html'
