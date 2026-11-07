@@ -34,7 +34,7 @@ spotless {
 ext {
     mapstructVersion = '1.6.3'
     cucumberVersion = '7.21.1'
-    swaggerUiVersion = '5.34.0'
+    swaggerUiVersion = '5.34.1'
     set('tomcat.version', '10.1.61')
     set('jackson-bom.version', '2.21.8')
     set('postgresql.version', '42.7.14')
