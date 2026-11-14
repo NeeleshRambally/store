@@ -9,7 +9,7 @@ COPY OpenAPI.yaml ./
 RUN ./gradlew --no-daemon bootJar -x test \
     && java -Djarmode=tools -jar build/libs/store-*[!plain].jar extract --layers --launcher --destination extracted
 
-FROM gcr.io/distroless/java17-debian13:nonroot@sha256:9bd5eb41f0a77adcbc10ff1c7ddcfddeada1796ca0dc827fe289269bd1339284
+FROM gcr.io/distroless/java17-debian13:nonroot@sha256:b0719fc18858c53530b7301c25fa410075f0fdc442a78d3ee1786d1984075404
 WORKDIR /app
 COPY --from=build /workspace/extracted/dependencies/ ./
 COPY --from=build /workspace/extracted/spring-boot-loader/ ./
